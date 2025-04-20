@@ -9,8 +9,8 @@
   <vendor_url>https://example.com/linuxherd</vendor_url> <icon_name>utilities-terminal</icon_name>
 
   <action id="com.linuxherd.pkexec.manage_service">
-    <description>Manage system services and internal Nginx for LinuxHerd</description>
-    <message>Authentication is required to start/stop system services (like Dnsmasq), start/stop/reload the internal Nginx server, or manage Nginx site configurations.</message>
+    <description>Manage system services and hosts file for LinuxHerd</description>
+    <message>Authentication is required to manage system services (like Dnsmasq) or modify the /etc/hosts file for local domain resolution.</message>
 
     <defaults>
       <allow_any>no</allow_any>

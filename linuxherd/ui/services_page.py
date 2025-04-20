@@ -1,107 +1,99 @@
 # linuxherd/ui/services_page.py
-# Contains UI elements for managing services (Internal Nginx, System Dnsmasq).
-# Current time is Sunday, April 20, 2025 at 2:46:47 PM +04.
+# Removed non-existent method call, added set_nginx_button_state slot.
+# Current time is Sunday, April 20, 2025 at 6:15:45 PM +04.
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                               QPushButton, QFrame, QSpacerItem, QSizePolicy,
-                               QApplication) # QApplication for processEvents
+                               QPushButton, QFrame, QApplication)
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QFont
 
 class ServicesPage(QWidget):
-    # Signals to notify MainWindow about button clicks
-    startNginxClicked = Signal()
-    stopNginxClicked = Signal()
-    manageDnsmasqClicked = Signal(str) # Pass suggested action ('start' or 'stop')
+    nginxActionTriggered = Signal(str)
+    manageDnsmasqClicked = Signal(str)
 
     def __init__(self, parent=None):
-        super().__init__(parent) # Changed parent=None to parent
+        super().__init__(parent)
+        self._main_window = parent
 
         main_layout = QVBoxLayout(self)
-        controls_layout = QHBoxLayout() # Layout for service controls side-by-side
+        controls_layout = QHBoxLayout()
 
         # --- Nginx Control Area ---
-        nginx_group = QFrame() # Use QFrame for grouping visually
-        nginx_group.setFrameShape(QFrame.StyledPanel)
+        nginx_group = QFrame(); nginx_group.setFrameShape(QFrame.StyledPanel)
         nginx_layout = QVBoxLayout(nginx_group)
-
-        nginx_title = QLabel("Internal Nginx Control:")
-        nginx_title.setFont(QFont("Sans Serif", 10, QFont.Bold))
-        self.start_nginx_button = QPushButton("Start Internal Nginx")
-        self.stop_nginx_button = QPushButton("Stop Internal Nginx")
-
-        nginx_layout.addWidget(nginx_title)
-        nginx_layout.addWidget(self.start_nginx_button)
-        nginx_layout.addWidget(self.stop_nginx_button)
-        nginx_layout.addStretch() # Push controls up
+        nginx_title = QLabel("Internal Nginx:"); nginx_title.setFont(QFont("Sans Serif", 10, QFont.Bold))
+        self.nginx_status_label = QLabel("Status: Unknown"); self.nginx_status_label.setFont(QFont("Sans Serif", 10))
+        self.nginx_status_label.setStyleSheet("padding: 5px; border: 1px solid lightgrey; border-radius: 3px;")
+        self.nginx_manage_button = QPushButton("Start Nginx"); self.nginx_manage_button.setEnabled(False)
+        nginx_layout.addWidget(nginx_title); nginx_layout.addWidget(self.nginx_status_label)
+        nginx_layout.addWidget(self.nginx_manage_button); nginx_layout.addStretch()
 
         # --- Dnsmasq Status Area ---
-        dnsmasq_group = QFrame()
-        dnsmasq_group.setFrameShape(QFrame.StyledPanel)
+        dnsmasq_group = QFrame(); dnsmasq_group.setFrameShape(QFrame.StyledPanel)
         dnsmasq_layout = QVBoxLayout(dnsmasq_group)
-
-        dnsmasq_title = QLabel("System Dnsmasq Status:")
-        dnsmasq_title.setFont(QFont("Sans Serif", 10, QFont.Bold))
-        self.dnsmasq_status_label = QLabel("Status: Unknown")
-        self.dnsmasq_status_label.setFont(QFont("Sans Serif", 10))
+        dnsmasq_title = QLabel("System Dnsmasq:"); dnsmasq_title.setFont(QFont("Sans Serif", 10, QFont.Bold))
+        self.dnsmasq_status_label = QLabel("Status: Unknown"); self.dnsmasq_status_label.setFont(QFont("Sans Serif", 10))
         self.dnsmasq_status_label.setStyleSheet("padding: 5px; border: 1px solid lightgrey; border-radius: 3px;")
-        self.dnsmasq_manage_button = QPushButton("Check Dnsmasq") # Initial text
-
-        dnsmasq_layout.addWidget(dnsmasq_title)
-        dnsmasq_layout.addWidget(self.dnsmasq_status_label)
-        dnsmasq_layout.addWidget(self.dnsmasq_manage_button)
-        dnsmasq_layout.addStretch() # Push controls up
+        self.dnsmasq_manage_button = QPushButton("Check Status")
+        dnsmasq_layout.addWidget(dnsmasq_title); dnsmasq_layout.addWidget(self.dnsmasq_status_label)
+        dnsmasq_layout.addWidget(self.dnsmasq_manage_button); dnsmasq_layout.addStretch()
 
         # --- Add groups to controls layout ---
-        controls_layout.addWidget(nginx_group)
-        controls_layout.addWidget(dnsmasq_group)
-        controls_layout.addStretch() # Push groups left
-
-        main_layout.addLayout(controls_layout)
-        main_layout.addStretch() # Push controls section up
+        controls_layout.addWidget(nginx_group); controls_layout.addWidget(dnsmasq_group)
+        controls_layout.addStretch(); main_layout.addLayout(controls_layout); main_layout.addStretch()
 
         # --- Connect internal buttons to emit signals ---
-        self.start_nginx_button.clicked.connect(self.startNginxClicked.emit)
-        self.stop_nginx_button.clicked.connect(self.stopNginxClicked.emit)
+        self.nginx_manage_button.clicked.connect(self.on_nginx_manage_button_internal_click)
         self.dnsmasq_manage_button.clicked.connect(self.on_dnsmasq_button_internal_click)
 
+    # --- Internal Click Handlers ---
+    def on_nginx_manage_button_internal_click(self):
+        current_text = self.nginx_manage_button.text().lower()
+        action = "start" if "stop" not in current_text else "stop"
+        # --- REMOVED non-existent method call below ---
+        # self.set_nginx_controls_enabled(False, "Working...") # <<< REMOVE THIS LINE
+        self.nginxActionTriggered.emit(action) # Just emit the signal
+
     def on_dnsmasq_button_internal_click(self):
-        """Determines suggested action based on current button text and emits signal."""
-        # Infer action from button text (simplistic approach)
         current_text = self.dnsmasq_manage_button.text().lower()
-        action = "start" # Default action if state unknown or inactive
-        if "stop" in current_text:
-            action = "stop"
-        self.manageDnsmasqClicked.emit(action) # Emit signal with suggested action
+        action = "start" if "stop" not in current_text else "stop"
+        # self.set_dnsmasq_button_state("Working...", False) # Let MainWindow handle disabling
+        self.manageDnsmasqClicked.emit(action) # Just emit the signal
 
+    # --- Public Slots for MainWindow to Update This Page's UI ---
+    @Slot(str, str)
+    def update_nginx_display(self, status, style_sheet):
+        status_text = status.capitalize(); button_text = "Status?"; button_enabled = False
+        if status == "running": button_text = "Stop Nginx"; button_enabled = True
+        elif status == "stopped": button_text = "Start Nginx"; button_enabled = True
+        self.nginx_status_label.setText(f"Status: {status_text}")
+        base_style = "padding: 5px; border: 1px solid lightgrey; border-radius: 3px;"
+        self.nginx_status_label.setStyleSheet(f"{base_style} {style_sheet}")
+        self.nginx_manage_button.setText(button_text)
+        self.nginx_manage_button.setEnabled(button_enabled)
 
-    # --- Public Slots for MainWindow to Update UI ---
-
-    @Slot(bool)
-    def set_nginx_controls_enabled(self, enabled):
-        """Enable/disable Nginx control buttons."""
-        self.start_nginx_button.setEnabled(enabled)
-        self.stop_nginx_button.setEnabled(enabled)
+    # NEW Slot specifically for enabling/disabling/setting text <<< ADD THIS
+    @Slot(bool, str)
+    def set_nginx_button_state(self, enabled, text=None):
+        """Allows MainWindow to directly set button state, optionally override text."""
+        self.nginx_manage_button.setEnabled(enabled)
+        if text is not None:
+            self.nginx_manage_button.setText(text)
 
     @Slot(str, str)
-    def update_dnsmasq_status(self, status_text, style_sheet):
-        """Updates the Dnsmasq status label text and style."""
+    def update_dnsmasq_status(self, status_text, style_sheet_extra):
         self.dnsmasq_status_label.setText(f"Status: {status_text}")
-        # Apply base style plus status-specific background
         base_style = "padding: 5px; border: 1px solid lightgrey; border-radius: 3px;"
-        self.dnsmasq_status_label.setStyleSheet(f"{base_style} {style_sheet}")
+        self.dnsmasq_status_label.setStyleSheet(f"{base_style} {style_sheet_extra}")
 
     @Slot(str, bool)
     def set_dnsmasq_button_state(self, text, enabled):
-        """Updates the Dnsmasq manage button text and enabled state."""
         self.dnsmasq_manage_button.setText(text)
         self.dnsmasq_manage_button.setEnabled(enabled)
 
     def refresh_data(self):
-        """Placeholder for refresh logic if needed when page becomes visible."""
-        # Called by MainWindow when page is shown
-        print("ServicesPage: Refresh data triggered (e.g., re-check Dnsmasq status)")
-        # We need to ask MainWindow to perform the check
-        if hasattr(self.parent(), 'refresh_dnsmasq_status_on_page'):
-             self.parent().refresh_dnsmasq_status_on_page()
-        # Nginx status isn't checked automatically yet
+        print("ServicesPage: Refresh data triggered.")
+        if self._main_window and hasattr(self._main_window, 'refresh_nginx_status_on_page'):
+             self._main_window.refresh_nginx_status_on_page()
+        if self._main_window and hasattr(self._main_window, 'refresh_dnsmasq_status_on_page'):
+             self._main_window.refresh_dnsmasq_status_on_page()

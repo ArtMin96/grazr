@@ -80,12 +80,19 @@ def check_service_status(service_name):
 
 
 # --- Function to run helper script via pkexec (Formerly manage_service) ---
-def run_root_helper_action(action, service_name=None, site_name=None,
-                           temp_config_path=None, nginx_binary_path=None,
-                           nginx_config_path=None, nginx_pid_path=None):
+def run_root_helper_action(action, service_name=None, domain=None, ip=None): # <<< Added domain, ip
     """
     Uses pkexec to run the root_helper.py script for various privileged actions.
-    MODIFIED: Does NOT capture stdout/stderr from pkexec to avoid potential hangs.
+    MODIFIED: Does NOT capture stdout/stderr. Added domain/ip args.
+
+    Args:
+        action (str): The action to perform (must be in root_helper.py's ALLOWED_ACTIONS).
+        service_name (str, optional): The systemd service name (e.g., "dnsmasq.service").
+        domain (str, optional): Domain name for hosts file actions.
+        ip (str, optional): IP address for add_host_entry action.
+
+    Returns:
+        A tuple: (success: bool, message: str)
     """
     helper_script_path = "/usr/local/bin/linuxherd_root_helper.py"
     polkit_action_id = "com.linuxherd.pkexec.manage_service"
@@ -93,17 +100,15 @@ def run_root_helper_action(action, service_name=None, site_name=None,
 
     if not pkexec_path: return False, "Error: 'pkexec' command not found."
     if not (os.path.exists(helper_script_path) and os.access(helper_script_path, os.X_OK)):
-         return False, f"Error: Helper script not found or not executable at {helper_script_path}."
+         return False, f"Error: Helper script missing or not executable: {helper_script_path}."
 
-    command = [
-        pkexec_path, "--disable-internal-agent", helper_script_path, "--action", action
-    ]
+    # Build the command list dynamically
+    command = [pkexec_path, "--disable-internal-agent", helper_script_path, "--action", action]
+
+    # Add optional arguments if provided
     if service_name: command.extend(["--service", service_name])
-    if site_name: command.extend(["--site-name", site_name])
-    if temp_config_path: command.extend(["--temp-config-path", temp_config_path])
-    if nginx_binary_path: command.extend(["--nginx-binary-path", nginx_binary_path])
-    if nginx_config_path: command.extend(["--nginx-config-path", nginx_config_path])
-    if nginx_pid_path: command.extend(["--nginx-pid-path", nginx_pid_path])
+    if domain: command.extend(["--domain", domain]) # <<< Added
+    if ip: command.extend(["--ip", ip])             # <<< Added
 
     print(f"Attempting to run via pkexec (no output capture): {shlex.join(command)}")
 
@@ -111,22 +116,22 @@ def run_root_helper_action(action, service_name=None, site_name=None,
         # Run pkexec, redirecting its stdout/stderr to null, DON'T capture
         result = subprocess.run(
             command,
-            stdout=subprocess.DEVNULL, # <<< Redirect stdout
-            stderr=subprocess.DEVNULL, # <<< Redirect stderr
-            check=False
+            stdout=subprocess.DEVNULL, # Redirect stdout
+            stderr=subprocess.DEVNULL, # Redirect stderr
+            check=False # Don't raise exception on non-zero exit
         )
 
-        print(f"pkexec return code: {result.returncode}") # Log only the return code
+        print(f"pkexec return code: {result.returncode}") # Log the return code
 
-        # Check if pkexec itself exited successfully (code 0)
-        # This implies the helper script likely also exited 0 (unless pkexec masks it)
         if result.returncode == 0:
-            # Cannot return helper's specific message anymore
+            # Cannot get specific message from helper's stdout anymore
             return True, f"Privileged action '{action}' executed (return code 0)."
+        # Handle pkexec authentication failure codes specifically if possible
+        elif result.returncode in [126, 127]: # Common codes for auth failure/cancel
+             return False, f"Authentication failed or was cancelled for action '{action}'."
         else:
-            # pkexec failed (e.g., auth cancelled, policy error, helper exited non-zero)
-            # Cannot get specific error message from helper anymore
-            return False, f"Failed to execute privileged action '{action}'. pkexec returned code {result.returncode}."
+             # Other non-zero codes indicate failure in pkexec or the helper script
+             return False, f"Failed to execute privileged action '{action}'. pkexec returned code {result.returncode}."
 
     except FileNotFoundError:
         return False, f"Error: '{pkexec_path}' command failed (FileNotFoundError)."

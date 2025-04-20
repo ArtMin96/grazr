@@ -1,66 +1,43 @@
 #!/usr/bin/env python3
 # linuxherd/core/root_helper.py
 # Privileged helper script executed by pkexec.
-# Includes handlers for systemd services and internal Nginx process management.
-# Current time is Sunday, April 20, 2025 at 1:55:42 PM +04 (Gyumri, Shirak Province, Armenia).
+# Manages systemd services (Dnsmasq) and /etc/hosts entries.
+# Current time is Sunday, April 20, 2025 at 7:44:53 PM +04 (Gyumri, Shirak Province, Armenia).
 
 import sys
 import subprocess
 import argparse
-import shlex # Used for printing commands safely
+import shlex
 import os
-import shutil # Not strictly needed now, but maybe for future file ops
-import signal # For sending signals (TERM, KILL, HUP)
+import signal
 import time
-from pathlib import Path # For path manipulation and validation
+import tempfile # For atomic host file writing
+from pathlib import Path
+import re # For host file parsing
 
 # --- Configuration ---
-SYSTEMCTL_PATH = "/usr/bin/systemctl" # Standard location
-# Internal paths are now passed via arguments, no need for constants here
+SYSTEMCTL_PATH = "/usr/bin/systemctl"
+HOSTS_FILE_PATH = "/etc/hosts"
+# Marker used to identify lines added by this tool in /etc/hosts
+HOSTS_MARKER = "# Added by LinuxHerd"
 # --- End Configuration ---
 
 
 # --- Security Configuration ---
-# Define exactly which services and actions this script is allowed to manage.
 ALLOWED_SERVICES = [
-    # Systemd services we might manage
-    "nginx.service",    # If reverting to Path A, or for conflict checks
     "dnsmasq.service",
     # Add other system services if needed
 ]
 ALLOWED_ACTIONS = [
     # systemd actions
-    "start",
-    "stop",
-    "restart",
-    "reload",
-    "enable",
-    "disable",
-    # Internal Nginx process management actions
-    "start_internal_nginx",
-    "stop_internal_nginx",
-    "reload_internal_nginx",
-    # Add other actions like internal PHP start/stop later
+    "start", "stop", "restart", "reload", "enable", "disable",
+    # Hosts file actions
+    "add_host_entry",
+    "remove_host_entry",
 ]
 # --- End Security Configuration ---
 
 # --- Helper Functions ---
-
-def validate_site_name(site_name):
-    """Basic validation for site names to prevent path traversal."""
-    # Allow alphanumeric, hyphen, underscore, dot
-    allowed_chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.')
-    if not site_name or not all(c in allowed_chars for c in site_name):
-        log_error(f"Invalid site_name format '{site_name}'.")
-        return False
-    if ".." in site_name or site_name.startswith("/"):
-         log_error(f"Invalid site_name format '{site_name}' (contains '..' or starts with '/').")
-         return False
-    if len(site_name) > 100: # Prevent overly long names
-        log_error(f"site_name '{site_name}' is too long.")
-        return False
-    return True
-
 def log_error(message):
     """Helper to print errors to stderr."""
     print(f"Helper Error: {message}", file=sys.stderr)
@@ -68,278 +45,174 @@ def log_error(message):
 def log_info(message):
     """Helper to print info messages (to stderr for pkexec logs)."""
     print(f"Helper Info: {message}", file=sys.stderr)
+# --- End Helper Functions ---
 
-def read_pid_file(pid_file_path_str):
-    """Reads PID from a file."""
-    if not pid_file_path_str: return None
-    pid_file = Path(pid_file_path_str)
-    # Check parent dir existence? Maybe not, let read fail.
-    if not pid_file.is_file():
-        log_info(f"PID file '{pid_file}' not found.")
-        return None
-    try:
-        pid = int(pid_file.read_text().strip())
-        if pid <= 0:
-             log_error(f"Invalid PID value {pid} found in '{pid_file}'.")
-             return None
-        log_info(f"Read PID {pid} from '{pid_file}'.")
-        return pid
-    except (ValueError, IOError) as e:
-        log_error(f"Failed to read PID from '{pid_file}': {e}")
-        return None
-    except Exception as e:
-        log_error(f"Unexpected error reading PID file '{pid_file}': {e}")
-        return None
-
-
-def check_pid_running(pid):
-    """Checks if a process with the given PID exists using signal 0."""
-    if pid is None or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0) # Signal 0 doesn't kill, just checks existence/permissions
-    except OSError as e:
-        # ESRCH means no such process
-        # EPERM means process exists but we lack permission (shouldn't happen as root)
-        return False
-    else:
-        return True
 
 # --- Action Handlers ---
-
 def handle_systemctl_action(service, action):
-    """Handles systemd service actions (e.g., for Dnsmasq)."""
+    """Handles systemd service actions."""
     if service not in ALLOWED_SERVICES:
-        log_error(f"Service '{service}' is not in the allowed list for systemctl.")
+        log_error(f"Service '{service}' is not allowed for systemctl.")
         sys.exit(10)
-    if action not in ["start", "stop", "restart", "reload", "enable", "disable"]:
-        log_error(f"Action '{action}' is not a valid systemctl action for this handler.")
-        sys.exit(11)
+    # Action validity checked by argparse choices
 
     command = [SYSTEMCTL_PATH, action, service]
-    log_info(f"Executing systemctl command: {shlex.join(command)}")
+    log_info(f"Executing: {shlex.join(command)}")
     try:
-        # Run systemctl command
         result = subprocess.run(command, capture_output=True, text=True, check=True)
-        log_info(f"Successfully executed: {shlex.join(command)}")
-        if result.stdout: log_info(f"systemctl stdout:\n{result.stdout.strip()}")
-        if result.stderr: log_info(f"systemctl stderr:\n{result.stderr.strip()}")
-        sys.exit(0) # Success
+        log_info(f"Success: {shlex.join(command)}")
+        # Return success message via stdout for the application log
+        print(f"Helper: Action '{action}' on service '{service}' successful.")
+        sys.exit(0)
     except FileNotFoundError:
-        log_error(f"systemctl command not found at {SYSTEMCTL_PATH}.")
+        log_error(f"Command not found: {SYSTEMCTL_PATH}.")
         sys.exit(3)
     except subprocess.CalledProcessError as e:
-        log_error(f"Command '{shlex.join(command)}' failed with code {e.returncode}.")
-        if e.stdout: log_error(f"systemctl stdout:\n{e.stdout.strip()}")
+        log_error(f"Command failed (code {e.returncode}): {shlex.join(command)}")
         if e.stderr: log_error(f"systemctl stderr:\n{e.stderr.strip()}")
         sys.exit(e.returncode)
     except Exception as e:
-        log_error(f"An unexpected error occurred during systemctl execution: {e}")
+        log_error(f"Unexpected error during systemctl: {e}")
         sys.exit(4)
 
-# --- NGINX HANDLERS ---
+# --- Hosts File Handlers ---
+def handle_add_host_entry(ip_address, domain_name):
+    """Adds an entry like '127.0.0.1 my-site.test # Added by LinuxHerd' to /etc/hosts."""
+    log_info(f"Attempting to add host entry: {ip_address} {domain_name}")
+    # Basic validation
+    if not domain_name or not ip_address: log_error("Invalid IP or domain."); sys.exit(70)
+    # Rudimentary check for potentially problematic characters in domain
+    if not re.match(r'^[a-zA-Z0-9.\-]+$', domain_name): log_error("Invalid characters in domain."); sys.exit(70)
 
-def handle_nginx_start_action(nginx_binary_path_str, nginx_config_path_str, nginx_pid_path_str):
-    """Starts the internal Nginx process using Popen (non-blocking)."""
-    log_info(f"Attempting to start internal Nginx (using Popen)...")
-    nginx_binary_path = Path(nginx_binary_path_str)
-    nginx_config_path = Path(nginx_config_path_str)
-    nginx_pid_path = Path(nginx_pid_path_str)
-
-    # Perform initial checks
-    if not nginx_binary_path.is_file() or not os.access(nginx_binary_path, os.X_OK):
-        log_error(f"Nginx binary not found or not executable at '{nginx_binary_path}'")
-        sys.exit(40)
-    if not nginx_config_path.is_file():
-        log_error(f"Nginx config file not found at '{nginx_config_path}'")
-        sys.exit(41)
-
-    # Ensure parent directory for PID file exists (create as root if needed)
-    try:
-        nginx_pid_path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-         log_error(f"Could not create run directory '{nginx_pid_path.parent}': {e}")
-         sys.exit(45) # Exit if we can't create run dir
-
-    # Check if already running based on PID file
-    existing_pid = read_pid_file(nginx_pid_path_str)
-    if existing_pid and check_pid_running(existing_pid):
-         log_info(f"Nginx already running with PID {existing_pid} (PID file: '{nginx_pid_path}').")
-         print(f"Helper: Internal Nginx already running (PID {existing_pid}).")
-         sys.exit(0)
-    elif nginx_pid_path.exists():
-         log_info(f"Stale PID file found at '{nginx_pid_path}'. Removing.")
-         try: nginx_pid_path.unlink()
-         except OSError as e:
-             log_error(f"Could not remove stale PID file '{nginx_pid_path}': {e}")
-             sys.exit(42)
-
-    # Command to start Nginx using the specified internal config
-    command = [str(nginx_binary_path), "-c", str(nginx_config_path)]
-    log_info(f"Executing Nginx start command via Popen: {shlex.join(command)}")
+    entry = f"{ip_address}\t{domain_name}\t{HOSTS_MARKER}"
+    host_file = Path(HOSTS_FILE_PATH)
+    temp_path = None # Define outside try
 
     try:
-        # Use Popen to launch Nginx in the background (non-blocking for helper script)
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.DEVNULL, # Redirect Nginx stdout/stderr to null
-            stderr=subprocess.DEVNULL, # Prevents blocking on pipe buffers
-            start_new_session=True # Helps detach Nginx from helper session
-        )
-        log_info(f"Nginx launched via Popen (reported PID {process.pid}, but Nginx manages its own PID file).")
+        # Read existing hosts
+        lines = host_file.read_text(encoding='utf-8').splitlines(keepends=True)
 
-        # Optional: Brief sleep & check if Nginx failed immediately (e.g., config error)
-        time.sleep(0.5)
-        # Check our expected PID file, not the Popen PID which might be the initial loader
-        check_pid = read_pid_file(nginx_pid_path_str)
-        if not check_pid or not check_pid_running(check_pid):
-            log_error("Nginx process did not start correctly or PID file wasn't created/valid shortly after launch.")
-            # Maybe try reading the Nginx error log here? Too complex for now.
-            sys.exit(46) # Exit helper with an error code
+        # Check if entry (IP + Domain combination) already exists, ignoring comments/marker
+        entry_found = False
+        # Regex to find the IP and Domain, ignoring spacing and comments after domain
+        domain_pattern = re.compile(r"^\s*" + re.escape(ip_address) + r"\s+.*?" + re.escape(domain_name) + r"(?:\s+|#|$)")
+        for line in lines:
+            if not line.strip().startswith('#') and domain_pattern.search(line):
+                log_info(f"Entry for {ip_address} {domain_name} seems to already exist:\n{line.strip()}")
+                entry_found = True
+                break
 
-        # If Popen succeeded and PID file check passed, assume launch OK.
-        print("Helper: Internal Nginx start command issued successfully.")
-        sys.exit(0) # Exit helper successfully
+        if not entry_found:
+            log_info("Entry not found, adding new line.")
+            # Ensure newline at the end if missing
+            if lines and not lines[-1].endswith('\n'): lines.append('\n')
+            lines.append(entry + '\n')
 
-    except FileNotFoundError:
-        log_error(f"Nginx binary not found at '{nginx_binary_path}' during execution.")
-        sys.exit(43)
-    except Exception as e:
-        # Catch errors during Popen itself (e.g., permissions on binary)
-        log_error(f"An unexpected error occurred starting Nginx via Popen: {e}")
-        sys.exit(44)
+            # Write back atomically using tempfile in the same directory (/etc)
+            fd, temp_path = tempfile.mkstemp(dir='/etc', prefix='hosts.tmp')
+            with os.fdopen(fd, 'w', encoding='utf-8') as temp_f:
+                 temp_f.writelines(lines)
 
+            # Preserve permissions if possible
+            try:
+                stat_info = host_file.stat()
+                os.chmod(temp_path, stat_info.st_mode)
+                # Chown not strictly needed as we run as root, but good practice if possible
+                # os.chown(temp_path, stat_info.st_uid, stat_info.st_gid)
+            except OSError as e: log_info(f"Could not preserve permissions for hosts file: {e}")
 
-def handle_nginx_stop_action(nginx_pid_path_str, timeout=5):
-    """Stops internal Nginx process using PID file and signals."""
-    log_info(f"Attempting to stop internal Nginx (PID file: {nginx_pid_path_str})...")
-    pid = read_pid_file(nginx_pid_path_str)
-
-    if not pid:
-        log_info("Could not read PID or PID file not found. Assuming Nginx is not running.")
-        print("Helper: Internal Nginx process not found or PID file missing.")
-        sys.exit(0) # Success (already stopped)
-
-    if not check_pid_running(pid):
-        log_info(f"Process with PID {pid} not found. Assuming already stopped.")
-        try: Path(nginx_pid_path_str).unlink(missing_ok=True) # Clean up stale PID file
-        except OSError as e: log_error(f"Could not remove stale PID file '{nginx_pid_path_str}': {e}")
-        print("Helper: Internal Nginx process already stopped.")
-        sys.exit(0) # Success (already stopped)
-
-    # Process found, attempt graceful shutdown (SIGTERM)
-    log_info(f"Sending SIGTERM to Nginx process (PID {pid})...")
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except OSError as e:
-        log_error(f"Failed to send SIGTERM to PID {pid}: {e}. Process might be gone?")
-        # If process is gone, maybe still try to remove PID file and exit success?
-        if not check_pid_running(pid):
-             try: Path(nginx_pid_path_str).unlink(missing_ok=True)
-             except OSError: pass
-             print("Helper: Internal Nginx stopped (process disappeared after failed signal).")
-             sys.exit(0)
-        sys.exit(50) # Exit with error if signal failed and process still exists
-
-    # Wait for termination
-    start_time = time.monotonic()
-    log_info(f"Waiting up to {timeout}s for PID {pid} to terminate...")
-    while (time.monotonic() - start_time) < timeout:
-        if not check_pid_running(pid):
-            log_info(f"Nginx process (PID {pid}) terminated gracefully.")
-            # Nginx should remove PID file on clean exit, but remove just in case
-            try: Path(nginx_pid_path_str).unlink(missing_ok=True)
-            except OSError as e: log_error(f"Could not remove PID file '{nginx_pid_path_str}' after TERM: {e}")
-            print("Helper: Internal Nginx stopped successfully.")
-            sys.exit(0) # Success
-        time.sleep(0.2)
-
-    # Timeout reached, force kill (SIGKILL)
-    log_info(f"Nginx process (PID {pid}) did not exit after {timeout}s. Sending SIGKILL.")
-    try:
-        os.kill(pid, signal.SIGKILL)
-        time.sleep(0.5) # Brief pause after kill
-        if check_pid_running(pid):
-             log_error(f"Nginx process (PID {pid}) failed to terminate even after SIGKILL.")
-             sys.exit(51) # Exit with error
+            os.replace(temp_path, host_file) # Atomic rename
+            temp_path = None # Prevent deletion in finally block
+            log_info("Successfully added entry to hosts file.")
+            print(f"Helper: Added {domain_name} to hosts file.") # Success output
         else:
-             log_info(f"Nginx process (PID {pid}) terminated after SIGKILL.")
-             try: Path(nginx_pid_path_str).unlink(missing_ok=True) # Clean up PID file after kill
-             except OSError as e: log_error(f"Could not remove PID file '{nginx_pid_path_str}' after KILL: {e}")
-             print("Helper: Internal Nginx stopped forcefully.")
-             sys.exit(0) # Consider forceful stop a success state change
-    except OSError as e: # Catch error sending SIGKILL (e.g., process disappeared just before)
-        log_error(f"Failed to send SIGKILL to PID {pid}: {e}")
-        if not check_pid_running(pid): # Check if it's gone now
-            log_info("Process disappeared after failed SIGKILL attempt.")
-            try: Path(nginx_pid_path_str).unlink(missing_ok=True)
-            except OSError: pass
-            print("Helper: Internal Nginx stopped forcefully.")
-            sys.exit(0)
-        sys.exit(52) # Exit with error if signal failed and process still exists
-    except Exception as e:
-        log_error(f"An unexpected error occurred during force kill: {e}")
-        sys.exit(53)
+             print(f"Helper: Entry for {domain_name} already in hosts file.") # Success output
 
-
-def handle_nginx_reload_action(nginx_pid_path_str):
-    """Reloads internal Nginx configuration using SIGHUP."""
-    # --- Start Debug Prints ---
-    print("Helper Debug: Entered handle_nginx_reload_action", file=sys.stderr)
-    log_info(f"Attempting to reload internal Nginx (PID file: {nginx_pid_path_str})...")
-
-    print(f"Helper Debug: Reading PID file '{nginx_pid_path_str}'...", file=sys.stderr)
-    pid = read_pid_file(nginx_pid_path_str)
-    print(f"Helper Debug: read_pid_file returned: {pid}", file=sys.stderr)
-
-    if not pid:
-        log_error("Could not read PID or PID file not found. Cannot reload.")
-        print("Helper Debug: Exiting (60) due to missing PID.", file=sys.stderr)
-        sys.exit(60)
-
-    print(f"Helper Debug: Checking if PID {pid} is running...", file=sys.stderr)
-    is_running = check_pid_running(pid)
-    print(f"Helper Debug: check_pid_running returned: {is_running}", file=sys.stderr)
-
-    if not is_running:
-        log_error(f"Process with PID {pid} not found. Cannot reload.")
-        try: Path(nginx_pid_path_str).unlink(missing_ok=True) # Clean up stale PID file
-        except OSError: pass
-        print("Helper Debug: Exiting (61) due to PID not running.", file=sys.stderr)
-        sys.exit(61)
-
-    # Process found, send SIGHUP
-    log_info(f"Sending SIGHUP to Nginx process (PID {pid})...")
-    try:
-        print(f"Helper Debug: Calling os.kill({pid}, SIGHUP)...", file=sys.stderr) # <<< Check before signal
-        os.kill(pid, signal.SIGHUP)
-        print(f"Helper Debug: os.kill(SIGHUP) completed.", file=sys.stderr) # <<< Check after signal
-        log_info("SIGHUP sent successfully.")
-        # We assume Nginx handles the reload correctly.
-        print("Helper: Internal Nginx reload signal sent.") # This goes to stdout for the app
-        print(f"Helper Debug: Exiting with code 0.", file=sys.stderr)
         sys.exit(0) # Success
-    except OSError as e:
-        log_error(f"Failed to send SIGHUP to PID {pid}: {e}")
-        print(f"Helper Debug: Exiting (62) due to OSError on kill.", file=sys.stderr)
-        sys.exit(62)
+
     except Exception as e:
-        log_error(f"An unexpected error occurred sending SIGHUP: {e}")
-        print(f"Helper Debug: Exiting (63) due to other exception on kill.", file=sys.stderr)
-        sys.exit(63)
+        log_error(f"Failed to update {host_file}: {e}")
+        sys.exit(71)
+    finally:
+        # Ensure temp file is removed if something went wrong after creation but before replace
+        if temp_path and os.path.exists(temp_path):
+            try: os.unlink(temp_path)
+            except OSError as e: log_error(f"Failed to remove temp file {temp_path}: {e}")
+
+
+def handle_remove_host_entry(domain_name):
+    """Removes entries containing the specified domain and our marker from /etc/hosts."""
+    log_info(f"Attempting to remove host entries for: {domain_name}")
+    if not domain_name: log_error("Invalid domain provided."); sys.exit(72)
+    # Rudimentary check for potentially problematic characters in domain
+    if not re.match(r'^[a-zA-Z0-9.\-]+$', domain_name): log_error("Invalid characters in domain."); sys.exit(72)
+
+    host_file = Path(HOSTS_FILE_PATH)
+    temp_path = None
+
+    try:
+        if not host_file.is_file():
+            log_info("Hosts file not found, nothing to remove.")
+            print("Helper: Hosts file not found.")
+            sys.exit(0)
+
+        with open(host_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        # Filter out lines containing the domain AND our marker
+        # Use regex for robustness against spacing variations
+        domain_pattern = re.compile(r"\s+" + re.escape(domain_name) + r"(?:\s+|#|$)")
+        lines_to_keep = []
+        removed_count = 0
+        for line in lines:
+            # Keep comments and lines NOT containing the domain + marker
+            if line.strip().startswith('#') or not (HOSTS_MARKER in line and domain_pattern.search(line)):
+                lines_to_keep.append(line)
+            else:
+                log_info(f"Removing line: {line.strip()}")
+                removed_count += 1
+
+        if removed_count > 0:
+            log_info(f"Removed {removed_count} entries. Writing updated hosts file.")
+            # Write back atomically
+            fd, temp_path = tempfile.mkstemp(dir='/etc', prefix='hosts.tmp')
+            with os.fdopen(fd, 'w', encoding='utf-8') as temp_f:
+                 temp_f.writelines(lines_to_keep)
+            try: # Preserve permissions
+                stat_info = host_file.stat(); os.chmod(temp_path, stat_info.st_mode)
+            except OSError as e: log_info(f"Could not preserve permissions for hosts file: {e}")
+            os.replace(temp_path, host_file)
+            temp_path = None # Prevent deletion in finally
+            print(f"Helper: Removed {domain_name} from hosts file.")
+        else:
+            log_info("No matching entries found to remove.")
+            print(f"Helper: Entry for {domain_name} not found in hosts file.")
+
+        sys.exit(0) # Success
+
+    except Exception as e:
+        log_error(f"Failed to update {host_file}: {e}")
+        sys.exit(73)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try: os.unlink(temp_path)
+            except OSError as e: log_error(f"Failed to remove temp file {temp_path}: {e}")
+
+# --- End Handlers ---
 
 
 # --- Script Entry Point ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Root Helper: Manages system services and internal Nginx."
+        description="Root Helper: Manages system services and hosts file."
     )
     # Define arguments
     parser.add_argument("--action", required=True, choices=ALLOWED_ACTIONS)
-    parser.add_argument("--service", required=False) # For systemd actions
-    parser.add_argument("--nginx-binary-path", required=False) # For start_internal_nginx
-    parser.add_argument("--nginx-config-path", required=False) # For start_internal_nginx
-    parser.add_argument("--nginx-pid-path", required=False) # For start, stop, reload internal nginx
+    # Systemd args
+    parser.add_argument("--service", required=False, choices=ALLOWED_SERVICES + [None])
+    # Hosts file args
+    parser.add_argument("--domain", required=False, help="Domain name for hosts file actions")
+    parser.add_argument("--ip", required=False, default="127.0.0.1", help="IP address for add_host_entry (default: 127.0.0.1)")
 
     args = parser.parse_args()
     action = args.action
@@ -347,29 +220,20 @@ if __name__ == "__main__":
     # --- Dispatch based on action ---
     try:
         if action in ["start", "stop", "restart", "reload", "enable", "disable"]:
-            if not args.service: raise ValueError(f"Action '{action}' requires the --service argument.")
+            if not args.service: raise ValueError(f"Action '{action}' requires --service.")
             handle_systemctl_action(args.service, action)
 
-        elif action == "start_internal_nginx":
-            if not (args.nginx_binary_path and args.nginx_config_path and args.nginx_pid_path):
-                 raise ValueError(f"Action '{action}' requires --nginx-binary-path, --nginx-config-path, and --nginx-pid-path.")
-            handle_nginx_start_action(args.nginx_binary_path, args.nginx_config_path, args.nginx_pid_path)
+        elif action == "add_host_entry":
+            if not args.domain: raise ValueError(f"Action '{action}' requires --domain.")
+            handle_add_host_entry(args.ip, args.domain)
 
-        elif action == "stop_internal_nginx":
-             if not args.nginx_pid_path: raise ValueError(f"Action '{action}' requires --nginx-pid-path.")
-             handle_nginx_stop_action(args.nginx_pid_path)
-
-        elif action == "reload_internal_nginx":
-             if not args.nginx_pid_path: raise ValueError(f"Action '{action}' requires --nginx-pid-path.")
-             handle_nginx_reload_action(args.nginx_pid_path)
+        elif action == "remove_host_entry":
+            if not args.domain: raise ValueError(f"Action '{action}' requires --domain.")
+            handle_remove_host_entry(args.domain)
 
         else:
+            # Should be caught by argparse choices, but safeguard
             raise ValueError(f"Unknown or unsupported action '{action}'.")
 
-    except ValueError as e:
-         log_error(str(e))
-         sys.exit(1) # Exit code 1 for bad arguments
-    except Exception as e:
-         # Catch any other unexpected errors in the main dispatcher
-         log_error(f"Unexpected error in main dispatcher for action '{action}': {e}")
-         sys.exit(99)
+    except ValueError as e: log_error(str(e)); sys.exit(1)
+    except Exception as e: log_error(f"Unexpected error: {e}"); sys.exit(99)
