@@ -61,14 +61,29 @@ class ServicesPage(QWidget):
         self.manageDnsmasqClicked.emit(action) # Just emit the signal
 
     # --- Public Slots for MainWindow to Update This Page's UI ---
-    @Slot(str, str)
+    @Slot(str, str) # status: "running", "stopped", "unknown", etc. style_sheet: css string
     def update_nginx_display(self, status, style_sheet):
-        status_text = status.capitalize(); button_text = "Status?"; button_enabled = False
-        if status == "running": button_text = "Stop Nginx"; button_enabled = True
-        elif status == "stopped": button_text = "Start Nginx"; button_enabled = True
+        """Updates Nginx status label and manage button based on status."""
+        self.log_to_main(f"SERVICE_PAGE: update_nginx_display received status='{status}'") # DEBUG
+        status_text = status.capitalize()
+        button_text = "Start Nginx" # Default button text
+        button_enabled = False # Default button state
+
+        if status == "running":
+            button_text = "Stop Nginx"
+            button_enabled = True
+        elif status == "stopped":
+            button_text = "Start Nginx"
+            button_enabled = True
+        else: # unknown, error, checking?
+            button_text = "Nginx Status?"
+            button_enabled = False # Keep disabled if state unclear
+
         self.nginx_status_label.setText(f"Status: {status_text}")
         base_style = "padding: 5px; border: 1px solid lightgrey; border-radius: 3px;"
         self.nginx_status_label.setStyleSheet(f"{base_style} {style_sheet}")
+
+        print(f"SERVICE_PAGE DEBUG: Setting Nginx button text='{button_text}', enabled={button_enabled}") # <<< DEBUG
         self.nginx_manage_button.setText(button_text)
         self.nginx_manage_button.setEnabled(button_enabled)
 
@@ -97,3 +112,13 @@ class ServicesPage(QWidget):
              self._main_window.refresh_nginx_status_on_page()
         if self._main_window and hasattr(self._main_window, 'refresh_dnsmasq_status_on_page'):
              self._main_window.refresh_dnsmasq_status_on_page()
+
+    # Helper to log messages via MainWindow <<< ADD THIS METHOD
+    def log_to_main(self, message):
+        """Sends log message to the main window's log area."""
+        # Check if parent exists and has the log_message method
+        if self._main_window and hasattr(self._main_window, 'log_message'):
+             self._main_window.log_message(message)
+        else:
+             # Fallback to just printing if parent isn't available or lacks method
+             print(f"ServicesPage Log (No MainWindow.log_message): {message}")

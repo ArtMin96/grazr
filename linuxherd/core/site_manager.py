@@ -123,7 +123,7 @@ def save_sites(sites_list):
 
 def add_site(path_to_add):
     """
-    Adds a site (with default settings) to the list and saves it.
+    Adds a site (with default settings including https: False) to the list and saves it.
 
     Args:
         path_to_add (str): The absolute path to the site directory.
@@ -153,8 +153,9 @@ def add_site(path_to_add):
         "id": str(uuid.uuid4()), # Generate a unique ID
         "path": absolute_path,
         "domain": f"{site_name}.{SITE_TLD}", # Auto-generate domain
-        "php_version": DEFAULT_PHP # Use default PHP initially
-        # Add other default fields later if needed (e.g., node_version=None)
+        "php_version": DEFAULT_PHP, # Use default PHP initially
+        "https": False
+        # Add other default fields later if needed
     }
 
     current_sites.append(new_site)
