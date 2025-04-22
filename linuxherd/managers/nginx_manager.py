@@ -57,7 +57,7 @@ def ensure_internal_nginx_structure():
     # Use constants from config module
     dirs_to_create = [
         config.INTERNAL_NGINX_CONF_DIR, config.INTERNAL_SITES_AVAILABLE,
-        config.INTERNAL_SITES_ENABLED, config.LOG_DIR,
+        config.INTERNAL_SITES_ENABLED, config.LOG_DIR,  # Ensure this is config.LOG_DIR
         config.RUN_DIR, config.INTERNAL_NGINX_TEMP_DIR
     ]
     try:
@@ -97,12 +97,16 @@ def generate_site_config(site_info, php_socket_path):
     if not site_path.is_dir(): return ""
     public_root = site_path / 'public'; root_path = public_root if public_root.is_dir() else site_path
     root_path_str = str(root_path.resolve()).replace('\\', '\\\\').replace('"', '\\"')
-    access_log_path = str((config.INTERNAL_LOG_DIR / f"{domain}.access.log").resolve())
-    error_log_path = str((config.INTERNAL_LOG_DIR / f"{domain}.error.log").resolve())
+    access_log_path = str((config.LOG_DIR / f"{domain}.access.log").resolve())
+    error_log_path = str((config.LOG_DIR / f"{domain}.error.log").resolve())
     php_socket_path_str = str(Path(php_socket_path).resolve())
-    bundled_fastcgi_params_path = str((config.BUNDLED_NGINX_CONF_DIR / 'fastcgi_params').resolve())
+    bundled_fastcgi_params_path = str((config.BUNDLED_NGINX_CONF_SUBDIR / 'fastcgi_params').resolve())
 
-    php_location_block = rf"""...""" # Raw f-string from previous step, unchanged content
+    php_location_block = rf"""
+        location ~ \.php$ {{
+            # ... rest of php block ...
+            include "{bundled_fastcgi_params_path}";
+        }}"""
     http_server_block = ""; https_server_block = ""
     if https_enabled:
         http_server_block = f"""server {{ listen 80; listen [::]:80; server_name {domain}; return 301 https://$host$request_uri; }}"""
