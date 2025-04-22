@@ -43,28 +43,13 @@ except ImportError as e:
 
 # --- Import Page Widgets (from same ui package) ---
 try:
+    from .ui_styles import ColorScheme, COMMON_STYLESHEET
     from .services_page import ServicesPage
     from .php_page import PhpPage
     from .sites_page import SitesPage
 except ImportError as e:
     print(f"ERROR in main_window.py: Could not import page widgets - {e}")
     sys.exit(1) # Exit if pages cannot be imported
-
-
-# --- Define color scheme for modern UI ---
-class ColorScheme:
-    PRIMARY = "#1976D2"       # Main brand color
-    PRIMARY_LIGHT = "#42A5F5" # Lighter brand color
-    PRIMARY_DARK = "#0D47A1"  # Darker brand color
-    ACCENT = "#FF5722"        # Accent color for highlights
-    BG_LIGHT = "#FAFAFA"      # Light background
-    BG_DARK = "#F5F5F5"       # Slightly darker background
-    TEXT_PRIMARY = "#212121"  # Primary text color
-    TEXT_SECONDARY = "#757575" # Secondary text color
-    BORDER_COLOR = "#E0E0E0"  # Border color
-    SUCCESS = "#4CAF50"       # Success color
-    WARNING = "#FFC107"       # Warning color
-    ERROR = "#F44336"         # Error color
 
 
 class MainWindow(QMainWindow):
@@ -80,47 +65,7 @@ class MainWindow(QMainWindow):
         self.setup_fonts()
         
         # --- Apply global stylesheet ---
-        self.setStyleSheet(f"""
-            QMainWindow {{
-                background-color: {ColorScheme.BG_LIGHT};
-                color: {ColorScheme.TEXT_PRIMARY};
-            }}
-            QWidget {{
-                font-family: 'Segoe UI', 'Open Sans', sans-serif;
-                color: {ColorScheme.TEXT_PRIMARY};
-            }}
-            QLabel {{
-                color: {ColorScheme.TEXT_PRIMARY};
-            }}
-            QTextEdit {{
-                background-color: white;
-                border: 1px solid {ColorScheme.BORDER_COLOR};
-                border-radius: 4px;
-                padding: 8px;
-            }}
-            QPushButton {{
-                background-color: {ColorScheme.PRIMARY};
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: 500;
-            }}
-            QPushButton:hover {{
-                background-color: {ColorScheme.PRIMARY_LIGHT};
-            }}
-            QPushButton:pressed {{
-                background-color: {ColorScheme.PRIMARY_DARK};
-            }}
-            QPushButton:disabled {{
-                background-color: #BDBDBD;
-                color: #757575;
-            }}
-            QFrame {{
-                border: 1px solid {ColorScheme.BORDER_COLOR};
-                border-radius: 4px;
-            }}
-        """)
+        self.setStyleSheet(COMMON_STYLESHEET)
 
         # --- Main Layout ---
         main_widget = QWidget()
