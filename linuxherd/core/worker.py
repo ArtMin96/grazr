@@ -15,7 +15,6 @@ try:
     from ..managers.php_manager import set_ini_value
     from ..managers.site_manager import update_site_settings, remove_site # Keep remove_site
     from ..managers.ssl_manager import generate_certificate, delete_certificate
-    # Dnsmasq manager import REMOVED
     # Hosts manager / run_root_helper_action import REMOVED
 
 except ImportError as e:
@@ -33,7 +32,6 @@ except ImportError as e:
     def remove_site(*args, **kwargs): return False
     def generate_certificate(*args, **kwargs): return False, "Not imported"
     def delete_certificate(*args, **kwargs): return True
-    # Dnsmasq/Helper dummies REMOVED
 
 
 class Worker(QObject):
@@ -174,9 +172,6 @@ class Worker(QObject):
                         if not ngx_ok: ok = False
                         else: results.append("Nginx:OK")
                         success = ok; message = f"Disable SSL: {'|'.join(results)}"
-
-            # --- REMOVED start_dnsmasq and stop_dnsmasq task handlers ---
-            # --- REMOVED run_helper task handler ---
 
             else: # Unknown Task
                 message = f"Unknown task '{task_name}' received by worker."; success = False

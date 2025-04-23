@@ -114,9 +114,6 @@ class MainWindow(QMainWindow):
         self.log_message("Application starting...");
         self.log_message("UI Structure Initialized.")
         self.sidebar.setCurrentRow(0)  # Triggers refresh_current_page -> refresh_data on ServicesPage
-        # Automatically start bundled Dnsmasq on launch <<< NEW
-        self.log_message("Attempting to start bundled Dnsmasq...")
-        QTimer.singleShot(150, lambda: self.triggerWorker.emit("start_dnsmasq", {}))
 
     # --- Navigation Slot ---
     @Slot(int)
@@ -152,10 +149,6 @@ class MainWindow(QMainWindow):
             display_name = f"Site SSL Enable ({domain_ctx})"; target_page = self.sites_page
         elif task_name == "disable_ssl":
             display_name = f"Site SSL Disable ({domain_ctx})"; target_page = self.sites_page
-        elif task_name == "start_dnsmasq":
-            display_name = "Bundled Dnsmasq"; target_page = self.services_page  # Added
-        elif task_name == "stop_dnsmasq":
-            display_name = "Bundled Dnsmasq"; target_page = self.services_page  # Added
         elif task_name in ["install_nginx", "uninstall_nginx"]:
             target_page = self.sites_page
         elif task_name in ["start_internal_nginx", "stop_internal_nginx"]:
@@ -240,12 +233,6 @@ class MainWindow(QMainWindow):
                 task_name = "start_internal_nginx"
             elif action == "stop":
                 task_name = "stop_internal_nginx"
-            # task_data is empty
-        elif service_id == config.DNSMASQ_PROCESS_ID:  # <<< Bundled Dnsmasq
-            if action == "start":
-                task_name = "start_dnsmasq"
-            elif action == "stop":
-                task_name = "stop_dnsmasq"
             # task_data is empty
         # Example: Keep handling for system Dnsmasq if widget exists using that ID
         elif service_id == "dnsmasq.service":

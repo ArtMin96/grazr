@@ -66,7 +66,6 @@ class ServicesPage(QWidget):
         self.system_dnsmasq_status_label.setStyleSheet("padding: 5px; border: 1px solid lightgrey; border-radius: 3px;")
         self.system_dnsmasq_status_label.setToolTip("Status of the system-wide dnsmasq.service (if installed). LinuxHerd uses systemd-resolved for .test domains.")
         system_layout.addWidget(self.system_dnsmasq_status_label)
-        # NO control button for system dnsmasq
 
         main_layout.addWidget(system_group)
         main_layout.addStretch(1)

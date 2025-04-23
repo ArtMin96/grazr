@@ -39,7 +39,6 @@ PHP_FPM_ERROR_LOG_TEMPLATE = LOG_DIR / "php{version}-fpm.log"
 PHP_LIB_SUBDIR = "lib/x86_64-linux-gnu" # Assumes arch
 PHP_EXT_SUBDIR = "extensions"
 
-# --- Dnsmasq Specific Paths <<< REMOVED BUNDLE PATHS >>> ---
 # No longer managing internal dnsmasq process or config via app runtime
 # Keep system service name if we want to check for conflicts
 SYSTEM_DNSMASQ_SERVICE_NAME = "dnsmasq.service"
@@ -57,7 +56,6 @@ MKCERT_BINARY = MKCERT_BUNDLES_DIR / 'mkcert'
 # --- Process Management ---
 NGINX_PROCESS_ID = "internal-nginx"
 PHP_FPM_PROCESS_ID_TEMPLATE = "php-fpm-{version}"
-# DNSMASQ_PROCESS_ID = "internal-dnsmasq" # <<< REMOVED
 
 # --- System Interaction Paths (used by helpers or system utils) ---
 SYSTEMCTL_PATH = "/usr/bin/systemctl" # Keep for check_service_status
