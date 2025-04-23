@@ -89,46 +89,104 @@ include "{sites_enabled_path_str}/*.conf"; }}"""
     return True
 
 def generate_site_config(site_info, php_socket_path):
-    """Generates Nginx server block config string using paths from config."""
-    # Uses constants from config module
-    if not site_info or 'path' not in site_info or 'domain' not in site_info: return ""
-    site_path_str = site_info['path']; domain = site_info['domain']; https_enabled = site_info.get('https', False)
-    site_path = Path(site_path_str);
-    if not site_path.is_dir(): return ""
+    """
+    Generates Nginx server block config string, including HTTPS if enabled.
+    Uses bundled includes and correct raw string for PHP block.
+
+    Args:
+        site_info (dict): Dictionary containing site settings (path, domain, https, etc.).
+        php_socket_path (str): Absolute path to the PHP FPM socket for this site.
+
+    Returns:
+        str: The generated Nginx configuration string, or empty string on error.
+    """
+    # --- Start of Function - Ensure this function is replaced entirely ---
+    if not site_info or 'path' not in site_info or 'domain' not in site_info:
+        print("Configurator Error: Invalid site_info passed to generate_site_config")
+        return ""
+
+    site_path_str = site_info['path']
+    domain = site_info['domain']
+    https_enabled = site_info.get('https', False)
+
+    site_path = Path(site_path_str)
+    if not site_path.is_dir():
+        print(f"Configurator Error: Site path is not a directory: {site_path_str}")
+        return ""
+
     public_root = site_path / 'public'; root_path = public_root if public_root.is_dir() else site_path
     root_path_str = str(root_path.resolve()).replace('\\', '\\\\').replace('"', '\\"')
+    # Use config.LOG_DIR (ensure this was fixed based on previous error)
     access_log_path = str((config.LOG_DIR / f"{domain}.access.log").resolve())
     error_log_path = str((config.LOG_DIR / f"{domain}.error.log").resolve())
     php_socket_path_str = str(Path(php_socket_path).resolve())
+    # Use config.BUNDLED_NGINX_CONF_SUBDIR
     bundled_fastcgi_params_path = str((config.BUNDLED_NGINX_CONF_SUBDIR / 'fastcgi_params').resolve())
 
+    # --- PHP Location Block (Raw F-String - THE FIX IS HERE) ---
     php_location_block = rf"""
-        location ~ \.php$ {{
-            # ... rest of php block ...
-            include "{bundled_fastcgi_params_path}";
-        }}"""
-    http_server_block = ""; https_server_block = ""
+    location ~ \.php$ {{
+        try_files $uri =404;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_pass unix:{php_socket_path_str};
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include "{bundled_fastcgi_params_path}";
+    }}"""
+    # --- END FIX ---
+
+    # --- HTTP Server Block ---
+    http_server_block = ""
     if https_enabled:
-        http_server_block = f"""server {{ listen 80; listen [::]:80; server_name {domain}; return 301 https://$host$request_uri; }}"""
+        # If HTTPS, HTTP block just redirects
+        http_server_block = rf"""
+server {{
+    listen 80; listen [::]:80; server_name {domain};
+    access_log off; error_log "{error_log_path}" warn;
+    return 301 https://$host$request_uri;
+}}"""
+    else:
+        # If not HTTPS, serve directly on HTTP
+        http_server_block = rf"""
+server {{
+    listen 80; listen [::]:80; server_name {domain}; root "{root_path_str}"; index index.php index.html index.htm;
+    access_log "{access_log_path}"; error_log "{error_log_path}" warn; charset utf-8;
+    location / {{ try_files $uri $uri/ /index.php?$query_string; }} location ~ /\. {{ deny all; }}
+    {php_location_block}
+}}"""
+
+    # --- HTTPS Server Block ---
+    https_server_block = ""
+    if https_enabled:
         cert_path = get_cert_path(domain); key_path = get_key_path(domain)
         if check_certificates_exist(domain):
             cert_path_str = str(cert_path.resolve()); key_path_str = str(key_path.resolve())
-            https_server_block = f"""
-server {{ listen 443 ssl http2; listen [::]:443 ssl http2; server_name {domain}; root "{root_path_str}"; index index.php index.html index.htm;
+            https_server_block = rf"""
+
+server {{
+    listen 443 ssl http2; listen [::]:443 ssl http2; server_name {domain}; root "{root_path_str}"; index index.php index.html index.htm;
     access_log "{access_log_path}"; error_log "{error_log_path}" warn; charset utf-8;
     ssl_certificate "{cert_path_str}"; ssl_certificate_key "{key_path_str}"; ssl_protocols TLSv1.2 TLSv1.3; ssl_prefer_server_ciphers off;
     location / {{ try_files $uri $uri/ /index.php?$query_string; }} location ~ /\. {{ deny all; }}
     {php_location_block}
 }}"""
-        else: print(f"Warning: HTTPS for {domain} enabled but certs missing."); http_server_block = f"""server {{ ... {php_location_block} }}""" # Revert HTTP block
-    else: # HTTPS disabled
-        http_server_block = f"""
+        else:
+            print(f"Nginx Config Warning: HTTPS enabled for {domain}, but cert files missing. Reverting HTTP block.")
+            # Revert HTTP block if certs missing
+            http_server_block = rf"""
 server {{ listen 80; listen [::]:80; server_name {domain}; root "{root_path_str}"; index index.php index.html index.htm;
     access_log "{access_log_path}"; error_log "{error_log_path}" warn; charset utf-8;
     location / {{ try_files $uri $uri/ /index.php?$query_string; }} location ~ /\. {{ deny all; }}
     {php_location_block}
 }}"""
-    full_config = f"# Config for {domain} by LinuxHerd (HTTPS: {https_enabled})\n{http_server_block}\n{https_server_block}\n"
+
+    # --- Combine Blocks ---
+    full_config = rf"""# Configuration for {domain} generated by LinuxHerd Helper
+# HTTPS Enabled: {https_enabled}
+
+{http_server_block}
+{https_server_block}
+"""
     return full_config
 
 
@@ -176,43 +234,134 @@ def reload_internal_nginx():
 
 # --- Site Configuration Functions ---
 def install_nginx_site(site_path_str):
-    """Installs internal Nginx site config and reloads."""
-    # Uses constants from config module
-    print(f"Configuring internal Nginx site for: {site_path_str}")
-    if not ensure_internal_nginx_structure(): return False, "Internal structure check failed"
+    """
+    Configures and installs/updates the internal Nginx site config for a given path.
+    Reads site settings (domain, php, https) from site_manager, ensures the correct
+    PHP FPM is running, generates the appropriate Nginx config (HTTP/HTTPS),
+    writes the file, creates/updates the symlink, and reloads Nginx.
+
+    Args:
+        site_path_str (str): Absolute path to the site directory.
+
+    Returns:
+        tuple: (bool success, str message)
+    """
+    print(f"Nginx Manager: Configuring internal Nginx site for: {site_path_str}")
+    if not ensure_internal_nginx_structure():
+        # ensure_internal_nginx_structure prints FATAL message if it fails
+        return False, "Internal Nginx structure check failed or prerequisite files missing."
+
     site_path = Path(site_path_str)
-    if not site_path.is_dir(): msg = f"Site path '{site_path_str}' not dir."; print(f"Error: {msg}"); return False, msg
+    if not site_path.is_dir():
+        msg = f"Site path '{site_path_str}' is not a valid directory."
+        print(f"Nginx Manager Error: {msg}")
+        return False, msg
+
+    # 1. Get full site settings (including 'https', 'php_version', 'domain')
     site_settings = get_site_settings(site_path_str)
-    if not site_settings: msg = f"Could not load settings for '{site_path_str}'."; print(f"Error: {msg}"); return False, msg
-    domain = site_settings.get("domain", f"{site_path.name}.{config.SITE_TLD}")
+    if not site_settings:
+        msg = f"Could not load settings for site '{site_path_str}' from site manager."
+        print(f"Nginx Manager Error: {msg}")
+        return False, msg
+
+    domain = site_settings.get("domain")
+    # Use domain for config filename for uniqueness and clarity
+    if not domain: # Fallback if domain somehow missing
+         domain = f"{site_path.name}.{config.SITE_TLD}"
+         print(f"Nginx Manager Warning: Domain missing in settings, using default: {domain}")
     config_filename = f"{domain}.conf"
-    available_path = config.INTERNAL_SITES_AVAILABLE / config_filename; enabled_path = config.INTERNAL_SITES_ENABLED / config_filename
+    available_path = config.INTERNAL_SITES_AVAILABLE / config_filename
+    enabled_path = config.INTERNAL_SITES_ENABLED / config_filename
+
+    # 2. Determine PHP Version and Socket Path
     php_version_setting = site_settings.get("php_version", config.DEFAULT_PHP)
+    php_version_to_use = None
     if php_version_setting == config.DEFAULT_PHP:
-        php_version_to_use = get_default_php_version();
-        if not php_version_to_use: msg = "No bundled PHP for default."; print(f"Error: {msg}"); return False, msg
-    else: php_version_to_use = php_version_setting
-    print(f"Site '{domain}' using PHP {php_version_to_use}")
+        php_version_to_use = get_default_php_version() # Use helper function
+        if not php_version_to_use:
+             msg = "Cannot configure site: No bundled PHP versions detected for default."
+             print(f"Nginx Manager Error: {msg}")
+             return False, msg
+        print(f"Nginx Manager Info: Site '{domain}' uses default PHP, resolved to: {php_version_to_use}")
+    else:
+        # TODO: Optionally check if site_settings['php_version'] is in detect_bundled_php_versions() ?
+        php_version_to_use = php_version_setting
+        print(f"Nginx Manager Info: Site '{domain}' configured for PHP version: {php_version_to_use}")
+
     php_socket_path = get_php_fpm_socket_path(php_version_to_use)
-    print(f"Ensuring PHP-FPM {php_version_to_use} is running...");
-    if not start_php_fpm(php_version_to_use): msg = f"Failed start PHP-FPM {php_version_to_use}."; print(f"Error: {msg}"); return False, msg
-    print(f"PHP-FPM {php_version_to_use} running/started.")
-    config_content = generate_site_config(site_settings, php_socket_path) # Pass dict
-    if not config_content: msg = f"Failed Nginx config generation."; print(f"Error: {msg}"); return False, msg
-    try: # Write config and symlink
-        print(f"Writing config to {available_path}"); f=open(available_path,'w',encoding='utf-8'); f.write(config_content); f.close(); os.chmod(available_path, 0o644)
+
+    # 3. Ensure required PHP-FPM process is running
+    print(f"Nginx Manager: Ensuring PHP-FPM {php_version_to_use} is running...")
+    # start_php_fpm returns True if already running or successfully started
+    if not start_php_fpm(php_version_to_use):
+        msg = f"Failed to start required PHP-FPM version {php_version_to_use}. Cannot configure site."
+        print(f"Nginx Manager Error: {msg}")
+        return False, msg
+    print(f"Nginx Manager Info: PHP-FPM {php_version_to_use} is running or start command issued.")
+
+    # 4. Generate Nginx Config (passes full site_info dict for HTTPS check etc.)
+    config_content = generate_site_config(site_settings, php_socket_path)
+    if not config_content:
+        msg = f"Failed to generate Nginx config for '{domain}'"
+        print(f"Nginx Manager Error: {msg}")
+        return False, msg
+
+    # 5. Write config and symlink (as user)
+    try:
+        print(f"Nginx Manager: Writing config to {available_path}")
+        # Ensure parent directory exists
+        available_path.parent.mkdir(parents=True, exist_ok=True)
+        # Write content
+        available_path.write_text(config_content, encoding='utf-8')
+        os.chmod(available_path, 0o644) # Set standard permissions
+        print("Nginx Manager: Config file written.")
+
         link_created = False
-        if enabled_path.exists():
-            if not enabled_path.is_symlink() or os.readlink(enabled_path) != str(available_path): enabled_path.unlink(); os.symlink(available_path, enabled_path); link_created = True
-        else: os.symlink(available_path, enabled_path); link_created = True
-        if link_created:
-            print(f"Symlink created/verified: {enabled_path}")
+        # Ensure parent directory exists
+        enabled_path.parent.mkdir(parents=True, exist_ok=True)
+        if enabled_path.is_symlink():
+            # If link exists, check if it points to the right file
+            if os.readlink(enabled_path) != str(available_path):
+                enabled_path.unlink() # Remove wrong link
+                os.symlink(available_path, enabled_path) # Create correct link
+                link_created = True
+        elif enabled_path.exists():
+             # It exists but isn't a symlink, remove it and link
+             print(f"Nginx Manager Warning: Removing unexpected file at {enabled_path}")
+             enabled_path.unlink()
+             os.symlink(available_path, enabled_path)
+             link_created = True
         else:
-            print(f"Symlink exists: {enabled_path}")
-    except Exception as e: msg = f"File op failed: {e}"; print(f"Error: {msg}"); return False, msg
-    print("Triggering internal Nginx reload..."); success_reload, msg_reload = reload_internal_nginx()
-    if not success_reload: msg = f"Site configured but reload failed: {msg_reload}"; print(f"Warning: {msg}"); return True, msg # Warn
-    else: msg = f"Site {domain} (PHP {php_version_to_use}) config OK; Nginx reloaded."; print(msg); return True, msg
+            # Link doesn't exist, create it
+            os.symlink(available_path, enabled_path)
+            link_created = True
+
+        if link_created: print(f"Nginx Manager: Symlink created/verified: {enabled_path}")
+        else: print(f"Nginx Manager: Symlink already exists correctly: {enabled_path}")
+
+    except Exception as e:
+        msg = f"Nginx file operation failed during install for {domain}: {e}"
+        print(f"Nginx Manager Error: {msg}")
+        # Clean up potentially created files?
+        available_path.unlink(missing_ok=True)
+        # Don't try to remove symlink again if unlink failed above
+        return False, msg
+    # --- End file operations ---
+
+    # 6. Reload Internal Nginx (using process_manager/os.kill)
+    print("Nginx Manager: Triggering internal Nginx reload...")
+    success_reload, msg_reload = reload_internal_nginx()
+    if not success_reload:
+         # If reload fails, the config files are written but Nginx isn't using them yet.
+         msg = f"Site '{domain}' configured but Nginx reload failed: {msg_reload}"
+         print(f"Nginx Manager Warning: {msg}")
+         # Should this return True or False? Let's return True but with a warning message.
+         return True, msg
+    else:
+        https_msg = " with HTTPS" if site_settings.get("https") else ""
+        msg = f"Site '{domain}' (PHP {php_version_to_use}{https_msg}) configured and Nginx reloaded successfully."
+        print(f"Nginx Manager Info: {msg}")
+        return True, msg
 
 def uninstall_nginx_site(site_path_str):
     """Removes internal Nginx site config/symlink and reloads."""

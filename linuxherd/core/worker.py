@@ -54,11 +54,16 @@ class Worker(QObject):
 
         try:
             # --- Task Dispatching ---
-            if task_name == "uninstall_nginx": # Removes Nginx site config, reloads Nginx
+            if task_name == "uninstall_nginx":
                 path = data.get("path");
-                if path: success, message = uninstall_nginx_site(path)
-                else: success = False; message = "Missing path"
-                print(f"WORKER: uninstall_nginx_site -> {success}")
+                print(f"WORKER DEBUG: Entered uninstall_nginx handler for path '{path}'")
+                if path:
+                    print(f"WORKER DEBUG: Calling nginx_manager.uninstall_nginx_site('{path}')")
+                    success, message = uninstall_nginx_site(path)
+                    print(f"WORKER DEBUG: uninstall_nginx_site returned success={success}, msg='{message}'")
+                else:
+                    success = False; message = "Missing 'path'."
+                    print(f"WORKER DEBUG: Missing path for uninstall_nginx")
 
             elif task_name == "install_nginx": # Installs Nginx site config (reads PHP setting), starts FPM, reloads Nginx
                 path = data.get("path");

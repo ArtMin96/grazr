@@ -211,17 +211,19 @@ class MainWindow(QMainWindow):
         QApplication.processEvents(); task_data = {"path": sel_dir}; self.triggerWorker.emit("install_nginx", task_data)
 
     @Slot(dict)
-    def remove_selected_site(self, site_info): # Connected to sites_page.unlinkSiteClicked
-        if not isinstance(site_info,dict) or 'path' not in site_info:
-            self.log_message("Error: Invalid info.")
+    def remove_selected_site(self, site_info):
+        print("DEBUG: MainWindow.remove_selected_site called")
+        # ... (validation as before) ...
+        path_to_remove = site_info.get('path')
+        if not path_to_remove or not Path(path_to_remove).is_dir():
             return
-
-        path=site_info.get('path')
-        if not path or not Path(path).is_dir(): self.log_message(f"Error: Invalid path '{path}'.")
-        if isinstance(self.sites_page, SitesPage): self.sites_page.set_controls_enabled(True); return
-        site_name=Path(path).name; self.log_message(f"Requesting Nginx removal {site_name}...")
+        site_name = Path(path_to_remove).name
+        self.log_message(f"Requesting Nginx removal {site_name}...")
         if isinstance(self.sites_page, SitesPage): self.sites_page.set_controls_enabled(False)
-        QApplication.processEvents(); task_data = {"path": path}; self.triggerWorker.emit("uninstall_nginx", task_data)
+        QApplication.processEvents();
+        task_data = {"path": path_to_remove};
+        print(f"DEBUG: MainWindow emitting triggerWorker for uninstall_nginx: {task_data}")
+        self.triggerWorker.emit("uninstall_nginx", task_data)
 
     # Slot connected to services_page.serviceActionTriggered <<< MODIFIED
     @Slot(str, str)  # Receives service_id, action
