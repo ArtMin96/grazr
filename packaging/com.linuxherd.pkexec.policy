@@ -9,19 +9,14 @@
   <vendor_url>https://github.com/ArtMin96/linuxherd</vendor_url> <icon_name>utilities-terminal</icon_name>
 
   <action id="com.linuxherd.pkexec.manage_service">
-
     <description>Manage system services and hosts file for LinuxHerd</description>
-
-    <message>Authentication is required to manage system services (like Dnsmasq) or modify the /etc/hosts file for local domain resolution used by LinuxHerd.</message>
-
+    <message>Authentication is required to manage system services (like Dnsmasq status checks) or modify the /etc/hosts file for local domain resolution used by LinuxHerd.</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
-
     <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/linuxherd_root_helper.py</annotate>
-
   </action>
 
 </policyconfig>

@@ -195,13 +195,43 @@ class MainWindow(QMainWindow):
         start_dir=str(Path.home()); sel_dir=QFileDialog.getExistingDirectory(self,"Select Dir",start_dir);
         if not sel_dir: self.log_message("Add cancelled."); return; self.log_message(f"Linking {sel_dir}")
         success_add = add_site(sel_dir) # From managers.site_manager
-        if not success_add: self.log_message("Failed link directory.")
-        if isinstance(self.sites_page, SitesPage): self.sites_page.set_controls_enabled(True); return
-        self.log_message("Linked in storage.");
-        if isinstance(self.sites_page, SitesPage): self.sites_page.refresh_site_list()
-        site_name=Path(sel_dir).name; self.log_message(f"Requesting Nginx config {site_name}...")
-        if isinstance(self.sites_page, SitesPage): self.sites_page.set_controls_enabled(False)
-        QApplication.processEvents(); task_data = {"path": sel_dir}; self.triggerWorker.emit("install_nginx", task_data)
+        if not success_add:
+            # ... (failure handling code - unchanged) ...
+            self.log_message("Failed to link directory (already linked or storage error?).")
+            if isinstance(self.sites_page, SitesPage): self.sites_page.set_controls_enabled(True)
+            return
+        else:
+            # --- ADD DEBUG PRINTS IN THIS BLOCK ---
+            print("DEBUG: add_site returned True.")  # <<< ADD
+            self.log_message("Directory linked successfully in storage.")
+            print("DEBUG: Logged successful link.")  # <<< ADD
+
+            if isinstance(self.sites_page, SitesPage):
+                print("DEBUG: Refreshing site list UI...")  # <<< ADD
+                self.sites_page.refresh_site_list()
+                print("DEBUG: Site list UI refreshed.")  # <<< ADD
+            else:
+                print("DEBUG: SitesPage not found for refresh.")  # <<< ADD
+
+            site_name = Path(sel_dir).name
+            print(f"DEBUG: Site name: {site_name}")  # <<< ADD
+            self.log_message(f"Requesting background Nginx configuration for {site_name}...")
+            print("DEBUG: Logged Nginx request.")  # <<< ADD
+
+            if isinstance(self.sites_page, SitesPage):
+                print("DEBUG: Disabling SitesPage controls...")  # <<< ADD
+                self.sites_page.set_controls_enabled(False)
+                print("DEBUG: SitesPage controls disabled.")  # <<< ADD
+            else:
+                print("DEBUG: SitesPage not found for disabling controls.")  # <<< ADD
+
+            print("DEBUG: Processing events...")  # <<< ADD
+            QApplication.processEvents()
+            print("DEBUG: Events processed.")  # <<< ADD
+            task_data = {"path": sel_dir}
+            print(f"DEBUG: Emitting triggerWorker: install_nginx, {task_data}")  # <<< ADD
+            self.triggerWorker.emit("install_nginx", task_data)
+            print("DEBUG: triggerWorker emitted.")
 
     @Slot(dict)
     def remove_selected_site(self, site_info):

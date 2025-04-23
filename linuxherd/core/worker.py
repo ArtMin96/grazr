@@ -13,9 +13,9 @@ try:
     from ..managers.nginx_manager import start_internal_nginx, stop_internal_nginx
     from ..managers.php_manager import start_php_fpm, stop_php_fpm, restart_php_fpm
     from ..managers.php_manager import set_ini_value
-    from ..managers.site_manager import update_site_settings, remove_site # Keep remove_site
+    from ..managers.site_manager import update_site_settings, remove_site, get_site_settings
     from ..managers.ssl_manager import generate_certificate, delete_certificate
-    # Hosts manager / run_root_helper_action import REMOVED
+    from .system_utils import run_root_helper_action
 
 except ImportError as e:
     print(f"ERROR in worker.py: Could not import dependencies (check paths & __init__.py files): {e}")
@@ -30,8 +30,12 @@ except ImportError as e:
     def set_ini_value(*args, **kwargs): return False
     def update_site_settings(*args, **kwargs): return False
     def remove_site(*args, **kwargs): return False
+    def get_site_settings(*args, **kwargs): return None
     def generate_certificate(*args, **kwargs): return False, "Not imported"
     def delete_certificate(*args, **kwargs): return True
+
+    def run_root_helper_action(*args, **kwargs):
+        return False, "Not imported"
 
 
 class Worker(QObject):
@@ -52,22 +56,66 @@ class Worker(QObject):
 
         try:
             # --- Task Dispatching ---
-            if task_name == "uninstall_nginx":
-                path = data.get("path");
-                print(f"WORKER DEBUG: Entered uninstall_nginx handler for path '{path}'")
-                if path:
-                    print(f"WORKER DEBUG: Calling nginx_manager.uninstall_nginx_site('{path}')")
-                    success, message = uninstall_nginx_site(path)
-                    print(f"WORKER DEBUG: uninstall_nginx_site returned success={success}, msg='{message}'")
-                else:
-                    success = False; message = "Missing 'path'."
-                    print(f"WORKER DEBUG: Missing path for uninstall_nginx")
+            if task_name == "uninstall_nginx":  # <<< MODIFIED
+                path = data.get("path")
+                site_info = get_site_settings(path)  # Get settings to find domain
+                domain = site_info.get("domain") if site_info else None
 
-            elif task_name == "install_nginx": # Installs Nginx site config (reads PHP setting), starts FPM, reloads Nginx
-                path = data.get("path");
-                if path: success, message = install_nginx_site(path)
-                else: success = False; message = "Missing path"
-                print(f"WORKER: install_nginx_site -> {success}")
+                if path:
+                    results_log = []
+                    overall_success = True
+
+                    # 1. Remove hosts entry FIRST
+                    if domain:
+                        print(f"WORKER: Removing host '{domain}'...");
+                        rm_ok, rm_msg = run_root_helper_action(action="remove_host_entry", domain=domain)
+                        results_log.append(f"HostsRm:{'OK' if rm_ok else 'Fail'}")
+                        # Don't necessarily fail overall if remove fails (might not exist)
+                    else:
+                        results_log.append("HostsRm:Skipped (no domain)")
+
+                    # 2. Uninstall Nginx config (contains reload)
+                    print(f"WORKER: Calling uninstall_nginx_site for '{path}'...")
+                    ngx_ok, ngx_msg = uninstall_nginx_site(path)
+                    results_log.append(f"NginxUninstall:{'OK' if ngx_ok else 'Fail'}")
+                    if not ngx_ok: overall_success = False  # Nginx part should work
+
+                    success = overall_success
+                    message = f"Uninstall Site: {' | '.join(results_log)}"
+                else:
+                    success = False;
+                    message = "Missing 'path'."
+                print(f"WORKER: uninstall_nginx finished -> success={success}")
+
+            elif task_name == "install_nginx":  # <<< MODIFIED
+                path = data.get("path")
+                if path:
+                    print(f"WORKER: Calling install_nginx_site for '{path}'...")
+                    ngx_ok, ngx_msg = install_nginx_site(path)  # Configures Nginx/PHP, reloads Nginx
+                    results_log = [f"NginxInstall:{'OK' if ngx_ok else 'Fail'} ({ngx_msg})"]
+                    overall_success = ngx_ok
+
+                    # 2. Add hosts entry AFTER Nginx is setup
+                    if overall_success:
+                        site_info = get_site_settings(path)  # Get settings again for domain
+                        domain = site_info.get("domain") if site_info else None
+                        if domain:
+                            print(f"WORKER: Adding host '{domain}'...");
+                            add_ok, add_msg = run_root_helper_action(action="add_host_entry", domain=domain,
+                                                                     ip="127.0.0.1")
+                            results_log.append(f"HostsAdd:{'OK' if add_ok else 'Fail'}")
+                            if not add_ok: overall_success = False  # Adding should work
+                        else:
+                            results_log.append("HostsAdd:Skipped (no domain)")
+                    else:
+                        results_log.append("HostsAdd:Skipped (Nginx failed)")
+
+                    success = overall_success
+                    message = f"Install Site: {' | '.join(results_log)}"
+                else:
+                    success = False;
+                    message = "Missing 'path'."
+                print(f"WORKER: install_nginx finished -> success={success}")
 
             elif task_name == "start_internal_nginx":
                  success, message = start_internal_nginx()
@@ -89,23 +137,62 @@ class Worker(QObject):
                 else: success = False; message = "Missing version"
                 print(f"WORKER: stop_php_fpm -> {success}")
 
-            elif task_name == "update_site_domain": # <<< MODIFIED: Only updates storage & Nginx config
-                site_info = data.get("site_info"); new_domain = data.get("new_domain");
-                if not site_info or not new_domain: success = False; message = "Missing data."
+
+
+            elif task_name == "update_site_domain":  # <<< Ensure this has correct calls
+
+                site_info = data.get("site_info");
+                new_domain = data.get("new_domain");
+
+                if not site_info or not new_domain:
+                    success = False; message = "Missing data."
+
                 else:
-                    path=site_info.get('path'); old=site_info.get('domain'); results=[]; ok=True
-                    if not path or not old: success = False; message = "Missing path/old domain."
+
+                    path = site_info.get('path');
+                    old = site_info.get('domain');
+                    ip = "127.0.0.1";
+                    results_log = [];
+                    ok = True
+
+                    if not path or not old:
+                        success = False; message = "Missing path/old domain."
+
                     else:
+
                         print(f"WORKER: Update domain {path}: {old}->{new_domain}");
+
                         # 1. Update storage
-                        if not update_site_settings(path,{"domain":new_domain}): results.append("Store:Fail"); ok=False;
-                        else: results.append("Store:OK")
-                        # 2. Hosts file editing removed
+
+                        if not update_site_settings(path, {"domain": new_domain}): results_log.append(
+                            "Store:Fail"); ok = False
+                        else: results_log.append("Store:OK")
+
+                        # 2. Update hosts file via helper
+
+                        if ok and old: rm_ok, rm_msg = run_root_helper_action("remove_host_entry",
+                                                                              domain=old); results_log.append(
+                            f"HostsRm:{'OK' if rm_ok else 'Fail'}")
+
+                        if ok: add_ok, add_msg = run_root_helper_action("add_host_entry", domain=new_domain,
+                                                                        ip=ip); results_log.append(
+                            f"HostsAdd:{'OK' if add_ok else 'Fail'}");
+
+                        if not add_ok: ok = False
+
                         # 3. Update Nginx config & reload
-                        if ok: ngx_ok, ngx_msg=install_nginx_site(path); results.append(f"Nginx:{'OK' if ngx_ok else 'Fail'}");
-                        if not ngx_ok: ok=False
-                        else: results.append("Nginx:OK")
-                        success=ok; message=f"Update Domain: {'|'.join(results)}"
+
+                        if ok: ngx_ok, ngx_msg = install_nginx_site(path); results_log.append(
+                            f"Nginx:{'OK' if ngx_ok else 'Fail'}");
+
+                        if not ngx_ok:
+                            ok = False
+
+                        else:
+                            results_log.append("Nginx:OK")
+
+                        success = ok;
+                        message = f"Update Domain: {' | '.join(results_log)}"
 
             elif task_name == "set_site_php": # Set PHP version for site
                 # (Implementation unchanged - calls update_site_settings, install_nginx_site)
@@ -172,6 +259,26 @@ class Worker(QObject):
                         if not ngx_ok: ok = False
                         else: results.append("Nginx:OK")
                         success = ok; message = f"Disable SSL: {'|'.join(results)}"
+
+
+            elif task_name == "run_helper":
+
+                action = data.get("action");
+                service = data.get("service_name")
+
+                # Allow only read-only systemd actions now
+
+                if action in ["status", "is-active", "is-enabled", "is-failed"] and service:
+
+                    print(f"WORKER: Calling run_root_helper_action: {action} {service}...")
+
+                    success, message = run_root_helper_action(action=action, service_name=service)
+
+                    print(f"WORKER: run_root_helper_action returned: success={success}")
+
+                else:
+                    success = False; message = "Unsupported action/service for run_helper."
+
 
             else: # Unknown Task
                 message = f"Unknown task '{task_name}' received by worker."; success = False

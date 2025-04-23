@@ -247,8 +247,9 @@ def install_nginx_site(site_path_str):
         tuple: (bool success, str message)
     """
     print(f"Nginx Manager: Configuring internal Nginx site for: {site_path_str}")
+
+    # Step 1: Ensure base Nginx structure exists (conf file, dirs)
     if not ensure_internal_nginx_structure():
-        # ensure_internal_nginx_structure prints FATAL message if it fails
         return False, "Internal Nginx structure check failed or prerequisite files missing."
 
     site_path = Path(site_path_str)
@@ -257,111 +258,101 @@ def install_nginx_site(site_path_str):
         print(f"Nginx Manager Error: {msg}")
         return False, msg
 
-    # 1. Get full site settings (including 'https', 'php_version', 'domain')
+    # Step 2: Get full site settings (incl. https, php_version, domain)
     site_settings = get_site_settings(site_path_str)
     if not site_settings:
         msg = f"Could not load settings for site '{site_path_str}' from site manager."
         print(f"Nginx Manager Error: {msg}")
         return False, msg
 
+    # Determine paths using domain from settings
     domain = site_settings.get("domain")
-    # Use domain for config filename for uniqueness and clarity
-    if not domain: # Fallback if domain somehow missing
+    if not domain: # Fallback if domain missing
          domain = f"{site_path.name}.{config.SITE_TLD}"
          print(f"Nginx Manager Warning: Domain missing in settings, using default: {domain}")
-    config_filename = f"{domain}.conf"
+    config_filename = f"{domain}.conf" # Use domain for unique filename
     available_path = config.INTERNAL_SITES_AVAILABLE / config_filename
     enabled_path = config.INTERNAL_SITES_ENABLED / config_filename
 
-    # 2. Determine PHP Version and Socket Path
+    # Step 3: Determine PHP Version and Socket Path
     php_version_setting = site_settings.get("php_version", config.DEFAULT_PHP)
     php_version_to_use = None
     if php_version_setting == config.DEFAULT_PHP:
-        php_version_to_use = get_default_php_version() # Use helper function
+        php_version_to_use = get_default_php_version()
         if not php_version_to_use:
              msg = "Cannot configure site: No bundled PHP versions detected for default."
              print(f"Nginx Manager Error: {msg}")
              return False, msg
         print(f"Nginx Manager Info: Site '{domain}' uses default PHP, resolved to: {php_version_to_use}")
     else:
-        # TODO: Optionally check if site_settings['php_version'] is in detect_bundled_php_versions() ?
         php_version_to_use = php_version_setting
         print(f"Nginx Manager Info: Site '{domain}' configured for PHP version: {php_version_to_use}")
 
     php_socket_path = get_php_fpm_socket_path(php_version_to_use)
 
-    # 3. Ensure required PHP-FPM process is running
+    # Step 4: Ensure required PHP-FPM process is running
     print(f"Nginx Manager: Ensuring PHP-FPM {php_version_to_use} is running...")
-    # start_php_fpm returns True if already running or successfully started
-    if not start_php_fpm(php_version_to_use):
+    # start_php_fpm returns True if already running or launch command succeeded
+    php_started_ok = start_php_fpm(php_version_to_use)
+    if not php_started_ok:
+        # Note: start_php_fpm already prints detailed errors if launch fails
         msg = f"Failed to start required PHP-FPM version {php_version_to_use}. Cannot configure site."
-        print(f"Nginx Manager Error: {msg}")
+        # print(f"Nginx Manager Error: {msg}") # Redundant logging? php_manager logged it.
         return False, msg
-    print(f"Nginx Manager Info: PHP-FPM {php_version_to_use} is running or start command issued.")
+    print(f"Nginx Manager Info: PHP-FPM {php_version_to_use} start command issued or already running.")
 
-    # 4. Generate Nginx Config (passes full site_info dict for HTTPS check etc.)
+    # Step 5: Generate Nginx Config string (handles HTTPS based on site_settings)
     config_content = generate_site_config(site_settings, php_socket_path)
     if not config_content:
-        msg = f"Failed to generate Nginx config for '{domain}'"
+        msg = f"Failed to generate Nginx config content for '{domain}'"
         print(f"Nginx Manager Error: {msg}")
         return False, msg
 
-    # 5. Write config and symlink (as user)
+    # Step 6: Write config file and create/update symlink
     try:
         print(f"Nginx Manager: Writing config to {available_path}")
-        # Ensure parent directory exists
         available_path.parent.mkdir(parents=True, exist_ok=True)
-        # Write content
         available_path.write_text(config_content, encoding='utf-8')
         os.chmod(available_path, 0o644) # Set standard permissions
         print("Nginx Manager: Config file written.")
 
         link_created = False
-        # Ensure parent directory exists
         enabled_path.parent.mkdir(parents=True, exist_ok=True)
         if enabled_path.is_symlink():
-            # If link exists, check if it points to the right file
             if os.readlink(enabled_path) != str(available_path):
-                enabled_path.unlink() # Remove wrong link
-                os.symlink(available_path, enabled_path) # Create correct link
-                link_created = True
+                enabled_path.unlink()
+                os.symlink(available_path, enabled_path); link_created = True
         elif enabled_path.exists():
-             # It exists but isn't a symlink, remove it and link
-             print(f"Nginx Manager Warning: Removing unexpected file at {enabled_path}")
+             print(f"Nginx Manager Warning: Removing unexpected non-symlink file at {enabled_path}")
              enabled_path.unlink()
-             os.symlink(available_path, enabled_path)
-             link_created = True
+             os.symlink(available_path, enabled_path); link_created = True
         else:
-            # Link doesn't exist, create it
-            os.symlink(available_path, enabled_path)
-            link_created = True
+            os.symlink(available_path, enabled_path); link_created = True
 
         if link_created: print(f"Nginx Manager: Symlink created/verified: {enabled_path}")
         else: print(f"Nginx Manager: Symlink already exists correctly: {enabled_path}")
 
     except Exception as e:
-        msg = f"Nginx file operation failed during install for {domain}: {e}"
+        msg = f"Nginx file operation failed for {domain}: {e}"
         print(f"Nginx Manager Error: {msg}")
-        # Clean up potentially created files?
-        available_path.unlink(missing_ok=True)
-        # Don't try to remove symlink again if unlink failed above
+        available_path.unlink(missing_ok=True) # Attempt cleanup
         return False, msg
     # --- End file operations ---
 
-    # 6. Reload Internal Nginx (using process_manager/os.kill)
+    # Step 7: Reload Internal Nginx
     print("Nginx Manager: Triggering internal Nginx reload...")
-    success_reload, msg_reload = reload_internal_nginx()
+    success_reload, msg_reload = reload_internal_nginx() # Uses process_manager+os.kill
+
     if not success_reload:
-         # If reload fails, the config files are written but Nginx isn't using them yet.
-         msg = f"Site '{domain}' configured but Nginx reload failed: {msg_reload}"
+         # If reload fails, the config files are written but Nginx isn't using them.
+         msg = f"Site '{domain}' configured BUT Nginx reload failed: {msg_reload}"
          print(f"Nginx Manager Warning: {msg}")
-         # Should this return True or False? Let's return True but with a warning message.
-         return True, msg
+         return False, msg # Treat reload failure as overall failure for install task
     else:
         https_msg = " with HTTPS" if site_settings.get("https") else ""
-        msg = f"Site '{domain}' (PHP {php_version_to_use}{https_msg}) configured and Nginx reloaded successfully."
+        msg = f"Site '{domain}' (PHP {php_version_to_use}{https_msg}) configured and Nginx reloaded."
         print(f"Nginx Manager Info: {msg}")
-        return True, msg
+        return True, msg # Final success
 
 def uninstall_nginx_site(site_path_str):
     """Removes internal Nginx site config/symlink and reloads."""
