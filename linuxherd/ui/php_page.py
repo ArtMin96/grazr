@@ -85,30 +85,77 @@ class PhpPage(QWidget):
         self.save_ini_button.clicked.connect(self.on_save_ini_internal_click)
 
     def _add_version_to_table(self, version, status):
-        """Helper method to add a row to the PHP table."""
-        # (Implementation unchanged)
-        row = self.php_table.rowCount(); self.php_table.insertRow(row)
-        self.php_table.setItem(row, 0, QTableWidgetItem(version)); self.php_table.item(row, 0).setTextAlignment(Qt.AlignCenter)
-        status_item = QTableWidgetItem(status.capitalize()); status_item.setTextAlignment(Qt.AlignCenter)
-        if status == "running": status_item.setForeground(Qt.darkGreen)
-        elif status == "stopped": status_item.setForeground(Qt.darkRed)
-        else: status_item.setForeground(Qt.darkGray)
-        self.php_table.setItem(row, 1, status_item)
-        fpm_action_widget = QWidget(); action_layout = QHBoxLayout(fpm_action_widget)
-        action_layout.setContentsMargins(5, 2, 5, 2); action_layout.setSpacing(5)
-        start_button = QPushButton("Start"); start_button.setToolTip(f"Start FPM {version}")
-        stop_button = QPushButton("Stop"); stop_button.setToolTip(f"Stop FPM {version}")
+        """Helper method to add a row to the PHP table for a specific version."""
+        row_position = self.php_table.rowCount()
+        self.php_table.insertRow(row_position)
+
+        # Column 0: Version Item
+        version_item = QTableWidgetItem(version)
+        version_item.setTextAlignment(Qt.AlignCenter)
+        self.php_table.setItem(row_position, 0, version_item)
+
+        # Column 1: Status Item
+        status_text = status.capitalize()
+        status_item = QTableWidgetItem(status_text)
+        status_item.setTextAlignment(Qt.AlignCenter)
+        # Set color based on status
+        if status == "running" or status == "active": # Check both just in case
+            status_item.setForeground(Qt.darkGreen)
+        elif status == "stopped" or status == "inactive":
+             status_item.setForeground(Qt.darkRed)
+        else: # unknown, error, etc.
+            status_item.setForeground(Qt.darkGray)
+        self.php_table.setItem(row_position, 1, status_item)
+
+        # Column 2: FPM Actions (Buttons in a Widget/Layout)
+        fpm_action_widget = QWidget()
+        action_layout = QHBoxLayout(fpm_action_widget)
+        action_layout.setContentsMargins(5, 2, 5, 2) # Minimal margins
+        action_layout.setSpacing(5)
+
+        start_button = QPushButton("Start")
+        stop_button = QPushButton("Stop")
+        start_button.setToolTip(f"Start PHP-FPM {version}")
+        stop_button.setToolTip(f"Stop PHP-FPM {version}")
+
+        # Connect buttons to the internal slot that emits the page signal
         start_button.clicked.connect(lambda checked=False, v=version: self.emit_manage_fpm_signal(v, "start"))
         stop_button.clicked.connect(lambda checked=False, v=version: self.emit_manage_fpm_signal(v, "stop"))
-        start_button.setEnabled(status == "stopped"); stop_button.setEnabled(status == "running")
-        action_layout.addStretch(); action_layout.addWidget(start_button); action_layout.addWidget(stop_button); action_layout.addStretch()
-        self.php_table.setCellWidget(row, 2, fpm_action_widget)
-        config_widget = QWidget(); config_layout = QHBoxLayout(config_widget)
-        config_layout.setContentsMargins(5, 2, 5, 2); config_layout.setSpacing(5)
-        edit_ini_button = QPushButton("Edit php.ini"); edit_ini_button.setToolTip(f"Open php.ini for PHP {version}")
+
+        # Enable/disable buttons based on status
+        start_button.setEnabled(status == "stopped" or status == "inactive") # Enable Start if stopped/inactive
+        stop_button.setEnabled(status == "running" or status == "active") # Enable Stop if running/active
+
+        # --- Add Debug Print ---
+        print(f"DEBUG: PHP {version} - Status='{status}', StartEnabled={start_button.isEnabled()}, StopEnabled={stop_button.isEnabled()}")
+        # --- End Debug Print ---
+
+        action_layout.addStretch() # Push buttons to the center/right
+        action_layout.addWidget(start_button)
+        action_layout.addWidget(stop_button)
+        action_layout.addStretch()
+
+        self.php_table.setCellWidget(row_position, 2, fpm_action_widget) # Column index 2
+
+        # Column 3: Config Actions (Edit INI)
+        config_widget = QWidget()
+        config_layout = QHBoxLayout(config_widget)
+        config_layout.setContentsMargins(5, 2, 5, 2)
+        config_layout.setSpacing(5)
+
+        edit_ini_button = QPushButton("Edit php.ini")
+        edit_ini_button.setToolTip(f"Open php.ini for PHP {version} in default editor")
+        # Connect directly to the slot within this page
         edit_ini_button.clicked.connect(lambda checked=False, v=version: self.on_edit_ini_clicked(v))
+        # This button is always enabled if the version exists
+        edit_ini_button.setEnabled(True)
+
         config_layout.addStretch(); config_layout.addWidget(edit_ini_button); config_layout.addStretch()
-        self.php_table.setCellWidget(row, 3, config_widget)
+        self.php_table.setCellWidget(row_position, 3, config_widget) # Column index 3
+
+        # Optional: Adjust row height to ensure buttons fit nicely
+        self.php_table.resizeRowToContents(row_position)
+        # Or set a fixed height: self.php_table.setRowHeight(row_position, 35)
 
     @Slot(str, str)
     def emit_manage_fpm_signal(self, version, action): # (Unchanged)

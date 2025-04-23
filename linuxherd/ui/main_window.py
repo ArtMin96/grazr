@@ -47,73 +47,106 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"{config.APP_NAME} (Alpha)")
-        self.setGeometry(100, 100, 800, 600)
 
-        # --- Main Layout, Sidebar, Content Area, Log Area ---
-        # (Setup unchanged from previous version)
-        main_widget = QWidget();
-        main_h_layout = QHBoxLayout(main_widget);
-        main_h_layout.setContentsMargins(0, 0, 0, 0);
+        self.setWindowTitle(f"{config.APP_NAME} (Alpha)") # Use config
+        self.setGeometry(100, 100, 850, 650)
+
+        # --- Main Layout ---
+        main_widget = QWidget()
+        # It's good practice to give the main container an object name too
+        main_widget.setObjectName("main_widget")
+        main_h_layout = QHBoxLayout(main_widget)
+        main_h_layout.setContentsMargins(0,0,0,0)
         main_h_layout.setSpacing(0)
-        self.sidebar = QListWidget();
-        self.sidebar.setFixedWidth(180);
-        self.sidebar.setViewMode(QListWidget.ListMode);
-        self.sidebar.setSpacing(5);
-        self.sidebar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding);
-        self.sidebar.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded);
-        self.sidebar.setStyleSheet("...");  # Keep stylesheet
-        self.sidebar.addItem(QListWidgetItem("Services"));
-        self.sidebar.addItem(QListWidgetItem("PHP"));
-        self.sidebar.addItem(QListWidgetItem("Sites"));
-        main_h_layout.addWidget(self.sidebar)
-        content_v_layout = QVBoxLayout();
-        content_v_layout.setContentsMargins(15, 15, 15, 15);
-        self.stacked_widget = QStackedWidget();
-        content_v_layout.addWidget(self.stacked_widget, 1)
-        self.services_page = ServicesPage(self);
-        self.php_page = PhpPage(self);
-        self.sites_page = SitesPage(self)
-        self.stacked_widget.addWidget(self.services_page);
-        self.stacked_widget.addWidget(self.php_page);
-        self.stacked_widget.addWidget(self.sites_page)
-        log_label = QLabel("Log / Output:");
-        log_label.setFont(QFont("Sans Serif", 10, QFont.Bold));
-        self.log_text_area = QTextEdit();
-        self.log_text_area.setReadOnly(True);
-        self.log_text_area.setFont(QFont("Monospace", 9));
-        self.log_text_area.setMaximumHeight(120)
-        content_v_layout.addWidget(log_label);
-        content_v_layout.addWidget(self.log_text_area);
-        main_h_layout.addLayout(content_v_layout);
-        self.setCentralWidget(main_widget)
+        self.setCentralWidget(main_widget) # Set central widget early
 
-        # --- Setup Worker Thread --- (Unchanged)
-        self.thread = QThread(self);
-        self.worker = Worker();
-        self.worker.moveToThread(self.thread);
-        self.triggerWorker.connect(self.worker.doWork);
-        self.worker.resultReady.connect(self.handleWorkerResult);
-        self.thread.finished.connect(self.worker.deleteLater);
-        self.thread.finished.connect(self.thread.deleteLater);
+        # --- Sidebar ---
+        self.sidebar = QListWidget()
+        self.sidebar.setObjectName("sidebar") # <<< SET OBJECT NAME EARLY
+        self.sidebar.setFixedWidth(180)
+        self.sidebar.setViewMode(QListWidget.ListMode)
+        self.sidebar.setSpacing(5)
+        self.sidebar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.sidebar.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # Stylesheet is applied globally in main.py now
+        # self.sidebar.setStyleSheet("""...""") # REMOVED
+        self.sidebar.addItem(QListWidgetItem("Services")) # Index 0
+        self.sidebar.addItem(QListWidgetItem("PHP"))      # Index 1
+        self.sidebar.addItem(QListWidgetItem("Sites"))    # Index 2
+        main_h_layout.addWidget(self.sidebar)
+
+        # --- Content Area Container ---
+        content_container = QWidget()
+        content_container.setObjectName("content_container") # Name for styling
+        content_v_layout = QVBoxLayout(content_container)
+        content_v_layout.setContentsMargins(20, 15, 15, 10) # Padding inside content area
+        content_v_layout.setSpacing(15)
+
+        # --- Stacked Widget for Pages ---
+        self.stacked_widget = QStackedWidget()
+        content_v_layout.addWidget(self.stacked_widget, 1) # Stack stretches
+
+        # --- Create Page Instances --- (Separate Lines)
+        self.services_page = ServicesPage(self)
+        self.php_page = PhpPage(self)
+        self.sites_page = SitesPage(self)
+
+        # --- Add Pages to Stacked Widget ---
+        self.stacked_widget.addWidget(self.services_page) # Index 0
+        self.stacked_widget.addWidget(self.php_page)      # Index 1
+        self.stacked_widget.addWidget(self.sites_page)     # Index 2
+
+        # --- Log Area ---
+        log_frame = QFrame()
+        log_frame.setObjectName("log_frame") # Name for styling
+        log_frame.setFrameShape(QFrame.StyledPanel) # Use Panel for potential border from QSS
+        log_frame.setFrameShadow(QFrame.Sunken) # Example shadow
+        log_layout = QVBoxLayout(log_frame)
+        log_layout.setContentsMargins(5, 5, 5, 5)
+        log_label = QLabel("Log / Output:")
+        log_label.setObjectName("log_label")
+        log_layout.addWidget(log_label)
+        self.log_text_area = QTextEdit()
+        self.log_text_area.setObjectName("log_area") # <<< SET OBJECT NAME
+        self.log_text_area.setReadOnly(True)
+        self.log_text_area.setFixedHeight(100)
+        log_layout.addWidget(self.log_text_area)
+        content_v_layout.addWidget(log_frame) # Add frame to main content layout
+
+        # --- Add Content Area to Main Layout ---
+        main_h_layout.addWidget(content_container, 1) # Content takes stretch
+
+        # --- Setup Worker Thread ---
+        self.thread = QThread(self)
+        self.worker = Worker()
+        self.worker.moveToThread(self.thread)
+        self.triggerWorker.connect(self.worker.doWork)
+        self.worker.resultReady.connect(self.handleWorkerResult)
+        print("MAIN_WINDOW DEBUG: Connected worker.resultReady signal.") # Debug print
+        # Connect thread cleanup signals
+        self.thread.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
         self.thread.start()
 
-        # --- Connect Signals --- (Unchanged - connections remain the same)
+        # --- Connect Signals ---
         self.sidebar.currentRowChanged.connect(self.change_page)
         self.services_page.serviceActionTriggered.connect(self.on_service_action_triggered)
-        self.sites_page.linkDirectoryClicked.connect(self.add_site_dialog);
-        self.sites_page.unlinkSiteClicked.connect(self.remove_selected_site);
-        self.sites_page.saveSiteDomainClicked.connect(self.on_save_site_domain);
-        self.sites_page.setSitePhpVersionClicked.connect(self.on_set_site_php_version);
-        self.sites_page.enableSiteSslClicked.connect(self.on_enable_site_ssl);
+        self.sites_page.linkDirectoryClicked.connect(self.add_site_dialog)
+        self.sites_page.unlinkSiteClicked.connect(self.remove_selected_site)
+        self.sites_page.saveSiteDomainClicked.connect(self.on_save_site_domain)
+        self.sites_page.setSitePhpVersionClicked.connect(self.on_set_site_php_version)
+        self.sites_page.enableSiteSslClicked.connect(self.on_enable_site_ssl)
         self.sites_page.disableSiteSslClicked.connect(self.on_disable_site_ssl)
-        self.php_page.managePhpFpmClicked.connect(self.on_manage_php_fpm_triggered);
+        self.php_page.managePhpFpmClicked.connect(self.on_manage_php_fpm_triggered)
         self.php_page.saveIniSettingsClicked.connect(self.on_save_php_ini_settings)
 
+        # --- Apply Stylesheet ---
+        # self.apply_styles() # REMOVED - Styles applied globally in main.py
+
         # --- Initial State Setup ---
-        self.log_message("Application starting...");
+        self.log_message("Application starting...")
         self.log_message("UI Structure Initialized.")
-        self.sidebar.setCurrentRow(0)  # Triggers refresh_current_page -> refresh_data on ServicesPage
+        self.sidebar.setCurrentRow(0)
 
     # --- Navigation Slot ---
     @Slot(int)

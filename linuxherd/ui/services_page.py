@@ -40,6 +40,7 @@ class ServicesPage(QWidget):
 
         # --- Internal Services Group ---
         internal_group = QFrame(); internal_group.setFrameShape(QFrame.StyledPanel)
+        internal_group.setObjectName("ServiceGroupFrame")
         internal_layout = QVBoxLayout(internal_group)
         internal_layout.setContentsMargins(10, 10, 10, 10)
         internal_title = QLabel("Managed Services:"); internal_title.setFont(QFont("Sans Serif", 10, QFont.Bold))
@@ -55,6 +56,7 @@ class ServicesPage(QWidget):
 
         # --- System Services Status (Informational Only) ---
         system_group = QFrame(); system_group.setFrameShape(QFrame.StyledPanel)
+        system_group.setObjectName("ServiceGroupFrame")
         system_layout = QVBoxLayout(system_group)
         system_layout.setContentsMargins(10, 10, 10, 10)
         system_title = QLabel("System Services (Informational):"); system_title.setFont(QFont("Sans Serif", 10, QFont.Bold))
@@ -62,6 +64,8 @@ class ServicesPage(QWidget):
 
         # Simple Display for System Dnsmasq Status <<< CHANGED
         self.system_dnsmasq_status_label = QLabel("System Dnsmasq: Unknown")
+        self.system_dnsmasq_status_label.setObjectName("StatusLabel")
+        self.system_dnsmasq_status_label.setProperty("status", "unknown")
         self.system_dnsmasq_status_label.setFont(QFont("Sans Serif", 10))
         self.system_dnsmasq_status_label.setStyleSheet("padding: 5px; border: 1px solid lightgrey; border-radius: 3px;")
         self.system_dnsmasq_status_label.setToolTip("Status of the system-wide dnsmasq.service (if installed). LinuxHerd uses systemd-resolved for .test domains.")
@@ -91,13 +95,19 @@ class ServicesPage(QWidget):
         else:
             self.log_to_main(f"ServicesPage Warning: Could not find widget for service_id '{service_id}'")
 
-    @Slot(str, str)  # Receives status_text ("Active", "Inactive", "Not Found", etc.), style_sheet_extra
+    @Slot(str, str)
     def update_system_dnsmasq_status_display(self, status_text, style_sheet_extra):
-        """Updates the label showing the system dnsmasq status."""
-        self.log_to_main(f"ServicesPage: Updating system Dnsmasq display: '{status_text}'")
-        self.system_dnsmasq_status_label.setText(f"System Dnsmasq: {status_text}")
-        base_style = "padding: 5px; border: 1px solid lightgrey; border-radius: 3px;"
-        self.system_dnsmasq_status_label.setStyleSheet(f"{base_style} {style_sheet_extra}")
+        # ... (set label text) ...
+        # Set property for QSS styling based on raw status
+        raw_status = status_text.replace(' ', '_').lower()  # e.g. "Not found" -> "not_found"
+        self.system_dnsmasq_status_label.setProperty("status", raw_status)
+        # Re-apply style sheet to force property update evaluation (needed?)
+        self.system_dnsmasq_status_label.setStyleSheet(
+            self.system_dnsmasq_status_label.styleSheet())  # Or set directly?
+        # Setting style sheet directly might be better if property selector doesn't work dynamically
+        base_style = "padding: 5px; border-radius: 3px; font-weight: bold;"  # Example base
+        final_style = f"{base_style} {style_sheet_extra}"  # Append calculated background
+        self.system_dnsmasq_status_label.setStyleSheet(final_style)
 
     # Optional: Method to update detail text if needed later
     @Slot(str, str)

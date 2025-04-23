@@ -3,7 +3,10 @@
 # Current time is Sunday, April 20, 2025 at 2:09:10 PM +04.
 
 import sys
+from pathlib import Path
+
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
 
 # Import the main window class from the UI module
 try:
@@ -23,21 +26,52 @@ except ImportError as e:
       print(f"ERROR: Cannot import MainWindow - {e}")
       sys.exit(1)
 
+# Optional: Global Exception Hook (Useful for debugging UI errors)
+def global_exception_hook(exctype, value, tb):
+    """Catches unhandled exceptions and prints them."""
+    print("--- Unhandled Exception ---")
+    import traceback
+    traceback.print_exception(exctype, value, tb)
+    print("---------------------------")
+    # Call the default handler afterwards
+    sys.__excepthook__(exctype, value, tb)
+# Set the global hook (Uncomment to enable)
+# sys.excepthook = global_exception_hook
 
-# Application Execution Guard
+# --- Function to Load Stylesheet ---
+def load_stylesheet():
+    """Loads the QSS file."""
+    style_path = Path(__file__).parent / "ui" / "style.qss" # Path relative to main.py
+    if style_path.is_file():
+        try:
+            with open(style_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            print(f"Error loading stylesheet {style_path}: {e}")
+            return "" # Return empty string on error
+    else:
+        print(f"Warning: Stylesheet not found at {style_path}")
+        return "" # Return empty string if file missing
+
+
+# --- Main Application Execution ---
 if __name__ == "__main__":
     # Create the Qt Application
     app = QApplication(sys.argv)
+    # Set application info (optional)
+    app.setOrganizationName("LinuxHerd") # Replace as needed
+    app.setApplicationName("LinuxHerd Helper")
 
-    # Create the main window instance
-    window = MainWindow()
+    # --- Load and Apply Stylesheet --- <<< ADD THIS
+    style_sheet_content = load_stylesheet()
+    if style_sheet_content:
+        app.setStyleSheet(style_sheet_content)
+        print("Applied global stylesheet.")
+    # --- End Apply Stylesheet ---
 
-    # Connect aboutToQuit signal AFTER app and window exist
-    # This ensures the worker thread is stopped when the app exits
-    app.aboutToQuit.connect(window.thread.quit)
-
-    # Show the main window
+    # Create and Show the Main Window
+    window = MainWindow() # Assumes qApp.aboutToQuit is connected inside main.py or MainWindow
     window.show()
 
-    # Start the Qt Event Loop
+    # Start the Qt event loop
     sys.exit(app.exec())
