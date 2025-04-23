@@ -41,6 +41,7 @@ class PhpPage(QWidget):
     managePhpFpmClicked = Signal(str, str)
     # Signal: version_string, settings_dict ({key: value_str})
     saveIniSettingsClicked = Signal(str, dict)
+    showExtensionsDialog = Signal(str)
 
     def __init__(self, parent=None):
         """Initializes the PHP management page UI."""
@@ -144,13 +145,21 @@ class PhpPage(QWidget):
         config_layout.setSpacing(5)
 
         edit_ini_button = QPushButton("Edit php.ini")
-        edit_ini_button.setToolTip(f"Open php.ini for PHP {version} in default editor")
-        # Connect directly to the slot within this page
+        edit_ini_button.setToolTip(f"Open php.ini for PHP {version}")
         edit_ini_button.clicked.connect(lambda checked=False, v=version: self.on_edit_ini_clicked(v))
-        # This button is always enabled if the version exists
         edit_ini_button.setEnabled(True)
 
-        config_layout.addStretch(); config_layout.addWidget(edit_ini_button); config_layout.addStretch()
+        extensions_button = QPushButton("Extensions...")  # <<< NEW BUTTON
+        extensions_button.setToolTip(f"Manage enabled extensions for PHP {version}")
+        # Connect to a slot that emits the new signal to MainWindow
+        extensions_button.clicked.connect(lambda checked=False, v=version: self.showExtensionsDialog.emit(v))
+        extensions_button.setEnabled(True)
+
+        # Add buttons to layout
+        config_layout.addWidget(edit_ini_button)
+        config_layout.addWidget(extensions_button)
+        config_layout.addStretch()
+
         self.php_table.setCellWidget(row_position, 3, config_widget) # Column index 3
 
         # Optional: Adjust row height to ensure buttons fit nicely

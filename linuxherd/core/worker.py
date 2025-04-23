@@ -12,6 +12,7 @@ try:
     from ..managers.nginx_manager import install_nginx_site, uninstall_nginx_site
     from ..managers.nginx_manager import start_internal_nginx, stop_internal_nginx
     from ..managers.php_manager import start_php_fpm, stop_php_fpm, restart_php_fpm
+    from ..managers.php_manager import enable_extension, disable_extension
     from ..managers.php_manager import set_ini_value
     from ..managers.site_manager import update_site_settings, remove_site, get_site_settings
     from ..managers.ssl_manager import generate_certificate, delete_certificate
@@ -28,6 +29,8 @@ except ImportError as e:
     def stop_php_fpm(*args, **kwargs): return True
     def restart_php_fpm(*args, **kwargs): return False
     def set_ini_value(*args, **kwargs): return False
+    def enable_extension(*args, **kwargs): return False, "Not Imported"
+    def disable_extension(*args, **kwargs): return False,
     def update_site_settings(*args, **kwargs): return False
     def remove_site(*args, **kwargs): return False
     def get_site_settings(*args, **kwargs): return None
@@ -259,6 +262,23 @@ class Worker(QObject):
                         if not ngx_ok: ok = False
                         else: results.append("Nginx:OK")
                         success = ok; message = f"Disable SSL: {'|'.join(results)}"
+
+            if task_name == "toggle_php_extension":
+                version = data.get("version")
+                ext_name = data.get("extension_name")
+                enable_state = data.get("enable_state")  # True to enable, False to disable
+
+                if not version or not ext_name or enable_state is None:
+                    success = False;
+                    message = "Missing data for toggle_php_extension task."
+                else:
+                    action_word = "Enabling" if enable_state else "Disabling"
+                    print(f"WORKER: {action_word} extension '{ext_name}' for PHP {version}...")
+                    if enable_state:
+                        success, message = enable_extension(version, ext_name)
+                    else:
+                        success, message = disable_extension(version, ext_name)
+                    print(f"WORKER: {action_word} task returned: success={success}, msg='{message}'")
 
 
             elif task_name == "run_helper":

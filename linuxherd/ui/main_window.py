@@ -28,8 +28,13 @@ try:
     # system_utils might still be needed if check_service_status is used for conflicts
     from ..core.system_utils import check_service_status
     from ..core.config import SYSTEM_DNSMASQ_SERVICE_NAME
+    from .php_extensions_dialog import PhpExtensionsDialog
 except ImportError as e:
     print(f"ERROR in main_window.py: Could not import core/manager modules - {e}")
+
+    class PhpExtensionsDialog(QWidget):
+        pass  # Dummy
+
     sys.exit(1)
 
 # --- Import Page Widgets ---
@@ -139,6 +144,9 @@ class MainWindow(QMainWindow):
         self.sites_page.disableSiteSslClicked.connect(self.on_disable_site_ssl)
         self.php_page.managePhpFpmClicked.connect(self.on_manage_php_fpm_triggered)
         self.php_page.saveIniSettingsClicked.connect(self.on_save_php_ini_settings)
+        self.php_page.managePhpFpmClicked.connect(self.on_manage_php_fpm_triggered)
+        self.php_page.saveIniSettingsClicked.connect(self.on_save_php_ini_settings)
+        self.php_page.showExtensionsDialog.connect(self.on_show_extensions_dialog)
 
         # --- Apply Stylesheet ---
         # self.apply_styles() # REMOVED - Styles applied globally in main.py
@@ -215,6 +223,23 @@ class MainWindow(QMainWindow):
         elif task_name in ["start_php_fpm", "stop_php_fpm", "save_php_ini"]:
             if isinstance(target_page, PhpPage): QTimer.singleShot(100, target_page.refresh_data)  # Refresh PHP page
 
+        if task_name == "toggle_php_extension":  # <<< ADDED BLOCK
+            # This task affects the Extensions Dialog if it's open
+            version = context_data.get("version")
+            ext_name = context_data.get("extension_name")
+            if version and ext_name and self.current_extension_dialog and self.current_extension_dialog.isVisible():
+                if hasattr(self.current_extension_dialog, 'update_extension_state'):
+                    print(f"MAIN_WINDOW: Calling dialog.update_extension_state for {ext_name}")
+                    self.current_extension_dialog.update_extension_state(version, ext_name, success)
+                else:
+                    print("MAIN_WINDOW Warning: Current extension dialog missing update_extension_state method.")
+            else:
+                print("MAIN_WINDOW Info: Extension dialog not open or context missing, skipping dialog update.")
+            # Also refresh the main PHP page in case FPM status affects something there indirectly?
+            # target_page = self.php_page # Set target for control re-enabling
+            # if isinstance(target_page, PhpPage): QTimer.singleShot(100, target_page.refresh_data)
+            # Let's skip refreshing main PhpPage for now, dialog handles its own state update.
+
         # Re-enable controls on the relevant page after task completion
         if target_page and hasattr(target_page, 'set_controls_enabled'):
             QTimer.singleShot(200, lambda: target_page.set_controls_enabled(True))
@@ -226,7 +251,8 @@ class MainWindow(QMainWindow):
     def add_site_dialog(self): # Uses managers.site_manager.add_site
         # (Unchanged - Syntax corrected)
         start_dir=str(Path.home()); sel_dir=QFileDialog.getExistingDirectory(self,"Select Dir",start_dir);
-        if not sel_dir: self.log_message("Add cancelled."); return; self.log_message(f"Linking {sel_dir}")
+        if not sel_dir: self.log_message("Add cancelled."); return
+        self.log_message(f"Linking {sel_dir}")
         success_add = add_site(sel_dir) # From managers.site_manager
         if not success_add:
             # ... (failure handling code - unchanged) ...
@@ -265,6 +291,56 @@ class MainWindow(QMainWindow):
             print(f"DEBUG: Emitting triggerWorker: install_nginx, {task_data}")  # <<< ADD
             self.triggerWorker.emit("install_nginx", task_data)
             print("DEBUG: triggerWorker emitted.")
+
+    # Slot connected to php_page.showExtensionsDialog
+    @Slot(str)
+    def on_show_extensions_dialog(self, version):
+        """Creates and shows the dialog to manage extensions for a PHP version."""
+        self.log_message(f"Opening extensions dialog for PHP {version}...")
+        try:
+            # Create the dialog instance, passing the version and parent
+            # Store a reference to it while it's open
+            self.current_extension_dialog = PhpExtensionsDialog(version, self)
+            # Connect the dialog's signal to trigger the worker <<< CONNECT HERE
+            self.current_extension_dialog.toggleExtensionRequested.connect(self.on_toggle_php_extension)
+            # Connect the dialog's finished signal to clear the reference
+            self.current_extension_dialog.finished.connect(self.on_extensions_dialog_closed)
+
+            self.current_extension_dialog.exec()  # Show dialog modally
+
+        except Exception as e:
+            self.log_message(f"Error opening extensions dialog for PHP {version}: {e}")
+            import traceback;
+            traceback.print_exc()
+            self.current_extension_dialog = None  # Ensure reset on error
+
+    # NEW Slot connected to dialog's finished signal
+    @Slot(int)
+    def on_extensions_dialog_closed(self, result):
+        """Clears the reference when the dialog closes."""
+        self.log_message(f"Extensions dialog closed with result: {result}")
+        self.current_extension_dialog = None
+        # Optionally refresh main PHP page now
+        # if isinstance(self.stacked_widget.currentWidget(), PhpPage):
+        #      self.php_page.refresh_data()
+
+    # NEW Slot connected to dialog's toggleExtensionRequested <<< ADDED THIS
+    @Slot(str, str, bool)  # Receives version, ext_name, enable_state
+    def on_toggle_php_extension(self, version, ext_name, enable_state):
+        """Handles signal from PhpExtensionsDialog to enable/disable an extension."""
+        action_word = "enable" if enable_state else "disable"
+        self.log_message(f"Requesting background {action_word} for extension '{ext_name}' (PHP {version})...")
+
+        # Controls are disabled within the dialog by its on_extension_toggled slot
+
+        # Prepare data for worker
+        task_data = {
+            "version": version,
+            "extension_name": ext_name,
+            "enable_state": enable_state
+        }
+        # Trigger the new worker task
+        self.triggerWorker.emit("toggle_php_extension", task_data)
 
     @Slot(dict)
     def remove_selected_site(self, site_info):

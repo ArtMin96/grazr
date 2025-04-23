@@ -9,13 +9,14 @@ import shutil
 from pathlib import Path
 import time
 import configparser # For INI handling
-import signal # For stop_process signals if needed directly
-import tempfile # For atomic INI write
+import signal
+import tempfile
+import glob # For listing extensions
 
 # --- Import Core Modules ---
 try:
-    from ..core import process_manager
     from ..core import config # Import central config
+    from ..core import process_manager
 except ImportError as e:
     print(f"ERROR in php_manager.py: Could not import core modules: {e}")
     # Dummy imports/classes/constants if import fails
@@ -283,7 +284,218 @@ def restart_php_fpm(version):
     if start_ok: print(f"Restart OK for {process_id} (StopOK:{stop_ok})"); return True
     else: print(f"Restart FAILED for {process_id} (StopOK:{stop_ok})"); return False
 
-# --- Example Usage --- (Keep as is)
+def list_available_extensions(version):
+    """Lists potential extension base names found in the bundle directory."""
+    ext_dir = _get_php_extension_dir(version)
+    available = set()
+    if not ext_dir.is_dir():
+        print(f"PHP Manager Warning: Extension directory not found for {version}: {ext_dir}")
+        return []
+
+    print(f"PHP Manager: Scanning for extensions in {ext_dir}")
+    try:
+        # Use glob to find .so files, works better with Path object
+        for so_file in ext_dir.glob('*.so'):
+            # Extract base name, handle potential variations like 'pdo_mysql' vs 'pdo_mysql.so'
+            base_name = so_file.stem # 'pdo_mysql' from 'pdo_mysql.so'
+            # Optional: Add further validation? Check if actually loadable? Too complex for now.
+            available.add(base_name)
+    except Exception as e:
+        print(f"PHP Manager Error: Failed scanning extension directory {ext_dir}: {e}")
+
+    print(f"PHP Manager: Found available extensions for {version}: {sorted(list(available))}")
+    return sorted(list(available))
+
+
+def list_enabled_extensions(version):
+    """Parses the main php.ini to find currently enabled extensions."""
+    ini_path = _get_php_ini_path(version)
+    enabled = set()
+    # Ensure config exists, otherwise parsing is pointless
+    if not ensure_php_fpm_config(version) or not ini_path.is_file():
+        print(f"PHP Manager Warning: Cannot read INI for {version} to find enabled extensions.")
+        return []
+
+    print(f"PHP Manager: Parsing {ini_path} for enabled extensions...")
+    try:
+        # Simple line-by-line parsing is often safer for finding enabled extensions
+        # as configparser might struggle with duplicate 'extension=' keys if user edited badly.
+        # Regex: starts with optional whitespace, 'extension', whitespace, '=', whitespace,
+        # optional quote, CAPTURE NAME (alphanum, _, -), optional '.so', optional quote,
+        # optional whitespace, optional ';' comment
+        # Allows formats like: extension=redis.so, extension=redis, extension = "redis", extension = pdo_mysql.so ; comment
+        pattern = re.compile(r'^\s*extension\s*=\s*"?([a-zA-Z0-9_-]+)(\.so)?"?\s*(?:;.*)?$')
+        with open(ini_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                match = pattern.match(line)
+                if match:
+                    enabled.add(match.group(1)) # Add the base name (e.g., 'redis')
+
+    except Exception as e:
+        print(f"PHP Manager Error: Failed parsing INI file {ini_path} for extensions: {e}")
+
+    print(f"PHP Manager: Found enabled extensions for {version}: {sorted(list(enabled))}")
+    return sorted(list(enabled))
+
+
+def _modify_extension_line(version, extension_name, enable=True):
+    """Helper to enable/disable an extension line in php.ini (atomic write)."""
+    ini_path = _get_php_ini_path(version)
+    # Ensure file exists
+    if not ensure_php_fpm_config(version) or not ini_path.is_file():
+        print(f"PHP Manager Error: php.ini file missing for {version}, cannot modify extension.")
+        return False
+
+    # Define patterns for commented and uncommented lines
+    # Allows for variation in spacing and optional .so suffix
+    target_line_base = f"{extension_name}" # Base name without .so for comparison
+    # Match uncommented: extension = name | extension = name.so
+    uncommented_pattern = re.compile(r"^\s*extension\s*=\s*\"?(" + re.escape(target_line_base) + r")(?:\.so)?\"?\s*(?:;.*)?$")
+    # Match commented: ; extension = name | ;extension=name.so | # extension=name etc.
+    commented_pattern = re.compile(r"^\s*[;#]+\s*extension\s*=\s*\"?(" + re.escape(target_line_base) + r")(?:\.so)?\"?\s*(?:;.*)?$")
+
+    made_change = False
+    new_lines = []
+    found_match = False # Did we find the line commented or uncommented?
+
+    try:
+        with open(ini_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        for line in lines:
+            stripped_line = line.strip()
+            uncommented_match = uncommented_pattern.match(stripped_line)
+            commented_match = commented_pattern.match(stripped_line)
+
+            if uncommented_match:
+                found_match = True
+                if enable:
+                    print(f"PHP Manager Info: Extension '{extension_name}' already enabled.")
+                    new_lines.append(line) # Keep as is
+                else:
+                    print(f"PHP Manager: Disabling extension '{extension_name}' by commenting out line.")
+                    new_lines.append(f";{line}") # Add semicolon comment
+                    made_change = True
+            elif commented_match:
+                found_match = True
+                if enable:
+                    print(f"PHP Manager: Enabling extension '{extension_name}' by uncommenting line.")
+                    # Try to intelligently uncomment based on original comment char
+                    first_char_index = -1
+                    for i, char in enumerate(line):
+                         if not char.isspace(): first_char_index = i; break
+                    if first_char_index != -1 and line[first_char_index] in ';#':
+                        new_lines.append(line[first_char_index+1:]) # Remove first comment char
+                    else: # Fallback - just add the line again if uncommenting failed
+                         new_lines.append(f"extension={extension_name}.so\n")
+                    made_change = True
+                else:
+                     print(f"PHP Manager Info: Extension '{extension_name}' already disabled.")
+                     new_lines.append(line) # Keep commented out
+            else:
+                new_lines.append(line) # Keep other lines
+
+        # If the extension was never found (commented or uncommented) and we want to enable it
+        if not found_match and enable:
+            print(f"PHP Manager: Extension '{extension_name}' not found in INI, adding.")
+            # Add to the end (or find [PHP] section?) - Add to end for simplicity
+            if new_lines and not new_lines[-1].endswith('\n'): new_lines.append('\n')
+            new_lines.append(f"extension={extension_name}.so\n")
+            made_change = True
+
+        # If no changes were made, no need to write the file
+        if not made_change:
+            print(f"PHP Manager Info: No INI changes needed for extension '{extension_name}' (Enable={enable}).")
+            return True # Report success as no action was needed
+
+        # Write changes back atomically if changes were made
+        print(f"PHP Manager: Writing INI changes for extension '{extension_name}' to {ini_path}")
+        temp_path_str = None
+        try:
+            fd, temp_path_str = tempfile.mkstemp(dir=ini_path.parent, prefix='php.ini.ext.tmp')
+            with os.fdopen(fd, 'w', encoding='utf-8') as temp_f:
+                temp_f.writelines(new_lines)
+            shutil.copystat(ini_path, temp_path_str)
+            os.replace(temp_path_str, ini_path)
+            temp_path_str = None
+            return True
+        except Exception as write_e:
+             print(f"PHP Manager Error: Failed writing INI update for extension '{extension_name}' v{version}: {write_e}")
+             return False
+        finally:
+             if temp_path_str and os.path.exists(temp_path_str): os.unlink(temp_path_str)
+
+    except Exception as e:
+        print(f"PHP Manager Error: Failed processing INI file {ini_path} for extension '{extension_name}': {e}")
+        return False
+
+def enable_extension(version, extension_name):
+    """Enables a bundled PHP extension by modifying config and restarting FPM."""
+    print(f"PHP Manager: Enabling extension '{extension_name}' for version {version}...")
+    # Check if extension file actually exists in bundle
+    ext_dir = _get_php_extension_dir(version)
+    expected_so = ext_dir / f"{extension_name}.so"
+    if not expected_so.is_file():
+         print(f"PHP Manager Error: Extension file '{extension_name}.so' not found in {ext_dir}. Cannot enable.")
+         # Maybe try list_available_extensions first?
+         if extension_name not in list_available_extensions(version):
+              return False, f"Extension '{extension_name}' not found in bundle."
+
+    # Modify INI to enable
+    success_modify = _modify_extension_line(version, extension_name, enable=True)
+    if not success_modify:
+         return False, f"Failed to modify php.ini for extension '{extension_name}'."
+
+    # Restart FPM
+    print(f"PHP Manager: Restarting FPM for version {version} to apply changes...")
+    success_restart = restart_php_fpm(version)
+    if not success_restart:
+         return False, f"Enabled extension '{extension_name}' in INI, but failed to restart PHP FPM {version}."
+
+    return True, f"Extension '{extension_name}' enabled and PHP FPM {version} restarted."
+
+
+def disable_extension(version, extension_name):
+    """Disables a PHP extension by modifying config and restarting FPM."""
+    print(f"PHP Manager: Disabling extension '{extension_name}' for version {version}...")
+    # Modify INI to disable
+    success_modify = _modify_extension_line(version, extension_name, enable=False)
+    if not success_modify:
+         # If modifying failed, maybe the line wasn't there anyway. Still try restart?
+         # Let's consider it a failure if we couldn't ensure it was disabled.
+         return False, f"Failed to modify php.ini for extension '{extension_name}'."
+
+    # Restart FPM
+    print(f"PHP Manager: Restarting FPM for version {version} to apply changes...")
+    success_restart = restart_php_fpm(version)
+    if not success_restart:
+         return False, f"Disabled extension '{extension_name}' in INI, but failed to restart PHP FPM {version}."
+
+    return True, f"Extension '{extension_name}' disabled and PHP FPM {version} restarted."
+
 if __name__ == "__main__":
-     # ...
-     pass
+     print("--- Testing PHP Manager Extension Functions ---")
+     test_versions = detect_bundled_php_versions()
+     if not test_versions:
+          print("No bundled PHP versions found to test.")
+     else:
+          test_v = test_versions[0]
+          print(f"\n--- Testing Version: {test_v} ---")
+          print(f"Available Extensions: {list_available_extensions(test_v)}")
+          print(f"Currently Enabled: {list_enabled_extensions(test_v)}")
+
+          # Example: Try enabling opcache (assuming opcache.so was bundled)
+          test_ext = "opcache" # Change this to an extension you bundled
+          if test_ext in list_available_extensions(test_v):
+               print(f"\nAttempting to ENABLE '{test_ext}'...")
+               ok, msg = enable_extension(test_v, test_ext)
+               print(f"Result: {ok} - {msg}")
+               print(f"Now Enabled: {list_enabled_extensions(test_v)}")
+
+               if ok:
+                    print(f"\nAttempting to DISABLE '{test_ext}'...")
+                    ok_dis, msg_dis = disable_extension(test_v, test_ext)
+                    print(f"Result: {ok_dis} - {msg_dis}")
+                    print(f"Now Enabled: {list_enabled_extensions(test_v)}")
+          else:
+               print(f"\nSkipping enable/disable test: '{test_ext}.so' not found in bundle for {test_v}.")
