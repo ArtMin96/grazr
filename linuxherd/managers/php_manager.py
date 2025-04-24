@@ -223,57 +223,158 @@ def get_php_fpm_socket_path(version):
 
 # --- INI Handling Functions --- (Implementations unchanged)
 def get_ini_value(version, key, section='PHP'):
-    # (Implementation unchanged)
-    ini_path = _get_php_ini_path(version);
-    if not ensure_php_fpm_config(version) or not ini_path.is_file(): return None
-    try:
-        cfg = configparser.ConfigParser(interpolation=None,comment_prefixes=(';','#'),allow_no_value=True); cfg.optionxform=str; cfg.read(ini_path,encoding='utf-8')
-        if cfg.has_option(section,key): return cfg.get(section,key)
-        else: return None
-    except Exception as e: print(f"Error reading INI v{version} key '{key}': {e}"); return None
-
-def set_ini_value(version, key, value, section='PHP'):
-    """Sets a value in the php.ini file for a specific version."""
+    """
+    Reads a specific single-value key from the internal php.ini.
+    Handles potential DuplicateOptionError from 'extension=' lines.
+    """
     ini_path = _get_php_ini_path(version)
+    # Ensure config exists first
     if not ensure_php_fpm_config(version) or not ini_path.is_file():
-        return False
+        print(f"PHP Manager Info: INI file missing for get_ini_value(v{version}, k='{key}')")
+        return None
 
     try:
-        cfg = configparser.ConfigParser(
+        # Still use ConfigParser but handle the specific error
+        config = configparser.ConfigParser(
             interpolation=None,
             comment_prefixes=(';', '#'),
-            allow_no_value=True
+            allow_no_value=True,
+            # strict=False, # strict=False is deprecated, handle error instead
         )
-        cfg.optionxform = str  # Preserve case
-        cfg.read(ini_path, encoding='utf-8')
+        config.optionxform = str # Preserve key case
+        config.read(ini_path, encoding='utf-8')
 
-        if not cfg.has_section(section):
-            cfg.add_section(section)
+        if config.has_option(section, key):
+            value = config.get(section, key)
+            # print(f"PHP Manager: Read [{section}]{key} = {value} from {ini_path}")
+            return value
+        else:
+            print(f"PHP Manager Info: Key '{key}' not found in section '[{section}]' of {ini_path}")
+            return None # Key not found
 
-        print(f"PHP Manager: Setting [{section}] {key}={value} in {ini_path}")
-        cfg.set(section, key, str(value))
-
-        tmp_path = None
-        fd, tmp_path = tempfile.mkstemp(dir=ini_path.parent, prefix='ini.tmp')
+    except configparser.DuplicateOptionError as e:
+        # This error is expected due to multiple 'extension=' lines.
+        # We can't reliably get *other* values using configparser if this happens early.
+        # For now, log a warning and return None. A better parser might be needed
+        # OR we manually parse for the specific key needed.
+        print(f"PHP Manager Warning: configparser hit duplicate keys (likely 'extension') "
+              f"reading {ini_path} while looking for '{key}'. Error: {e}")
+        print(f"PHP Manager Attempting manual search for '{key}'...")
+        # Try manual search as fallback
         try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                cfg.write(f, space_around_delimiters=False)
-
-            shutil.copystat(ini_path, tmp_path)
-            os.replace(tmp_path, ini_path)
-            tmp_path = None  # Mark as replaced
-            return True
-
-        except Exception as e:
-            print(f"Error writing INI v{version} key '{key}': {e}")
-            return False
-
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+            pattern = re.compile(r"^\s*" + re.escape(key) + r"\s*=\s*(.*?)(\s*;.*)?$", re.IGNORECASE)
+            with open(ini_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    match = pattern.match(line)
+                    if match:
+                         found_value = match.group(1).strip()
+                         print(f"PHP Manager: Manually found {key} = {found_value}")
+                         return found_value
+            print(f"PHP Manager Info: Key '{key}' not found manually either.")
+            return None # Not found manually either
+        except Exception as manual_e:
+             print(f"PHP Manager Error: Manual search failed for '{key}': {manual_e}")
+             return None
 
     except Exception as e:
-        print(f"Error parsing INI v{version} for update: {e}")
+        print(f"PHP Manager Error: Failed reading INI value '{key}' for v{version}: {e}")
+        return None
+
+def set_ini_value(version, key, value, section='PHP'):
+    """
+    Sets a specific single-value key=value in the internal php.ini for a version.
+    Uses manual line processing/writing to avoid configparser duplicate key errors.
+    Note: Assumes simple 'key = value' lines, potentially with comments.
+    """
+    print(f"PHP Manager: Manually setting [{section}] {key} = {value} for v{version}")
+    ini_path = _get_php_ini_path(version)
+    if not ensure_php_fpm_config(version) or not ini_path.is_file():
+        print(f"PHP Manager Error: php.ini missing or could not be created for {version}")
+        return False
+
+    key_found_and_updated = False
+    new_lines = []
+    # Regex to find uncommented key=value lines, capturing key and value part
+    # Allows optional space around '='. Captures everything after '=' until EOL or ';' or '#'.
+    key_pattern = re.compile(r"^\s*(" + re.escape(key) + r")\s*=\s*(.*?)\s*(?:[;#].*)?$", re.IGNORECASE)
+    section_pattern = re.compile(r"^\s*\[" + re.escape(section) + r"\]\s*$", re.IGNORECASE)
+    in_section = False
+
+    try:
+        with open(ini_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        # Process existing lines
+        for line in lines:
+            stripped_line = line.strip()
+            if stripped_line.startswith('[') and stripped_line.endswith(']'):
+                in_section = section_pattern.match(stripped_line) is not None
+                new_lines.append(line) # Keep section headers
+                continue
+
+            match = key_pattern.match(line)
+            if match and in_section: # Found the key within the target section
+                old_value = match.group(2).strip()
+                new_value_str = str(value).strip()
+                if old_value != new_value_str:
+                    print(f"PHP Manager: Replacing INI line for '{key}': '{stripped_line}' -> '{key} = {new_value_str}'")
+                    new_lines.append(f"{key} = {new_value_str}\n")
+                    key_found_and_updated = True # Mark as updated
+                else:
+                    print(f"PHP Manager Info: Value for '{key}' is already '{value}'. Keeping original line.")
+                    new_lines.append(line) # Keep original line
+                    key_found_and_updated = True # Mark as found even if not changed
+            else:
+                new_lines.append(line) # Keep other lines
+
+        # If key was not found anywhere in the target section, add it
+        if not key_found_and_updated:
+            print(f"PHP Manager Info: Key '{key}' not found in section '[{section}]', adding it.")
+            # Find where to add it - ideally at the end of the target section
+            added = False
+            final_lines = []
+            in_correct_section_for_add = False
+            for line in new_lines:
+                 final_lines.append(line)
+                 # If we just passed the target section header
+                 if section_pattern.match(line): in_correct_section_for_add = True
+                 # Add before the next section header or at EOF if still in section
+                 elif in_correct_section_for_add and (line.strip().startswith('[')):
+                      final_lines.insert(-1, f"{key} = {value}\n") # Insert before this new section
+                      added = True; in_correct_section_for_add = False # Done
+            # If not added yet (means section was last or didn't exist)
+            if not added:
+                 # Check if section header itself exists at all
+                 section_exists = any(section_pattern.match(l) for l in new_lines)
+                 if not section_exists: final_lines.append(f"\n[{section}]\n") # Add section if missing
+                 # Append key=value
+                 if final_lines and not final_lines[-1].endswith('\n'): final_lines.append('\n')
+                 final_lines.append(f"{key} = {value}\n")
+
+            new_lines = final_lines
+            made_change = True # We added the line
+        else:
+            # Check if content actually changed (covers case where value was same)
+            made_change = lines != new_lines
+
+        # Write back atomically only if content actually changed
+        if made_change:
+            print(f"PHP Manager: Writing INI changes for key '{key}' to {ini_path}")
+            temp_path_str = None
+            try:
+                fd, temp_path_str = tempfile.mkstemp(dir=ini_path.parent, prefix='php.ini.set.tmp')
+                with os.fdopen(fd, 'w', encoding='utf-8') as temp_f: temp_f.writelines(new_lines)
+                if ini_path.exists(): shutil.copystat(ini_path, temp_path_str)
+                os.replace(temp_path_str, ini_path); temp_path_str = None; return True
+            except Exception as write_e: print(f"PHP Error writing INI: {write_e}"); return False
+            finally:
+                 if temp_path_str and os.path.exists(temp_path_str): os.unlink(temp_path_str)
+        else:
+            print(f"PHP Manager Info: No effective change made for key '{key}'.")
+            return True # No change needed is still success
+
+    except Exception as e:
+        print(f"PHP Manager Error: Failed processing INI file {ini_path} for set_ini_value: {e}")
         return False
 
 # --- Restart Function --- (Implementation unchanged)
@@ -341,92 +442,105 @@ def list_enabled_extensions(version):
 def _modify_extension_line(version, extension_name, enable=True):
     """Helper to enable/disable an extension line in php.ini (atomic write)."""
     ini_path = _get_php_ini_path(version)
-    # Ensure file exists
     if not ensure_php_fpm_config(version) or not ini_path.is_file():
-        print(f"PHP Manager Error: php.ini file missing for {version}, cannot modify extension.")
+        print(f"PHP Manager Error: php.ini file missing for {version}.")
         return False
 
-    # Define patterns for commented and uncommented lines
-    # Allows for variation in spacing and optional .so suffix
-    target_line_base = f"{extension_name}" # Base name without .so for comparison
-    # Match uncommented: extension = name | extension = name.so
-    uncommented_pattern = re.compile(r"^\s*extension\s*=\s*\"?(" + re.escape(target_line_base) + r")(?:\.so)?\"?\s*(?:;.*)?$")
-    # Match commented: ; extension = name | ;extension=name.so | # extension=name etc.
-    commented_pattern = re.compile(r"^\s*[;#]+\s*extension\s*=\s*\"?(" + re.escape(target_line_base) + r")(?:\.so)?\"?\s*(?:;.*)?$")
+    target_line_base = f"{extension_name}" # Base name without .so
+    target_line_with_so = f"{extension_name}.so" # Common format
+
+    # Regex patterns to find existing lines (commented or uncommented)
+    # Matches variations like extension=name, extension=name.so, extension="name.so", etc.
+    # Captures the full line content after the initial declaration part.
+    uncommented_pattern = re.compile(r"^(\s*extension\s*=\s*\"?" + re.escape(target_line_base) + r"(?:\.so)?\"?\s*)(.*)$", re.IGNORECASE)
+    commented_pattern = re.compile(r"^(\s*[;#]+\s*extension\s*=\s*\"?" + re.escape(target_line_base) + r"(?:\.so)?\"?\s*)(.*)$", re.IGNORECASE)
+    # Simpler pattern just to check if *any* active declaration exists
+    any_active_pattern = re.compile(r"^\s*extension\s*=\s*\"?" + re.escape(target_line_base) + r"(?:\.so)?\"?\s*(?:;.*)?$", re.IGNORECASE)
 
     made_change = False
     new_lines = []
-    found_match = False # Did we find the line commented or uncommented?
+    found_active = False
+    found_commented_idx = -1 # Index where commented version was found
 
     try:
         with open(ini_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
-        for line in lines:
+        # First pass: Check for existing active line and find potential commented line
+        for i, line in enumerate(lines):
             stripped_line = line.strip()
-            uncommented_match = uncommented_pattern.match(stripped_line)
-            commented_match = commented_pattern.match(stripped_line)
+            if not stripped_line.startswith((';', '#')) and any_active_pattern.match(stripped_line):
+                 found_active = True
+                 # Break early if found active and we want to enable? Or just note it? Note it.
+            elif commented_pattern.match(stripped_line):
+                found_commented_idx = i # Remember where the commented line is
+
+        # Second pass: Build new lines based on desired state
+        processed_commented = False # Ensure we only uncomment once
+        for i, line in enumerate(lines):
+            stripped_line = line.strip()
+            uncommented_match = uncommented_pattern.match(line) # Use line, not stripped_line
+            commented_match = commented_pattern.match(line)
 
             if uncommented_match:
-                found_match = True
                 if enable:
-                    print(f"PHP Manager Info: Extension '{extension_name}' already enabled.")
-                    new_lines.append(line) # Keep as is
+                     new_lines.append(line) # Keep active if enabling
                 else:
-                    print(f"PHP Manager: Disabling extension '{extension_name}' by commenting out line.")
-                    new_lines.append(f";{line}") # Add semicolon comment
-                    made_change = True
-            elif commented_match:
-                found_match = True
-                if enable:
-                    print(f"PHP Manager: Enabling extension '{extension_name}' by uncommenting line.")
-                    # Try to intelligently uncomment based on original comment char
+                     new_lines.append(f";{line.lstrip('; #\t')}") # Comment out if disabling
+                     made_change = True
+            elif commented_match and i == found_commented_idx and not processed_commented: # Match commented line found earlier
+                processed_commented = True
+                if enable and not found_active: # Enable ONLY if no active line exists
+                    # Intelligent uncomment: remove leading ; or # and whitespace
                     first_char_index = -1
-                    for i, char in enumerate(line):
-                         if not char.isspace(): first_char_index = i; break
+                    for char_idx, char in enumerate(line):
+                         if not char.isspace(): first_char_index = char_idx; break
                     if first_char_index != -1 and line[first_char_index] in ';#':
-                        new_lines.append(line[first_char_index+1:]) # Remove first comment char
-                    else: # Fallback - just add the line again if uncommenting failed
-                         new_lines.append(f"extension={extension_name}.so\n")
-                    made_change = True
-                else:
-                     print(f"PHP Manager Info: Extension '{extension_name}' already disabled.")
-                     new_lines.append(line) # Keep commented out
-            else:
-                new_lines.append(line) # Keep other lines
+                        uncommented_line = line[first_char_index+1:]
+                        # Ensure it ends with a newline
+                        if not uncommented_line.endswith('\n'): uncommented_line += '\n'
+                        new_lines.append(uncommented_line)
+                        made_change = True
+                        found_active = True # Mark as active now
+                    else: # Couldn't reliably uncomment, keep original line
+                        new_lines.append(line)
+                else: # Keep commented if disabling or if already active elsewhere
+                    new_lines.append(line)
+            else: # Keep other lines
+                new_lines.append(line)
 
-        # If the extension was never found (commented or uncommented) and we want to enable it
-        if not found_match and enable:
-            print(f"PHP Manager: Extension '{extension_name}' not found in INI, adding.")
-            # Add to the end (or find [PHP] section?) - Add to end for simplicity
+        # Add new line only if enabling AND no active line was found/created above
+        if enable and not found_active:
+            print(f"PHP Manager: Extension '{extension_name}' not found active/commented, adding.")
             if new_lines and not new_lines[-1].endswith('\n'): new_lines.append('\n')
-            new_lines.append(f"extension={extension_name}.so\n")
+            # Use specific .so name if possible, otherwise fallback to base name
+            ext_dir = _get_php_extension_dir(version)
+            so_name = f"{extension_name}.so"
+            if not (ext_dir / so_name).is_file():
+                 print(f"Warning: {so_name} not found, using base name {extension_name}")
+                 so_name = extension_name # Fallback just in case
+            new_lines.append(f"extension={so_name}\n")
             made_change = True
 
-        # If no changes were made, no need to write the file
-        if not made_change:
-            print(f"PHP Manager Info: No INI changes needed for extension '{extension_name}' (Enable={enable}).")
-            return True # Report success as no action was needed
-
-        # Write changes back atomically if changes were made
-        print(f"PHP Manager: Writing INI changes for extension '{extension_name}' to {ini_path}")
-        temp_path_str = None
-        try:
-            fd, temp_path_str = tempfile.mkstemp(dir=ini_path.parent, prefix='php.ini.ext.tmp')
-            with os.fdopen(fd, 'w', encoding='utf-8') as temp_f:
-                temp_f.writelines(new_lines)
-            shutil.copystat(ini_path, temp_path_str)
-            os.replace(temp_path_str, ini_path)
+        # Write back if changes were made
+        if made_change:
+            print(f"PHP Manager: Writing INI changes for extension '{extension_name}' to {ini_path}")
+            # (Atomic write logic using tempfile/os.replace as before)
             temp_path_str = None
-            return True
-        except Exception as write_e:
-             print(f"PHP Manager Error: Failed writing INI update for extension '{extension_name}' v{version}: {write_e}")
-             return False
-        finally:
-             if temp_path_str and os.path.exists(temp_path_str): os.unlink(temp_path_str)
+            try:
+                fd, temp_path_str = tempfile.mkstemp(dir=ini_path.parent, prefix='php.ini.ext.tmp')
+                with os.fdopen(fd, 'w', encoding='utf-8') as temp_f: temp_f.writelines(new_lines)
+                if ini_path.exists(): shutil.copystat(ini_path, temp_path_str)
+                os.replace(temp_path_str, ini_path); temp_path_str = None; return True
+            except Exception as write_e: print(f"Error writing INI: {write_e}"); return False
+            finally:
+                 if temp_path_str and os.path.exists(temp_path_str): os.unlink(temp_path_str)
+        else:
+            print(f"PHP Manager Info: No INI change needed for {extension_name} (Enable={enable}).")
+            return True # No change needed is success
 
     except Exception as e:
-        print(f"PHP Manager Error: Failed processing INI file {ini_path} for extension '{extension_name}': {e}")
+        print(f"PHP Manager Error: Failed processing INI file {ini_path} for ext '{extension_name}': {e}")
         return False
 
 def enable_extension(version, extension_name):

@@ -238,11 +238,38 @@ class PhpPage(QWidget):
         save_btn.setEnabled(changed)
 
     @Slot()
-    def on_save_ini_internal_click(self): # (Unchanged)
-        if not self._current_ini_version: return; upload_mb = self.upload_spinbox.value(); memory_mb = self.memory_spinbox.value()
-        settings = {'upload_max_filesize':f"{upload_mb}M", 'post_max_size':f"{upload_mb}M", 'memory_limit':"-1" if memory_mb==-1 else f"{memory_mb}M"}
-        self.log_to_main(f"PhpPage: Request INI update PHP {self._current_ini_version}: {settings}"); self.set_controls_enabled(False); self.save_ini_button.setEnabled(False)
-        self.saveIniSettingsClicked.emit(self._current_ini_version, settings)
+    def on_save_ini_internal_click(self):
+        """Reads UI values, formats them, and emits signal to MainWindow."""
+        if not self._current_ini_version:
+            self.log_to_main("PhpPage Error: Cannot save INI, no current version selected.")
+            return
+
+        # Check if the widgets exist before accessing their values
+        if not hasattr(self, 'upload_spinbox') or not hasattr(self, 'memory_spinbox'):
+            self.log_to_main("PhpPage Error: INI input widgets not found.")
+            return
+
+        # --- ADD THESE LINES TO GET VALUES --- vvv
+        upload_mb = self.upload_spinbox.value()
+        memory_mb = self.memory_spinbox.value()
+        # --- END ADDED LINES ---
+
+        # Now create the dictionary using the retrieved values
+        settings_to_save = {
+            'upload_max_filesize': f"{upload_mb}M",
+            # Set post_max_size same as upload for simplicity
+            'post_max_size': f"{upload_mb}M",
+            'memory_limit': "-1" if memory_mb == -1 else f"{memory_mb}M"
+        }
+
+        self.log_to_main(f"PhpPage: Requesting INI update for PHP {self._current_ini_version}: {settings_to_save}")
+        self.set_controls_enabled(False)  # Disable controls while saving
+        # self.save_ini_button should already be disabled by set_controls_enabled
+        # but we can ensure it here too if needed:
+        # if hasattr(self, 'save_ini_button'): self.save_ini_button.setEnabled(False)
+
+        # Emit signal with the version and the dictionary of settings
+        self.saveIniSettingsClicked.emit(self._current_ini_version, settings_to_save)
 
     @Slot(str)
     def on_edit_ini_clicked(self, version): # (Unchanged)

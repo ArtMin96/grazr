@@ -169,79 +169,106 @@ class MainWindow(QMainWindow):
     # --- Slot to Handle Worker Results ---
     @Slot(str, dict, bool, str)
     def handleWorkerResult(self, task_name, context_data, success, message):
-        # (Updated to handle Dnsmasq start/stop results)
-        path = context_data.get("path", context_data.get("site_info", {}).get("path", "N/A"));
-        site_name = Path(path).name if path != "N/A" else "N/A"
-        domain_ctx = context_data.get("site_info", {}).get("domain", site_name if site_name != "N/A" else "N/A")
-        service_name_ctx = context_data.get("service_name", "N/A");
-        php_version_ctx = context_data.get("version", "N/A")
-        target_page = None;
-        display_name = service_name_ctx if service_name_ctx != 'N/A' else domain_ctx
-        if php_version_ctx != 'N/A' and task_name in ["start_php_fpm", "stop_php_fpm", "save_php_ini", "set_site_php"]:
-            display_name = f"PHP {php_version_ctx}"
-        elif task_name == "update_site_domain":
-            display_name = f"Site Domain ({domain_ctx})"; target_page = self.sites_page
-        elif task_name == "set_site_php":
-            display_name = f"Site PHP ({domain_ctx})"; target_page = self.sites_page
-        elif task_name == "enable_ssl":
-            display_name = f"Site SSL Enable ({domain_ctx})"; target_page = self.sites_page
-        elif task_name == "disable_ssl":
-            display_name = f"Site SSL Disable ({domain_ctx})"; target_page = self.sites_page
-        elif task_name in ["install_nginx", "uninstall_nginx"]:
-            target_page = self.sites_page
-        elif task_name in ["start_internal_nginx", "stop_internal_nginx"]:
-            target_page = self.services_page
-        elif task_name == "run_helper":
-            target_page = self.services_page  # If keeping system checks
-        elif task_name in ["start_php_fpm", "stop_php_fpm", "save_php_ini"]:
-            target_page = self.php_page
+        """Handles results emitted by the worker thread and updates relevant pages."""
+        print(
+            f"MAIN_WINDOW DEBUG: handleWorkerResult SLOT called for task '{task_name}'. Success: {success}")  # Keep Debug
 
-        self.log_message(f"Task '{task_name}' for '{display_name}' finished.");
-        self.log_message(f"Result: {'OK' if success else 'Fail'}. {message}")
+        # Initialize variables
+        target_page = None  # Page widget associated with the task for UI updates
+        site_info = context_data.get("site_info", {})  # Get site_info if present
+        path = context_data.get("path", site_info.get("path", "N/A"))  # Get path if present
+        domain_ctx = site_info.get("domain", Path(path).name if path != "N/A" else "N/A")
+        service_name_ctx = context_data.get("service_name", "N/A")
+        php_version_ctx = context_data.get("version", site_info.get("php_version", "N/A"))
+        ext_name_ctx = context_data.get("extension_name", "N/A")  # For toggle task
 
-        # Task-specific follow-up & UI updates
+        # Determine display name for logging more accurately
+        display_name = "N/A"
         if task_name in ["install_nginx", "uninstall_nginx", "update_site_domain", "set_site_php", "enable_ssl",
                          "disable_ssl"]:
-            if task_name == "uninstall_nginx" and success: remove_site(path);  # Update storage
-            if isinstance(target_page, SitesPage): QTimer.singleShot(50, target_page.refresh_data)  # Refresh sooner
-            if task_name != "uninstall_nginx": QTimer.singleShot(100,
-                                                                 self.refresh_nginx_status_on_page)  # Refresh Nginx
-
+            display_name = f"Site ({domain_ctx or path})"
+            target_page = self.sites_page
         elif task_name in ["start_internal_nginx", "stop_internal_nginx"]:
-            QTimer.singleShot(100, self.refresh_nginx_status_on_page)  # Refresh Nginx
-
-        elif task_name in ["start_dnsmasq", "stop_dnsmasq"]:  # <<< Handle Dnsmasq Result
-            QTimer.singleShot(100, self.refresh_dnsmasq_status_on_page)  # Refresh Dnsmasq status
-
-        elif task_name == "run_helper":  # System Dnsmasq (if still used)
-            service = context_data.get("service_name");
-            if service == "dnsmasq.service": QTimer.singleShot(500, self.refresh_system_dnsmasq_status)  # Maybe rename original refresh func
-
+            display_name = "Internal Nginx"
+            target_page = self.services_page
+        elif task_name == "run_helper":  # System Dnsmasq checks
+            display_name = f"System Service ({service_name_ctx})"
+            target_page = self.services_page
         elif task_name in ["start_php_fpm", "stop_php_fpm", "save_php_ini"]:
-            if isinstance(target_page, PhpPage): QTimer.singleShot(100, target_page.refresh_data)  # Refresh PHP page
+            display_name = f"PHP {php_version_ctx}" + (" INI" if task_name == "save_php_ini" else " FPM")
+            target_page = self.php_page
+        elif task_name == "toggle_php_extension":  # <<< ADDED BACK
+            display_name = f"PHP {php_version_ctx} Ext ({ext_name_ctx})"
+            # Target page is the dialog, handled separately
+            target_page = self.php_page  # Set page for potential later refresh/enable
 
-        if task_name == "toggle_php_extension":  # <<< ADDED BLOCK
-            # This task affects the Extensions Dialog if it's open
+        # Log Outcome
+        self.log_message(f"Task '{task_name}' for '{display_name}' finished.")
+        self.log_message(f"Result: {'OK' if success else 'Fail'}. Details: {message}")
+
+        # --- Task-specific follow-up actions ---
+        if task_name == "uninstall_nginx" and success:
+            if remove_site(path):
+                self.log_message("Site removed from storage.")  # Update storage
+            else:
+                self.log_message("Warn: Site not found in storage for removal.")
+
+        # --- Trigger UI Refresh on the appropriate page ---
+        # Use QTimer to allow current execution path to finish first
+        if target_page:
+            if hasattr(target_page, 'refresh_data'):
+                print(f"DEBUG handleWorkerResult: Scheduling {target_page.__class__.__name__}.refresh_data()")
+                QTimer.singleShot(50, target_page.refresh_data)
+            elif task_name == "enable_ssl" or task_name == "disable_ssl":
+                # Special case for SSL: refresh_data calls display_site_details which reads old state?
+                # Maybe call display_site_details directly after a delay? Needs testing.
+                print(
+                    f"DEBUG handleWorkerResult: Scheduling {target_page.__class__.__name__}.display_site_details(current)")
+                QTimer.singleShot(50,
+                                  lambda: target_page.display_site_details(target_page.site_list_widget.currentItem()))
+
+        # --- Handle PHP Extension Dialog Update --- <<< ADDED BACK
+        if task_name == "toggle_php_extension":
             version = context_data.get("version")
             ext_name = context_data.get("extension_name")
-            if version and ext_name and self.current_extension_dialog and self.current_extension_dialog.isVisible():
+
+            if version and ext_name_ctx and self.current_extension_dialog and self.current_extension_dialog.isVisible():
                 if hasattr(self.current_extension_dialog, 'update_extension_state'):
-                    print(f"MAIN_WINDOW: Calling dialog.update_extension_state for {ext_name}")
-                    self.current_extension_dialog.update_extension_state(version, ext_name, success)
+                    print(f"MAIN_WINDOW: Calling dialog.update_extension_state for {ext_name_ctx}")
+                    # Call dialog's update slot to re-enable checkbox / revert if needed
+                    self.current_extension_dialog.update_extension_state(php_version_ctx, ext_name_ctx, success)
                 else:
-                    print("MAIN_WINDOW Warning: Current extension dialog missing update_extension_state method.")
+                    print("MAIN_WINDOW Warning: Extension dialog missing update_extension_state.")
             else:
-                print("MAIN_WINDOW Info: Extension dialog not open or context missing, skipping dialog update.")
-            # Also refresh the main PHP page in case FPM status affects something there indirectly?
-            # target_page = self.php_page # Set target for control re-enabling
-            # if isinstance(target_page, PhpPage): QTimer.singleShot(100, target_page.refresh_data)
-            # Let's skip refreshing main PhpPage for now, dialog handles its own state update.
+                print("MAIN_WINDOW Info: Extension dialog closed or context missing, skipping dialog update.")
 
-        # Re-enable controls on the relevant page after task completion
-        if target_page and hasattr(target_page, 'set_controls_enabled'):
-            QTimer.singleShot(200, lambda: target_page.set_controls_enabled(True))
+        # --- Refresh dependent services status ---
+        if task_name in ["install_nginx", "uninstall_nginx", "update_site_domain", "set_site_php", "enable_ssl",
+                         "disable_ssl", "start_internal_nginx", "stop_internal_nginx"]:
+            QTimer.singleShot(100, self.refresh_nginx_status_on_page)  # Refresh Nginx status
+        if task_name == "run_helper" and context_data.get("service_name") == config.SYSTEM_DNSMASQ_SERVICE_NAME:
+            QTimer.singleShot(100, self.refresh_dnsmasq_status_on_page)  # Refresh Dnsmasq status
 
-        self.log_message("-" * 30)
+        # --- Re-enable controls on the main page that initiated the task ---
+        # Added Debug prints here vvv
+        print(f"DEBUG handleWorkerResult: Checking target_page for control re-enable. Task='{task_name}'")
+        if target_page:
+            print(f"DEBUG handleWorkerResult: target_page is {target_page.__class__.__name__}")
+            has_method = hasattr(target_page, 'set_controls_enabled')
+            print(f"DEBUG handleWorkerResult: target_page has 'set_controls_enabled' method: {has_method}")
+            if has_method:
+                print(
+                    f"DEBUG handleWorkerResult: Scheduling {target_page.__class__.__name__}.set_controls_enabled(True)")
+                # Use a slightly longer delay to ensure refresh happens first
+                QTimer.singleShot(250, lambda: target_page.set_controls_enabled(True))
+            else:
+                print(f"DEBUG handleWorkerResult: NOT scheduling re-enable because method missing on target page.")
+        else:
+            print(
+                f"DEBUG handleWorkerResult: NOT scheduling re-enable because target_page is None (e.g., for toggle_php_extension).")
+        # ^^^ End Debug Prints
+
+        self.log_message("-" * 30)  # Log separator
 
     # --- Methods that Trigger Worker Tasks ---
     @Slot()
