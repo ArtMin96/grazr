@@ -103,25 +103,83 @@ QCheckBox::indicator:disabled { background-color: #E9ECEF; border-color: #DEE2E6
 QTableWidget {
     gridline-color: #E9ECEF;
     border: 1px solid #DEE2E6;
+    border-radius: 6px;
     background-color: white;
-    alternate-background-color: #F8F9FA;
     selection-background-color: #E7F3FF;
     selection-color: #212529;
+    alternate-background-color: #F8FAFC;
 }
 
 QHeaderView::section {
     background-color: #F8F9FA;
-    padding: 10px 12px;
+    padding: 12px 16px;
     border: none;
     border-bottom: 2px solid #DEE2E6;
     font-weight: bold;
     color: #495057;
-    text-align: left;
+    text-align: center;
+    font-size: 10.5pt;
+}
+
+/* First header section with left rounded corner */
+QHeaderView::section:first {
+    border-top-left-radius: 6px;
+}
+
+/* Last header section with right rounded corner */
+QHeaderView::section:last {
+    border-top-right-radius: 6px;
+}
+
+/* Header hover effect */
+QHeaderView::section:hover {
+    background-color: #EFF2F5;
+}
+
+/* Remove the highlight/focus rectangle */
+QTableWidget:focus {
+    outline: none;
 }
 
 QTableWidget::item {
-    border: none;
+    padding: 8px;
     border-bottom: 1px solid #E9ECEF;
+}
+
+QTableWidget::item:alternate {
+    background-color: #F8FAFC;
+}
+
+QTableWidget QHeaderView::section {
+    background-color: #F8F9FA;
+    padding: 10px 15px;
+    border: none;
+    border-bottom: 2px solid #DEE2E6;
+    font-weight: bold;
+    color: #495057;
+}
+
+/* Improved scrollbar for the table */
+QTableWidget QScrollBar:vertical {
+    border: none;
+    background: #F7F8FA;
+    width: 8px;
+    margin: 0;
+}
+
+QTableWidget QScrollBar::handle:vertical {
+    background: #CED4DA;
+    min-height: 30px;
+    border-radius: 4px;
+}
+
+QTableWidget QScrollBar::handle:vertical:hover {
+    background: #ADB5BD;
+}
+
+/* Ensure consistent cell heights */
+QTableWidget::item, QTableWidget QWidget {
+    min-height: 38px;
 }
 
 /* Improved Button Styling within Tables */
@@ -183,8 +241,16 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none;
 
 /* Status Labels */
 QLabel#StatusLabel { padding: 5px; border-radius: 3px; font-weight: bold; }
-QLabel#StatusLabel[status="running"], QLabel#StatusLabel[status="active"] { background-color: #E8F5E9; color: #2E7D32; }
-QLabel#StatusLabel[status="stopped"], QLabel#StatusLabel[status="inactive"] { background-color: #FFFDE7; color: #FFA000; }
+/* Status colors */
+QTableWidget QTableWidgetItem[status="running"], QTableWidget QTableWidgetItem[status="active"] {
+    color: #2E7D32;
+    font-weight: bold;
+}
+
+QTableWidget QTableWidgetItem[status="stopped"], QTableWidget QTableWidgetItem[status="inactive"] {
+    color: #DC3545;
+    font-weight: bold;
+}
 QLabel#StatusLabel[status="error"], QLabel#StatusLabel[status="unknown"], QLabel#StatusLabel[status="not_found"] { background-color: #FFEBEE; color: #D32F2F; }
 
 /* --- New Styles for Sites Page --- */
@@ -278,4 +344,64 @@ QLabel#php_version_display {
     color: #6C757D;
     font-style: italic;
     padding-left: 8px;
+}
+
+
+/* Dropdown Menu Button Styling */
+QTableWidget QPushButton::menu-indicator {
+    image: url(":/icons/dropdown.png");  /* You may need to add this icon to your resources */
+    subcontrol-position: right center;
+    subcontrol-origin: padding;
+    right: 5px;
+}
+
+/* Style the dropdown menu */
+QMenu {
+    background-color: #FFFFFF;
+    border: 1px solid #CED4DA;
+    border-radius: 4px;
+    padding: 5px 0;
+}
+
+QMenu::item {
+    padding: 5px 20px;
+    min-width: 150px;
+}
+
+QMenu::item:selected {
+    background-color: #E7F3FF;
+    color: #007AFF;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #E9ECEF;
+    margin: 5px 0;
+}
+
+/* Make config button slightly different to indicate it's a dropdown */
+QTableWidget QPushButton[dropdown="true"] {
+    padding-right: 20px;  /* Extra space for the dropdown indicator */
+    background-color: #F0F4F8;
+    border-color: #BFDEFF;
+}
+/* END Dropdown Menu Button Styling */
+
+/* PHP INI Settings specific styling - specifically targeted */
+QGroupBox[title^="Common PHP INI Settings"] QSpinBox,
+QGroupBox[title^="Common PHP INI Settings"] QLineEdit {
+    min-width: 120px;
+    max-width: 120px;
+    padding-right: 5px;
+    text-align: right;
+}
+
+/* Target save button to maintain consistency */
+QPushButton#save_ini_button {
+    min-width: 120px;
+}
+
+/* Fix layout spacing only in PHP settings sections */
+QGroupBox[title^="Common PHP INI Settings"] QHBoxLayout {
+    spacing: 10px;
 }

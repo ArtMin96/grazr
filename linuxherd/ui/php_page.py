@@ -5,9 +5,10 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QTableWidget, QTableWidgetItem, QPushButton,
                                QHeaderView, QApplication, QAbstractItemView,
-                               QGroupBox, QSpinBox, QSpacerItem, QSizePolicy)
-from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression # Keep QRegularExpression if used here
-from PySide6.QtGui import QFont, QRegularExpressionValidator # Keep QRegularExpressionValidator if used here
+                               QGroupBox, QSpinBox, QSpacerItem, QSizePolicy,
+                               QMenu, QAbstractButton)
+from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QPoint # Keep QRegularExpression if used here
+from PySide6.QtGui import QFont, QRegularExpressionValidator, QScreen # Keep QRegularExpressionValidator if used here
 
 import re
 import subprocess
@@ -57,13 +58,40 @@ class PhpPage(QWidget):
         title_layout.addWidget(title); title_layout.addStretch(); layout.addLayout(title_layout)
 
         # --- PHP Version Table ---
-        self.php_table = QTableWidget(); self.php_table.setColumnCount(4)
+        self.php_table = QTableWidget()
+        self.php_table.setColumnCount(4)
         self.php_table.setHorizontalHeaderLabels(["Version", "FPM Status", "FPM Actions", "Config"])
-        self.php_table.setSelectionMode(QAbstractItemView.NoSelection); self.php_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.php_table.verticalHeader().setVisible(False); self.php_table.setShowGrid(True)
-        header = self.php_table.horizontalHeader(); header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents); header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents); header.setStyleSheet("QHeaderView::section { padding: 4px; }")
+
+        # Enhanced table styling
+        self.php_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.php_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.php_table.verticalHeader().setVisible(False)
+        self.php_table.setShowGrid(True)
+        self.php_table.setAlternatingRowColors(True)  # Enable alternating row colors
+        self.php_table.setStyleSheet("gridline-color: #E9ECEF;")
+
+        # Set corner button style
+        self.php_table.findChild(QAbstractButton).setStyleSheet(
+            "background-color: #F8F9FA; border: none; border-top-left-radius: 6px;"
+        )
+
+        # Header configuration
+        header = self.php_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+
+        # Set section alignment to center
+        for i in range(header.count()):
+            header.setSectionResizeMode(i, QHeaderView.Stretch)
+
+        # Set fixed column widths for better control
+        self.php_table.setColumnWidth(0, 100)  # Version column
+        self.php_table.setColumnWidth(1, 120)  # Status column
+        # Let columns 2 and 3 adjust to content
+
+        # Add the table to the layout
         layout.addWidget(self.php_table)
 
         # --- PHP INI Settings Section ---
@@ -129,17 +157,27 @@ class PhpPage(QWidget):
         start_button.clicked.connect(lambda checked=False, v=version: self.emit_manage_fpm_signal(v, "start"))
         stop_button.clicked.connect(lambda checked=False, v=version: self.emit_manage_fpm_signal(v, "stop"))
 
-        # Enable/disable buttons based on status
-        start_button.setEnabled(status == "stopped" or status == "inactive") # Enable Start if stopped/inactive
-        stop_button.setEnabled(status == "running" or status == "active") # Enable Stop if running/active
+        # Only show the appropriate button based on status
+        is_running = status == "running" or status == "active"
+        is_stopped = status == "stopped" or status == "inactive"
 
-        # --- Add Debug Print ---
-        print(f"DEBUG: PHP {version} - Status='{status}', StartEnabled={start_button.isEnabled()}, StopEnabled={stop_button.isEnabled()}")
-        # --- End Debug Print ---
+        action_layout.addStretch(1)
 
-        action_layout.addStretch(1) # Push buttons to the center/right
-        action_layout.addWidget(start_button)
-        action_layout.addWidget(stop_button)
+        # Show Start only if stopped/inactive
+        if is_stopped:
+            action_layout.addWidget(start_button)
+            # Don't even add the stop button to layout
+        # Show Stop only if running/active
+        elif is_running:
+            action_layout.addWidget(stop_button)
+            # Don't even add the start button to layout
+        # For unknown status, show both buttons but disable them
+        else:
+            action_layout.addWidget(start_button)
+            action_layout.addWidget(stop_button)
+            start_button.setEnabled(False)
+            stop_button.setEnabled(False)
+
         action_layout.addStretch(1)
 
         self.php_table.setCellWidget(row_position, 2, fpm_action_widget) # Column index 2
@@ -150,25 +188,72 @@ class PhpPage(QWidget):
         config_layout.setContentsMargins(5, 2, 5, 2)
         config_layout.setSpacing(5)
 
-        edit_ini_button = QPushButton("Edit php.ini")
-        extensions_button = QPushButton("Extensions...")
+        # Create a config button (no dropdown)
+        config_button = QPushButton("Configure")
+        config_button.setProperty("type", "configure")
+        config_button.setToolTip(f"Options for PHP {version}")
 
-        edit_ini_button.setToolTip(f"Open php.ini for PHP {version}")
-        edit_ini_button.clicked.connect(lambda checked=False, v=version: self.on_edit_ini_clicked(v))
+        # Use this method to show a context menu on button click
+        def show_config_menu():
+            menu = QMenu(config_button)
+            menu.setStyleSheet("""
+                    QMenu {
+                        background-color: #FFFFFF;
+                        border: 1px solid #E9ECEF;
+                        border-radius: 4px;
+                        padding: 5px 0;
+                        min-width: 150px;
+                    }
+                    QMenu::item {
+                        padding: 8px 20px;
+                        color: #495057;
+                    }
+                    QMenu::item:selected {
+                        background-color: #E7F3FF;
+                        color: #007AFF;
+                    }
+                    QMenu::icon {
+                        padding-left: 15px;
+                    }
+                """)
 
-        extensions_button.setToolTip(f"Manage enabled extensions for PHP {version}")
-        extensions_button.clicked.connect(lambda checked=False, v=version: self.showExtensionsDialog.emit(v))
+            # Add actions with icons (optional - use your own icons or skip icons)
+            edit_action = menu.addAction("Edit php.ini")
+            ext_action = menu.addAction("Extensions...")
 
-        # Add buttons to layout
-        config_layout.addWidget(edit_ini_button)
-        config_layout.addWidget(extensions_button)
-        config_layout.addStretch()
+            # Connect actions
+            edit_action.triggered.connect(lambda: self.on_edit_ini_clicked(version))
+            ext_action.triggered.connect(lambda: self.showExtensionsDialog.emit(version))
 
-        self.php_table.setCellWidget(row_position, 3, config_widget) # Column index 3
+            # Calculate position to prevent menu from going off-screen
+            global_pos = config_button.mapToGlobal(config_button.rect().bottomLeft())
 
-        # Optional: Adjust row height to ensure buttons fit nicely
+            # Calculate available space
+            screen = QApplication.primaryScreen().availableGeometry()
+            menu_width = menu.sizeHint().width()
+            menu_height = menu.sizeHint().height()
+
+            # Adjust position if menu would go off-screen
+            if global_pos.x() + menu_width > screen.right():
+                global_pos.setX(screen.right() - menu_width)
+            if global_pos.y() + menu_height > screen.bottom():
+                global_pos.setY(global_pos.y() - menu_height - config_button.height())
+
+            # Show menu at adjusted position
+            menu.exec_(global_pos)
+
+        # Connect button click to show menu
+        config_button.clicked.connect(show_config_menu)
+
+        # Add button to layout with proper centering
+        config_layout.addStretch(1)
+        config_layout.addWidget(config_button)
+        config_layout.addStretch(1)
+
+        self.php_table.setCellWidget(row_position, 3, config_widget)  # Column index 3
+
+        # Adjust row height to ensure buttons fit nicely
         self.php_table.resizeRowToContents(row_position)
-        # Or set a fixed height: self.php_table.setRowHeight(row_position, 35)
 
     @Slot(str, str)
     def emit_manage_fpm_signal(self, version, action): # (Unchanged)
