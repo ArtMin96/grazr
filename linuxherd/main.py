@@ -71,6 +71,14 @@ if __name__ == "__main__":
 
     # Create and Show the Main Window
     window = MainWindow() # Assumes qApp.aboutToQuit is connected inside main.py or MainWindow
+
+    # --- Apply Style Refresh --- <<< ADD THIS SECTION
+    # Force style refresh to ensure custom properties take effect
+    app.style().unpolish(window)
+    app.style().polish(window)
+    window.update()
+    # --- End Style Refresh ---
+
     window.show()
 
     # Start the Qt event loop

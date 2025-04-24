@@ -148,9 +148,6 @@ class MainWindow(QMainWindow):
         self.php_page.saveIniSettingsClicked.connect(self.on_save_php_ini_settings)
         self.php_page.showExtensionsDialog.connect(self.on_show_extensions_dialog)
 
-        # --- Apply Stylesheet ---
-        # self.apply_styles() # REMOVED - Styles applied globally in main.py
-
         # --- Initial State Setup ---
         self.log_message("Application starting...")
         self.log_message("UI Structure Initialized.")

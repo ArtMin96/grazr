@@ -86,6 +86,7 @@ class SitesPage(QWidget):
 
         self.site_list_widget = QListWidget()
         self.site_list_widget.setAlternatingRowColors(True)
+        self.site_list_widget.setObjectName("site_list_widget")
         left_layout.addWidget(self.site_list_widget)
 
         # Buttons below the list
@@ -102,6 +103,7 @@ class SitesPage(QWidget):
 
         # --- Right Pane (Details Area) ---
         self.details_area = QWidget() # Container for details
+        self.details_area.setObjectName("details_area")
         self.details_layout = QVBoxLayout(self.details_area) # Layout for details
         self.details_layout.setContentsMargins(15, 10, 10, 10) # Padding inside details
         self.details_layout.setSpacing(12) # Spacing between detail items
@@ -172,7 +174,9 @@ class SitesPage(QWidget):
         path_label = QLabel("Path:"); path_label.setFont(label_font)
         path_value = QLabel(self.current_site_info.get('path', 'N/A')); path_value.setFont(details_font); path_value.setWordWrap(True)
         path_value.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.details_layout.addWidget(path_label); self.details_layout.addWidget(path_value)
+        self.details_layout.addWidget(path_label)
+        self.details_layout.addWidget(path_value)
+        self.details_layout.addWidget(self._add_section_separator())
         self._detail_widgets['path'] = path_value
 
         # URL/Domain (Editable)
@@ -185,7 +189,9 @@ class SitesPage(QWidget):
         save_url_button = QPushButton("Save Domain"); save_url_button.setFont(details_font)
         save_url_button.setEnabled(False); save_url_button.setToolTip("Save changed domain name")
         url_edit_layout = QHBoxLayout(); url_edit_layout.addWidget(url_edit, 1); url_edit_layout.addWidget(save_url_button)
-        self.details_layout.addWidget(url_label); self.details_layout.addLayout(url_edit_layout)
+        self.details_layout.addWidget(url_label)
+        self.details_layout.addLayout(url_edit_layout)
+        self.details_layout.addWidget(self._add_section_separator())
         self._detail_widgets['url_edit'] = url_edit; self._detail_widgets['save_url_button'] = save_url_button
         url_edit.textChanged.connect(self.on_url_text_changed)
         save_url_button.clicked.connect(self.on_save_url_internal_click)
@@ -204,7 +210,9 @@ class SitesPage(QWidget):
         else: php_version_combo.setCurrentText(stored_php_version); php_version_display_label.setText("")
         set_php_button = QPushButton("Set Version"); set_php_button.setFont(details_font); set_php_button.setEnabled(False)
         php_select_layout = QHBoxLayout(); php_select_layout.addWidget(php_version_combo, 1); php_select_layout.addWidget(php_version_display_label, 1); php_select_layout.addWidget(set_php_button)
-        self.details_layout.addWidget(php_label); self.details_layout.addLayout(php_select_layout)
+        self.details_layout.addWidget(php_label)
+        self.details_layout.addLayout(php_select_layout)
+        self.details_layout.addWidget(self._add_section_separator())
         self._detail_widgets['php_version_combo']=php_version_combo; self._detail_widgets['php_version_display']=php_version_display_label; self._detail_widgets['set_php_button']=set_php_button
         php_version_combo.currentTextChanged.connect(self.on_php_version_changed)
         set_php_button.clicked.connect(self.on_set_php_internal_click)
@@ -213,7 +221,21 @@ class SitesPage(QWidget):
         https_layout = QHBoxLayout(); https_label = QLabel("HTTPS:"); https_label.setFont(label_font); https_checkbox = QCheckBox("Enabled"); https_checkbox.setFont(details_font); https_checkbox.setToolTip("Enable HTTPS (requires mkcert CA install)")
         self._ignore_https_toggle=True; https_checkbox.setChecked(self.current_site_info.get('https',False)); self._ignore_https_toggle=False; https_checkbox.stateChanged.connect(self.on_https_toggled); https_layout.addWidget(https_label); https_layout.addWidget(https_checkbox); https_layout.addStretch(); self.details_layout.addLayout(https_layout); self._detail_widgets['https_checkbox']=https_checkbox
 
+        path_label.setProperty("title", "true")  # For path label
+        url_label.setProperty("title", "true")  # For domain label
+        php_label.setProperty("title", "true")  # For PHP version label
+        https_label.setProperty("title", "true")  # For HTTPS label
+
         self.details_layout.addStretch() # Push details up
+        path_value.setObjectName("path_value")
+        php_version_display_label.setObjectName("php_version_display")
+
+    def _add_section_separator(self):
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        separator.setProperty("class", "section-separator")
+        return separator
 
     def _clear_details_layout(self):
          """Removes all widgets from the details layout."""

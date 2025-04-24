@@ -99,6 +99,7 @@ class PhpPage(QWidget):
         status_text = status.capitalize()
         status_item = QTableWidgetItem(status_text)
         status_item.setTextAlignment(Qt.AlignCenter)
+
         # Set color based on status
         if status == "running" or status == "active": # Check both just in case
             status_item.setForeground(Qt.darkGreen)
@@ -116,6 +117,11 @@ class PhpPage(QWidget):
 
         start_button = QPushButton("Start")
         stop_button = QPushButton("Stop")
+
+        # Apply action property for styling
+        start_button.setProperty("action", "start")
+        stop_button.setProperty("action", "stop")
+
         start_button.setToolTip(f"Start PHP-FPM {version}")
         stop_button.setToolTip(f"Stop PHP-FPM {version}")
 
@@ -131,10 +137,10 @@ class PhpPage(QWidget):
         print(f"DEBUG: PHP {version} - Status='{status}', StartEnabled={start_button.isEnabled()}, StopEnabled={stop_button.isEnabled()}")
         # --- End Debug Print ---
 
-        action_layout.addStretch() # Push buttons to the center/right
+        action_layout.addStretch(1) # Push buttons to the center/right
         action_layout.addWidget(start_button)
         action_layout.addWidget(stop_button)
-        action_layout.addStretch()
+        action_layout.addStretch(1)
 
         self.php_table.setCellWidget(row_position, 2, fpm_action_widget) # Column index 2
 
@@ -145,15 +151,13 @@ class PhpPage(QWidget):
         config_layout.setSpacing(5)
 
         edit_ini_button = QPushButton("Edit php.ini")
+        extensions_button = QPushButton("Extensions...")
+
         edit_ini_button.setToolTip(f"Open php.ini for PHP {version}")
         edit_ini_button.clicked.connect(lambda checked=False, v=version: self.on_edit_ini_clicked(v))
-        edit_ini_button.setEnabled(True)
 
-        extensions_button = QPushButton("Extensions...")  # <<< NEW BUTTON
         extensions_button.setToolTip(f"Manage enabled extensions for PHP {version}")
-        # Connect to a slot that emits the new signal to MainWindow
         extensions_button.clicked.connect(lambda checked=False, v=version: self.showExtensionsDialog.emit(v))
-        extensions_button.setEnabled(True)
 
         # Add buttons to layout
         config_layout.addWidget(edit_ini_button)
