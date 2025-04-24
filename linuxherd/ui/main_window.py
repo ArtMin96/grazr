@@ -36,6 +36,10 @@ except ImportError as e:
     class PhpExtensionsDialog(QWidget):
         pass  # Dummy
 
+    def get_nginx_version(): return "N/A"
+    def get_mysql_version(): return "N/A"
+    def get_mysql_status(): return "error"
+
     sys.exit(1)
 
 # --- Import Page Widgets ---
@@ -43,6 +47,8 @@ try:
     from .services_page import ServicesPage
     from .php_page import PhpPage
     from .sites_page import SitesPage
+    from ..managers.nginx_manager import get_nginx_version
+    from ..managers.mysql_manager import get_mysql_version, get_mysql_status
 except ImportError as e:
      print(f"ERROR in main_window.py: Could not import page widgets - {e}")
      sys.exit(1)
@@ -442,9 +448,19 @@ class MainWindow(QMainWindow):
     def refresh_nginx_status_on_page(self):
         # (Unchanged - uses process_manager, calls services_page update)
         if not isinstance(self.services_page, ServicesPage): return
-        self.log_message("Checking Nginx status...")
-        status = process_manager.get_process_status(config.NGINX_PROCESS_ID); self.log_message(f"Nginx status: {status}")
-        if hasattr(self.services_page, 'update_service_status'): self.services_page.update_service_status(config.NGINX_PROCESS_ID, status)
+        self.log_message("Checking Nginx status & version...")
+        status = process_manager.get_process_status(config.NGINX_PROCESS_ID)
+        version = get_nginx_version()  # Call the new function
+        self.log_message(f"Nginx status: {status}, Version: {version}")
+
+        detail_text = f"Version: {version} | Ports: 80 / 443"  # Combine info
+
+        # Update status display
+        if hasattr(self.services_page, 'update_service_status'):
+            self.services_page.update_service_status(config.NGINX_PROCESS_ID, status)
+        # Update details display <<< NEW
+        if hasattr(self.services_page, 'update_service_details'):
+            self.services_page.update_service_details(config.NGINX_PROCESS_ID, detail_text)
 
     def refresh_dnsmasq_status_on_page(self):
         """Checks SYSTEM Dnsmasq status via systemctl and updates ServicesPage."""
@@ -467,16 +483,27 @@ class MainWindow(QMainWindow):
     def refresh_mysql_status_on_page(self):
         """Checks BUNDLED MySQL status via manager and updates ServicesPage."""
         if not isinstance(self.services_page, ServicesPage): return
-        self.log_message("Checking bundled MySQL status...")
+        self.log_message("Checking bundled MySQL status & version...")
         try:
             status = get_mysql_status()  # Use function from mysql_manager
+            version = get_mysql_version()
         except Exception as e:
-            self.log_message(f"Error getting bundled mysql status: {e}")
+            self.log_message(f"Error getting mysql status/version: {e}")
             status = "error"
-        self.log_message(f"Bundled MySQL status: {status}")
-        # Update the UI using the generic service update slot
+            version = "N/A"
+
+        self.log_message(f"Bundled MySQL status: {status}, Version: {version}")
+
+        # Determine port (usually fixed)
+        port = "3306"  # Assuming standard port from our config
+        detail_text = f"Version: {version} | Port: {port}" if status == "running" else f"Version: {version} | Port: -"
+
+        # Update status display
         if hasattr(self.services_page, 'update_service_status'):
             self.services_page.update_service_status(config.MYSQL_PROCESS_ID, status)
+        # Update details display <<< NEW
+        if hasattr(self.services_page, 'update_service_details'):
+            self.services_page.update_service_details(config.MYSQL_PROCESS_ID, detail_text)
 
     def refresh_php_versions(self):  # Delegates to PhpPage
         if isinstance(self.php_page, PhpPage): self.php_page.refresh_data()

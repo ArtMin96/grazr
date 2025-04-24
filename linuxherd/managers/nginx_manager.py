@@ -3,12 +3,14 @@
 # Manages internal Nginx config files and process. Uses constants from core.config.
 # Current time is Monday, April 21, 2025 at 7:55:18 PM +04 (Yerevan, Yerevan, Armenia).
 
+import subprocess
 import os
 import signal
 import time
 from pathlib import Path
 import shutil
-import shlex # Keep for consistency
+import shlex
+import re
 
 # --- Import other core/manager modules ---
 try:
@@ -48,7 +50,54 @@ except ImportError as e:
      config = ConfigDummy()
 
 
-# --- Helper Functions ---
+def get_nginx_version():
+    """Gets the installed Nginx version by running the binary."""
+    if not config.NGINX_BINARY.is_file():
+        return "N/A (Not Found)"
+
+    # Nginx -v prints to stderr
+    command = [str(config.NGINX_BINARY.resolve()), '-v']
+    version_string = "N/A"
+
+    try:
+        # Set LD_LIBRARY_PATH if needed, similar to start_internal_nginx
+        nginx_lib_path = config.BUNDLES_DIR / 'nginx/lib/x86_64-linux-gnu' # Adjust arch if needed
+        env = os.environ.copy()
+        ld = env.get('LD_LIBRARY_PATH', '')
+        if nginx_lib_path.is_dir():
+             env['LD_LIBRARY_PATH'] = f"{nginx_lib_path.resolve()}{os.pathsep}{ld}" if ld else str(nginx_lib_path.resolve())
+
+        print(f"Nginx Manager: Running '{' '.join(command)}' to get version...")
+        # Use stderr=subprocess.PIPE, text=True
+        result = subprocess.run(command, capture_output=True, text=True, check=False, env=env, timeout=5)
+
+        if result.returncode == 0 and result.stderr:
+            # Typical output: "nginx version: nginx/1.23.4"
+            match = re.search(r'nginx/([\d\.]+)', result.stderr)
+            if match:
+                version_string = match.group(1)
+            else:
+                version_string = result.stderr.strip() # Fallback to full stderr
+        elif result.stderr:
+             version_string = f"Error ({result.stderr.strip()})"
+        elif result.stdout: # Sometimes version might go to stdout? Check.
+            match = re.search(r'nginx/([\d\.]+)', result.stdout)
+            if match: version_string = match.group(1)
+            else: version_string = "Error (Unknown output)"
+        else:
+             version_string = f"Error (Code {result.returncode})"
+
+    except FileNotFoundError:
+        version_string = "N/A (Exec Not Found)"
+    except subprocess.TimeoutExpired:
+         version_string = "N/A (Timeout)"
+    except Exception as e:
+        print(f"Nginx Manager Error: Failed to get nginx version: {e}")
+        version_string = "N/A (Error)"
+
+    print(f"Nginx Manager: Detected version: {version_string}")
+    return version_string
+
 def ensure_internal_nginx_structure():
     """
     Ensures internal directories and default nginx.conf exist.

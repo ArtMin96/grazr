@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 import subprocess
 import shutil
+import re
 
 # --- Import Core Modules ---
 try:
@@ -22,7 +23,53 @@ except ImportError as e:
 # --- End Imports ---
 
 
-# --- Helper Functions ---
+def get_mysql_version():
+    """Gets the bundled MySQL/MariaDB version by running the binary."""
+    mysqld_path = config.MYSQLD_BINARY # Path to mysqld binary
+    if not mysqld_path.is_file():
+        return "N/A (Not Found)"
+
+    # mysqld --version prints to stdout
+    command = [str(mysqld_path.resolve()), '--version']
+    version_string = "N/A"
+
+    try:
+         # Set LD_LIBRARY_PATH for bundled libraries
+        mysql_lib_path = config.MYSQL_LIB_DIR
+        env = os.environ.copy()
+        ld = env.get('LD_LIBRARY_PATH', '')
+        if mysql_lib_path.is_dir():
+             env['LD_LIBRARY_PATH'] = f"{mysql_lib_path.resolve()}{os.pathsep}{ld}" if ld else str(mysql_lib_path.resolve())
+
+        print(f"MySQL Manager: Running '{' '.join(command)}' to get version...")
+        # Use stdout=subprocess.PIPE, text=True
+        result = subprocess.run(command, capture_output=True, text=True, check=False, env=env, timeout=5)
+
+        if result.returncode == 0 and result.stdout:
+            # Typical output: "/path/to/mysqld Ver 8.4.5 for Linux on x86_64 (MySQL Community Server - GPL)"
+            # Or:           "mysqld Ver 10.6.11-MariaDB for debian-linux-gnu on x86_64 (Debian 11)"
+            match = re.search(r'Ver\s+([\d\.]+)(?:-MariaDB)?', result.stdout, re.IGNORECASE)
+            if match:
+                version_string = match.group(1)
+                if "-MariaDB" in result.stdout:
+                     version_string += " (MariaDB)"
+            else:
+                version_string = result.stdout.split('\n')[0].strip() # Fallback to first line
+        elif result.stderr:
+             version_string = f"Error ({result.stderr.strip()})"
+        else:
+             version_string = f"Error (Code {result.returncode})"
+
+    except FileNotFoundError:
+        version_string = "N/A (Exec Not Found)"
+    except subprocess.TimeoutExpired:
+         version_string = "N/A (Timeout)"
+    except Exception as e:
+        print(f"MySQL Manager Error: Failed to get mysql version: {e}")
+        version_string = "N/A (Error)"
+
+    print(f"MySQL Manager: Detected version: {version_string}")
+    return version_string
 
 def _get_default_mysql_config_content():
     """Generates content for internal my.cnf."""
