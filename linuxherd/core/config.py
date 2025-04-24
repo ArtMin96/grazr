@@ -42,6 +42,24 @@ PHP_FPM_ERROR_LOG_TEMPLATE = LOG_DIR / "php{version}-fpm.log"
 PHP_LIB_SUBDIR = "lib/x86_64-linux-gnu"
 PHP_EXT_SUBDIR = "extensions"
 
+# --- MySQL Specific Paths <<< NEW SECTION ---
+MYSQL_BUNDLES_DIR = BUNDLES_DIR / 'mysql' # Base bundle directory
+MYSQL_BINARY_DIR = MYSQL_BUNDLES_DIR / 'sbin' # Location of mysqld, mysqladmin etc.
+MYSQLD_BINARY = MYSQL_BINARY_DIR / 'mysqld'
+MYSQLADMIN_BINARY = MYSQL_BINARY_DIR / 'mysqladmin'
+MYSQL_INSTALL_DB_BINARY = MYSQL_BINARY_DIR / 'mysql_install_db' # Path if needed
+MYSQL_LIB_DIR = MYSQL_BUNDLES_DIR / 'lib' # Location of bundled libs + system libs
+MYSQL_SHARE_DIR = MYSQL_BUNDLES_DIR / 'share' # Location of support files
+
+INTERNAL_MYSQL_CONF_DIR = CONFIG_DIR / 'mysql' # Config files go here
+INTERNAL_MYSQL_CONF_FILE = INTERNAL_MYSQL_CONF_DIR / 'my.cnf'
+# Store persistent data under DATA_DIR, not CONFIG_DIR
+INTERNAL_MYSQL_DATA_DIR = DATA_DIR / 'mysql_data'
+INTERNAL_MYSQL_PID_FILE = RUN_DIR / "mysqld.pid"   # Runtime PID
+INTERNAL_MYSQL_SOCK_FILE = RUN_DIR / "mysqld.sock" # Runtime Socket
+INTERNAL_MYSQL_ERROR_LOG = LOG_DIR / 'mysql_error.log'
+# --- End MySQL Section ---
+
 # --- Site Management ---
 SITES_FILE = CONFIG_DIR / 'sites.json'
 SITE_TLD = "test"
@@ -55,6 +73,7 @@ MKCERT_BINARY = MKCERT_BUNDLES_DIR / 'mkcert'
 # --- Process Management ---
 NGINX_PROCESS_ID = "internal-nginx"
 PHP_FPM_PROCESS_ID_TEMPLATE = "php-fpm-{version}"
+MYSQL_PROCESS_ID = "internal-mysql"
 # No bundled Dnsmasq process ID
 
 # --- System Interaction Paths ---

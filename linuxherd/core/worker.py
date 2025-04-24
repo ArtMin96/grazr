@@ -17,6 +17,7 @@ try:
     from ..managers.php_manager import set_ini_value
     from ..managers.site_manager import update_site_settings, remove_site, get_site_settings
     from ..managers.ssl_manager import generate_certificate, delete_certificate
+    from ..managers.mysql_manager import start_mysql, stop_mysql
     from .system_utils import run_root_helper_action
 
 except ImportError as e:
@@ -37,9 +38,9 @@ except ImportError as e:
     def get_site_settings(*args, **kwargs): return None
     def generate_certificate(*args, **kwargs): return False, "Not imported"
     def delete_certificate(*args, **kwargs): return True
-
-    def run_root_helper_action(*args, **kwargs):
-        return False, "Not imported"
+    def start_mysql(*args, **kwargs): return False
+    def stop_mysql(*args, **kwargs): return True
+    def run_root_helper_action(*args, **kwargs): return False, "Not imported"
 
 
 class Worker(QObject):
@@ -268,6 +269,18 @@ class Worker(QObject):
                     else:
                         local_success, local_message = disable_extension(version, ext_name)
                     print(f"WORKER: {action_word} task returned: success={local_success}, msg='{local_message}'")
+
+            elif task_name == "start_mysql":
+                print(f"WORKER: Calling start_mysql...")
+                local_success = start_mysql()  # Returns bool
+                local_message = "Bundled MySQL start attempt finished."
+                print(f"WORKER: start_mysql returned: success={local_success}")
+
+            elif task_name == "stop_mysql":
+                print(f"WORKER: Calling stop_mysql...")
+                local_success = stop_mysql()  # Returns bool
+                local_message = "Bundled MySQL stop attempt finished."
+                print(f"WORKER: stop_mysql returned: success={local_success}")
 
             # --- Bundled Dnsmasq tasks and run_helper task REMOVED ---
 

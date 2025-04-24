@@ -52,6 +52,11 @@ class ServicesPage(QWidget):
         internal_layout.addWidget(nginx_widget)
         self.service_widgets[config.NGINX_PROCESS_ID] = nginx_widget
 
+        mysql_widget = ServiceItemWidget(config.MYSQL_PROCESS_ID, "MySQL / MariaDB", "unknown")
+        mysql_widget.actionClicked.connect(self.on_service_action)
+        internal_layout.addWidget(mysql_widget)
+        self.service_widgets[config.MYSQL_PROCESS_ID] = mysql_widget
+
         main_layout.addWidget(internal_group)
 
         # --- System Services Status (Informational Only) ---
@@ -126,10 +131,11 @@ class ServicesPage(QWidget):
                 widget.set_controls_enabled(enabled)
             else:
                 widget.setEnabled(enabled)
-            if enabled and hasattr(self, '_main_window') and service_id == config.NGINX_PROCESS_ID:
-                # Trigger Nginx status refresh when enabling controls
-                if hasattr(self._main_window, 'refresh_nginx_status_on_page'):
+            if enabled and hasattr(self, '_main_window'):  # Refresh status on enable
+                if service_id == config.NGINX_PROCESS_ID and hasattr(self._main_window, 'refresh_nginx_status_on_page'):
                     QTimer.singleShot(0, self._main_window.refresh_nginx_status_on_page)
+                elif service_id == config.MYSQL_PROCESS_ID and hasattr(self._main_window, 'refresh_mysql_status_on_page'):
+                    QTimer.singleShot(0, self._main_window.refresh_mysql_status_on_page)
 
 
     # --- Refresh ---
@@ -139,10 +145,12 @@ class ServicesPage(QWidget):
         if self._main_window:
             # Refresh Nginx status
             if config.NGINX_PROCESS_ID in self.service_widgets and hasattr(self._main_window, 'refresh_nginx_status_on_page'):
-                 self._main_window.refresh_nginx_status_on_page()
+                self._main_window.refresh_nginx_status_on_page()
+            if config.MYSQL_PROCESS_ID in self.service_widgets and hasattr(self._main_window, 'refresh_mysql_status_on_page'):
+                self._main_window.refresh_mysql_status_on_page()
             # Refresh SYSTEM Dnsmasq status (for display only)
             if hasattr(self._main_window, 'refresh_dnsmasq_status_on_page'):
-                 self._main_window.refresh_dnsmasq_status_on_page()
+                self._main_window.refresh_dnsmasq_status_on_page()
 
     # Helper to log messages via MainWindow
     def log_to_main(self, message):
