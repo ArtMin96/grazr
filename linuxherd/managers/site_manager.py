@@ -4,10 +4,10 @@
 
 import json
 import os
-import uuid # To generate unique IDs for sites
+import uuid
 from pathlib import Path
-import tempfile # For atomic write
-import shutil   # For atomic write permissions copy
+import tempfile
+import shutil
 
 # --- Import Core Config ---
 try:
@@ -35,6 +35,67 @@ def _ensure_config_dir_exists():
         print(f"SiteManager Error: Could not create config directory {config.CONFIG_DIR}: {e}")
         return False
 
+def _detect_framework_info(site_path_obj: Path):
+    """
+    Detects framework type and relative document root based on common markers.
+
+    Args:
+        site_path_obj (Path): The absolute path to the site's root directory.
+
+    Returns:
+        dict: {'framework': str, 'docroot': str (relative path like 'public', 'web', '.')}
+    """
+    framework = "Unknown"
+    docroot = "." # Default to current directory
+
+    # Check for common framework markers and docroots
+    # Order matters - check more specific ones first
+    try:
+        if (site_path_obj / 'artisan').is_file() and (site_path_obj / 'public' / 'index.php').is_file():
+            framework = "Laravel"
+            docroot = "public"
+        elif (site_path_obj / 'bin' / 'console').is_file() and (site_path_obj / 'public' / 'index.php').is_file():
+            framework = "Symfony"
+            docroot = "public"
+        elif (site_path_obj / 'yii').is_file() and (site_path_obj / 'web' / 'index.php').is_file():
+            framework = "Yii2"
+            docroot = "web"
+        elif (site_path_obj / 'craft').is_file() and (site_path_obj / 'web' / 'index.php').is_file():
+            framework = "CraftCMS"
+            docroot = "web" # Default Craft web root
+        elif (site_path_obj / 'please').is_file() and (site_path_obj / 'public' / 'index.php').is_file():
+            framework = "Statamic"
+            docroot = "public"
+        elif (site_path_obj / 'wp-config.php').is_file() or (site_path_obj / 'wp-load.php').is_file():
+            framework = "WordPress"
+            docroot = "." # WordPress runs from the root
+        else:
+            # Fallback checks for common docroot folders if no framework detected
+            if (site_path_obj / 'public').is_dir() and \
+               ((site_path_obj / 'public' / 'index.php').is_file() or \
+                (site_path_obj / 'public' / 'index.html').is_file()):
+                 docroot = "public"
+                 framework = "Unknown (Public Dir)"
+            elif (site_path_obj / 'web').is_dir() and \
+                 ((site_path_obj / 'web' / 'index.php').is_file() or \
+                  (site_path_obj / 'web' / 'index.html').is_file()):
+                  docroot = "web"
+                  framework = "Unknown (Web Dir)"
+            elif (site_path_obj / 'index.php').is_file() or \
+                 (site_path_obj / 'index.html').is_file():
+                 docroot = "." # Assume root if index file found there
+                 framework = "Unknown (Root Dir)"
+            # Else: keep default docroot = "."
+
+    except Exception as e:
+        print(f"SiteManager Warning: Error during framework detection for {site_path_obj}: {e}")
+        # Keep defaults on error
+        framework = "DetectionError"
+        docroot = "."
+
+    print(f"SiteManager Info: Detected framework '{framework}', docroot '{docroot}' for {site_path_obj}")
+    return {"framework_type": framework, "docroot_relative": docroot}
+
 # --- Public API ---
 
 def load_sites():
@@ -59,13 +120,15 @@ def load_sites():
                     sites_data = data['sites']
                     # Add default keys for robustness if loading older data
                     for site in sites_data:
-                         site.setdefault('id', str(uuid.uuid4()))
-                         # Ensure domain ends with correct TLD from config
-                         site_name = Path(site.get('path','')).name
-                         expected_domain = f"{site_name}.{config.SITE_TLD}" if site_name else "unknown.err"
-                         site.setdefault('domain', expected_domain)
-                         site.setdefault('php_version', config.DEFAULT_PHP)
-                         site.setdefault('https', False)
+                        site.setdefault('id', str(uuid.uuid4()))
+                        # Ensure domain ends with correct TLD from config
+                        site_name = Path(site.get('path','')).name
+                        expected_domain = f"{site_name}.{config.SITE_TLD}" if site_name else "unknown.err"
+                        site.setdefault('domain', expected_domain)
+                        site.setdefault('php_version', config.DEFAULT_PHP)
+                        site.setdefault('https', False)
+                        site.setdefault('framework_type', 'Unknown')
+                        site.setdefault('docroot_relative', '.')
                 elif isinstance(data, list): # Handle old format (just list of paths)
                     print(f"SiteManager Warning: Old sites.json format detected. Converting...")
                     sites_data = []
@@ -74,12 +137,17 @@ def load_sites():
                              site_path_obj = Path(site_path_str)
                              if site_path_obj.is_dir(): # Check if dir still exists
                                  site_name = site_path_obj.name
+                                 # Detect framework for old sites too during conversion
+                                 framework_info = _detect_framework_info(site_path_obj)
+
                                  sites_data.append({
                                      "id": str(uuid.uuid4()),
                                      "path": str(site_path_obj.resolve()),
                                      "domain": f"{site_name}.{config.SITE_TLD}",
                                      "php_version": config.DEFAULT_PHP,
-                                     "https": False
+                                     "https": False,
+                                     "framework_type": framework_info["framework_type"],
+                                     "docroot_relative": framework_info["docroot_relative"]
                                  })
                     print(f"SiteManager Warning: Converted {len(sites_data)} entries from old format.")
                     # Consider saving immediately in new format? Risky on load.
@@ -138,20 +206,26 @@ def save_sites(sites_list):
 
 def add_site(path_to_add):
     """Adds a site with defaults using constants from config."""
-    site_path = Path(path_to_add)
-    if not site_path.is_dir(): print(f"Error: Invalid dir '{path_to_add}'."); return False
-    absolute_path = str(site_path.resolve())
+    site_path_obj = Path(path_to_add)
+    if not site_path_obj.is_dir(): print(f"Error: Invalid dir '{path_to_add}'."); return False
+    absolute_path = str(site_path_obj.resolve())
     current_sites = load_sites()
     if any(site.get('path') == absolute_path for site in current_sites):
         print(f"Info: Site '{absolute_path}' already linked."); return False
 
-    site_name = site_path.name
+    # Detect framework info <<< NEW CALL
+    framework_info = _detect_framework_info(site_path_obj)
+
+    # Create new site entry including framework info
+    site_name = site_path_obj.name
     new_site = {
         "id": str(uuid.uuid4()),
         "path": absolute_path,
         "domain": f"{site_name}.{config.SITE_TLD}",
         "php_version": config.DEFAULT_PHP,
-        "https": False # Default HTTPS state
+        "https": False,
+        "framework_type": framework_info["framework_type"],
+        "docroot_relative": framework_info["docroot_relative"]
     }
     current_sites.append(new_site)
     # save_sites handles sorting now

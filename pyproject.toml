@@ -1,0 +1,34 @@
+# LinuxHerd/pyproject.toml
+
+[build-system]
+# Specifies build tools pip needs to install your package
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Basic info about your project
+name = "linuxherd-helper"
+version = "0.1.0-alpha"
+description = "GUI Helper for managing local development services."
+requires-python = ">=3.10" # Specify your minimum Python version
+# Add license later if needed: license = { text = "MIT License" }
+
+# Add dependencies here if they are NOT just for the GUI
+# dependencies = []
+
+[project.optional-dependencies]
+# Dependencies needed only for the GUI part
+gui = [
+    "PySide6 >=6.6.0, <7.0.0", # Or your specific version
+]
+
+# Optional: Define entry points if you want installable commands later
+# [project.scripts]
+# linuxherd-cli = "linuxherd.cli:main_cli_function_name" # Example
+
+[tool.setuptools.packages.find]
+# Tells setuptools where to find your main package code
+# Assumes your package ('linuxherd') is directly under the root where pyproject.toml is
+where = ["."] # Look in the current directory (project root)
+include = ["linuxherd*"] # Include the 'linuxherd' package and sub-packages
+exclude = ["venv*", "tests*"] # Exclude virtual environment, tests

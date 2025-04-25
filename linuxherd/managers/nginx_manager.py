@@ -159,12 +159,23 @@ def generate_site_config(site_info, php_socket_path):
     https_enabled = site_info.get('https', False)
 
     site_path = Path(site_path_str)
+
     if not site_path.is_dir():
         print(f"Configurator Error: Site path is not a directory: {site_path_str}")
         return ""
 
+    # --- Determine Document Root using stored setting
+    # Default to '.' (site root) if setting is missing
+    docroot_relative = site_info.get('docroot_relative', '.')
+    root_path = (site_path / docroot_relative).resolve()  # Calculate full path
+
+    # Verify the calculated document root exists, fallback to site root if not
+    if not root_path.is_dir():
+        print(f"Nginx Manager Warning: Calculated docroot '{root_path}' not found for {domain}. Falling back to site root '{site_path}'.")
+        root_path = site_path.resolve()
+
     public_root = site_path / 'public'; root_path = public_root if public_root.is_dir() else site_path
-    root_path_str = str(root_path.resolve()).replace('\\', '\\\\').replace('"', '\\"')
+    root_path_str = str(root_path).replace('\\', '\\\\').replace('"', '\\"')
     # Use config.LOG_DIR (ensure this was fixed based on previous error)
     access_log_path = str((config.LOG_DIR / f"{domain}.access.log").resolve())
     error_log_path = str((config.LOG_DIR / f"{domain}.error.log").resolve())

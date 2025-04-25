@@ -179,6 +179,19 @@ class SitesPage(QWidget):
         self.details_layout.addWidget(self._add_section_separator())
         self._detail_widgets['path'] = path_value
 
+        # --- ADD FRAMEWORK DISPLAY --- vvv
+        framework_label = QLabel("Framework:")
+        framework_label.setFont(label_font)
+        # Get the stored framework type, default to 'N/A' or 'Unknown' if missing
+        framework_type = self.current_site_info.get('framework_type', 'N/A')
+        framework_value = QLabel(framework_type)
+        framework_value.setFont(details_font)
+        framework_value.setTextInteractionFlags(Qt.TextSelectableByMouse)  # Allow copying
+        self.details_layout.addWidget(framework_label)
+        self.details_layout.addWidget(framework_value)
+        self._detail_widgets['framework'] = framework_value  # Store reference if needed later
+        # --- END FRAMEWORK DISPLAY --- ^^^
+
         # URL/Domain (Editable)
         url_label = QLabel("Domain:"); url_label.setFont(label_font)
         current_domain = self.current_site_info.get('domain', '')

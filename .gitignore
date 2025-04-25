@@ -1,5 +1,19 @@
+# Virtual Environment
 venv/
-__pycache__/
+env/
+*/venv/
+*/env/
+.venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
 *.pyc
+__pycache__/
+
+# IDE / OS files
 .idea/
 .vscode/
+*.DS_Store
+*.swp

@@ -66,21 +66,64 @@ class Worker(QObject):
             # --- Task Dispatching ---
             if task_name == "uninstall_nginx":
                 path = data.get("path")
+                site_info = get_site_settings(path)  # Get settings BEFORE removing Nginx config
+                domain = site_info.get("domain") if site_info else None
+                results_log = []
+                overall_success = True  # Assume success unless something fails
+
                 if path:
-                    # Note: Hosts file removal is NOT done here anymore
+                    # Remove hosts entry FIRST (Requires pkexec)
+                    if domain:
+                        print(f"WORKER: Removing host '{domain}'...");
+                        rm_ok, rm_msg = run_root_helper_action(action="remove_host_entry", domain=domain)
+                        results_log.append(f"HostsRm:{'OK' if rm_ok else 'Fail'}")
+                        # Consider if hosts failure should stop the whole process? Maybe not.
+                        # if not rm_ok: overall_success = False # Optional: fail if hosts cannot be removed
+                    else:
+                        results_log.append("HostsRm:Skipped (no domain)")
+
+                    # Uninstall Nginx config (contains reload)
                     print(f"WORKER: Calling uninstall_nginx_site for '{path}'...")
-                    local_success, local_message = uninstall_nginx_site(path)  # This handles Nginx files + reload
+                    ngx_ok, ngx_msg = uninstall_nginx_site(path)
+                    results_log.append(f"NginxUninstall:{'OK' if ngx_ok else 'Fail'}")
+                    if not ngx_ok: overall_success = False  # Definitely fail if Nginx uninstall fails
+
+                    local_success = overall_success
+                    local_message = f"Uninstall Site: {' | '.join(results_log)}"
                 else:
                     local_success = False;
                     local_message = "Missing 'path' for uninstall_nginx."
 
-            elif task_name == "install_nginx":
+
+            elif task_name == "install_nginx":  # <<< MODIFIED: Calls add_host_entry
                 path = data.get("path")
+
                 if path:
+                    # Setup Nginx config/PHP FPM/Reload Nginx
                     print(f"WORKER: Calling install_nginx_site for '{path}'...")
-                    local_success, local_message = install_nginx_site(
-                        path)  # Handles Nginx files, PHP FPM start, Nginx reload
-                    # Note: Hosts file adding is NOT done here anymore
+                    ngx_ok, ngx_msg = install_nginx_site(path)
+                    results_log = [f"NginxInstall:{'OK' if ngx_ok else 'Fail'}"]  # Start log
+                    overall_success = ngx_ok
+
+                    # Add hosts entry AFTER Nginx is setup successfully (Requires pkexec)
+                    if overall_success:
+                        site_info = get_site_settings(path)  # Get settings again for domain
+                        domain = site_info.get("domain") if site_info else None
+
+                        if domain:
+                            print(f"WORKER: Adding host '{domain}'...");
+                            add_ok, add_msg = run_root_helper_action(action="add_host_entry", domain=domain,
+                                                                     ip="127.0.0.1")
+                            results_log.append(f"HostsAdd:{'OK' if add_ok else 'Fail'}")
+
+                            if not add_ok: overall_success = False  # Fail overall if adding host fails
+                        else:
+                            results_log.append("HostsAdd:Skipped (no domain)")
+                    else:
+                        results_log.append("HostsAdd:Skipped (Nginx failed)")
+
+                    local_success = overall_success
+                    local_message = f"Install Site: {' | '.join(results_log)}"
                 else:
                     local_success = False;
                     local_message = "Missing 'path' for install_nginx."
@@ -109,35 +152,46 @@ class Worker(QObject):
                 else:
                     local_success = False; local_message = "Missing 'version'."
 
-            elif task_name == "update_site_domain":  # Only updates storage & Nginx config
-                site_info = data.get("site_info");
-                new_domain = data.get("new_domain");
+            elif task_name == "update_site_domain":
+                site_info = data.get("site_info")
+                new_domain = data.get("new_domain")
+
                 if not site_info or not new_domain:
                     local_success = False; local_message = "Missing data."
                 else:
-                    path = site_info.get('path');
-                    old = site_info.get('domain');
-                    results_log = [];
+                    path = site_info.get('path')
+                    old_domain = site_info.get('domain')
+                    ip = "127.0.0.1"
+                    results_log = []
                     overall_success = True
-                    if not path or not old:
-                        local_success = False; local_message = "Missing path/old domain."
+
+                    if not path or not old_domain:
+                        local_success = False
+                        local_message = "Missing path/old domain."
                     else:
-                        print(f"WORKER: Update domain {path}: {old}->{new_domain}");
-                        # 1. Update storage
-                        storage_ok = update_site_settings(path, {"domain": new_domain})
-                        if not storage_ok: results_log.append(
-                            "Store:Fail"); overall_success = False;
+                        print(f"WORKER: Update domain {path}: {old_domain}->{new_domain}")
+                        # Update storage
+                        if not update_site_settings(path, {"domain": new_domain}): results_log.append(
+                            "Store:Fail"); overall_success = False
                         else: results_log.append("Store:OK")
-                        # 2. Hosts file editing removed
-                        # 3. Update Nginx config & reload
+
+                        # Update hosts file via helper (Requires pkexec)
+                        if overall_success and old_domain:
+                            rm_ok, rm_msg = run_root_helper_action("remove_host_entry", domain=old_domain);
+                            results_log.append(f"HostsRm:{'OK' if rm_ok else 'Fail'}")
+                        if overall_success:
+                            add_ok, add_msg = run_root_helper_action("add_host_entry", domain=new_domain, ip=ip);
+                            results_log.append(f"HostsAdd:{'OK' if add_ok else 'Fail'}");
+                            if not add_ok: overall_success = False
+                        # Update Nginx config & reload
                         if overall_success:
                             ngx_ok, ngx_msg = install_nginx_site(path);
                             results_log.append(f"Nginx:{'OK' if ngx_ok else 'Fail'}");
                             if not ngx_ok: overall_success = False
                         else:
-                            results_log.append("Nginx:Skipped")
+                            results_log.append("Nginx:Skipped")  # Skipped if store or hosts failed
                         local_success = overall_success;
-                        local_message = f"Update Domain: {'|'.join(results_log)}"
+                        local_message = f"Update Domain: {' | '.join(results_log)}"
 
             elif task_name == "set_site_php":  # Sets PHP version in storage, updates Nginx config
                 site_info = data.get("site_info");
@@ -282,7 +336,15 @@ class Worker(QObject):
                 local_message = "Bundled MySQL stop attempt finished."
                 print(f"WORKER: stop_mysql returned: success={local_success}")
 
-            # --- Bundled Dnsmasq tasks and run_helper task REMOVED ---
+            elif task_name == "run_helper":
+                action = data.get("action");
+                service = data.get("service_name")
+                # Only allow read-only systemd actions now defined in helper
+                if action in ["status", "is-active", "is-enabled", "is-failed"] and service:
+                    print(f"WORKER: Calling run_root_helper_action: {action} {service}...")
+                    local_success, local_message = run_root_helper_action(action=action, service_name=service)
+                else:
+                    local_success = False; local_message = "Unsupported action/service for run_helper."
 
             # If task_name didn't match any, local_success/local_message keep initial "Unknown" state
 

@@ -192,6 +192,7 @@ class MainWindow(QMainWindow):
         service_name_ctx = context_data.get("service_name", "N/A")
         php_version_ctx = context_data.get("version", site_info.get("php_version", "N/A"))
         ext_name_ctx = context_data.get("extension_name", "N/A")  # For toggle task
+        version = context_data.get("version", "N/A")
 
         # Determine display name for logging more accurately
         display_name = "N/A"
