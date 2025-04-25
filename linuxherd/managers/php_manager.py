@@ -12,6 +12,7 @@ import configparser # For INI handling
 import signal
 import tempfile
 import glob # For listing extensions
+import sys
 
 # --- Import Core Modules ---
 try:
@@ -130,7 +131,7 @@ def detect_bundled_php_versions():
             if fpm_binary.is_file() and os.access(fpm_binary, os.X_OK): detected_versions.append(version)
             else: print(f"PHP Manager: Found '{version}' dir but missing/non-exec FPM: {fpm_binary}")
     detected_versions.sort(key=lambda v: [int(p) for p in v.split('.')], reverse=True)
-    print(f"PHP Manager: Detected bundled versions: {detected_versions}")
+    print(f"PHP Manager: Detected bundled versions: {detected_versions}", file=sys.stderr)
     return detected_versions
 
 def get_default_php_version():
