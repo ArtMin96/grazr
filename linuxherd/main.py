@@ -3,6 +3,8 @@
 # Current time is Sunday, April 20, 2025 at 2:09:10 PM +04.
 
 import sys
+import os
+import traceback
 from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
@@ -13,18 +15,12 @@ try:
     # Use relative import if main.py is outside linuxherd package (when run with python -m)
     # Adjust if main.py moves inside linuxherd package later.
     from linuxherd.ui.main_window import MainWindow
-except ModuleNotFoundError:
-    # Try absolute import if relative fails (depends on execution context)
-    try:
-         from ui.main_window import MainWindow
-    except ModuleNotFoundError as e:
-         print(f"ERROR: Cannot import MainWindow - {e}")
-         print("Ensure you are running using 'python -m linuxherd.main'")
-         print("from the 'LinuxHerd' project root directory.")
-         sys.exit(1)
+    from linuxherd.core import process_manager  # Needed for cleanup on exit
 except ImportError as e:
-      print(f"ERROR: Cannot import MainWindow - {e}")
-      sys.exit(1)
+    print(f"FATAL: Failed to import application components: {e}", file=sys.stderr)
+    print("Ensure package structure is correct and 'pip install -e .' was run.", file=sys.stderr)
+    traceback.print_exc()
+    sys.exit(1)
 
 # Optional: Global Exception Hook (Useful for debugging UI errors)
 def global_exception_hook(exctype, value, tb):
@@ -56,30 +52,84 @@ def load_stylesheet():
 
 # --- Main Application Execution ---
 if __name__ == "__main__":
-    # Create the Qt Application
-    app = QApplication(sys.argv)
-    # Set application info (optional)
-    app.setOrganizationName("LinuxHerd") # Replace as needed
-    app.setApplicationName("LinuxHerd Helper")
+
+    # Check if MainWindow was imported successfully
+    if 'MainWindow' not in locals() or MainWindow is None:
+        print("FATAL: MainWindow class could not be imported. Cannot start GUI.", file=sys.stderr)
+        sys.exit(1)
+
+    existing_app = QApplication.instance()
+    if existing_app:
+        print("WARNING: QApplication instance already exists. Using existing one.")
+        app = existing_app
+    else:
+        print("Creating QApplication instance...")
+        app = QApplication(sys.argv)
+        app.setOrganizationName("LinuxHerd")  # Optional
+        app.setApplicationName("LinuxHerd Helper")  # Optional
 
     # --- Load and Apply Stylesheet --- <<< ADD THIS
     style_sheet_content = load_stylesheet()
     if style_sheet_content:
         app.setStyleSheet(style_sheet_content)
         print("Applied global stylesheet.")
-    # --- End Apply Stylesheet ---
 
-    # Create and Show the Main Window
-    window = MainWindow() # Assumes qApp.aboutToQuit is connected inside main.py or MainWindow
+        # --- Create the Main Window (Only Once) ---
+        print("Creating MainWindow instance...")
+        # Ensure MainWindow class exists before calling it
+        try:
+            window = MainWindow()  # Instantiation should happen ONLY here
+            print("MainWindow instance created successfully.")
+        except RuntimeError as e:
+            # Catch the specific error if it somehow still happens
+            print(f"FATAL: Caught RuntimeError during MainWindow creation: {e}", file=sys.stderr)
+            print("This likely means __init__ was called twice. Check for stray MainWindow() calls.", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"FATAL: An unexpected error occurred during MainWindow creation: {e}", file=sys.stderr)
+            traceback.print_exc()
+            sys.exit(1)
 
-    # --- Apply Style Refresh --- <<< ADD THIS SECTION
-    # Force style refresh to ensure custom properties take effect
-    app.style().unpolish(window)
-    app.style().polish(window)
-    window.update()
-    # --- End Style Refresh ---
+        # --- Connect Shutdown Signal ---
+        # Ensure window object was created and has the necessary attributes
+        if 'window' in locals() and window and hasattr(window, 'thread') and window.thread:
+            print("Connecting aboutToQuit signal...")
+            # Use the 'app' instance directly
+            app.aboutToQuit.connect(window.close)  # Trigger window's closeEvent
+        else:
+            print("WARNING: Could not connect aboutToQuit signal (window or thread missing).")
 
-    window.show()
+        # --- Show Window and Run ---
+        print("Showing main window...")
+        window.show()
 
-    # Start the Qt event loop
-    sys.exit(app.exec())
+        print("Starting Qt event loop...")
+        exit_code = app.exec()
+        print(f"Application exiting with code {exit_code}.")
+        sys.exit(exit_code)
+
+    # # Create the Main Window - ONLY ONCE
+    # print("Creating MainWindow instance...")
+    # window = MainWindow()  # Instantiation happens here
+    # print("MainWindow instance created.")
+    #
+    # # Connect clean shutdown signal (ensure window.thread exists)
+    # if hasattr(window, 'thread') and window.thread:
+    #     print("Connecting aboutToQuit signal...")
+    #     # Use qApp instance obtained from QApplication
+    #     app.aboutToQuit.connect(window.close)  # Trigger window's closeEvent
+    #
+    # # --- Apply Style Refresh --- <<< ADD THIS SECTION
+    # # Force style refresh to ensure custom properties take effect
+    # # app.style().unpolish(window)
+    # # app.style().polish(window)
+    # # window.update()
+    # # --- End Style Refresh ---
+    #
+    # window.show()
+    #
+    # # Start the Qt event loop
+    # print("Starting Qt event loop...")
+    # exit_code = app.exec()
+    # print(f"Application exiting with code {exit_code}.")
+    # sys.exit(exit_code)

@@ -12,7 +12,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QTextEdit, QFrame, QListWidget, QListWidgetItem, QStackedWidget,
-    QSizePolicy, QFileDialog
+    QSizePolicy, QFileDialog, QMessageBox, QDialog
 )
 from PySide6.QtCore import Qt, QTimer, QObject, QThread, Signal, Slot, QSize
 from PySide6.QtGui import QFont
@@ -22,23 +22,22 @@ try:
     from ..core import config # Import central config
     from ..core import process_manager
     from ..core.worker import Worker
-    # Import managers needed by MainWindow or its methods
+    from ..core.system_utils import check_service_status
+    from ..core.config import SYSTEM_DNSMASQ_SERVICE_NAME
+
+    # Managers
     from ..managers.php_manager import detect_bundled_php_versions
     from ..managers.site_manager import add_site, remove_site
     from ..managers.nginx_manager import get_nginx_version
     from ..managers.mysql_manager import get_mysql_version, get_mysql_status
     from ..managers.redis_manager import get_redis_status, get_redis_version
     from ..managers.minio_manager import get_minio_status, get_minio_version
-    # system_utils might still be needed if check_service_status is used for conflicts
-    from ..core.system_utils import check_service_status
-    from ..managers.mysql_manager import get_mysql_status
-    from ..core.config import SYSTEM_DNSMASQ_SERVICE_NAME
-    from .php_extensions_dialog import PhpExtensionsDialog
+
+    from ..managers.services_config_manager import (load_configured_services,
+                                                    add_configured_service,
+                                                    remove_configured_service)
 except ImportError as e:
     print(f"ERROR in main_window.py: Could not import core/manager modules - {e}")
-
-    class PhpExtensionsDialog(QWidget):
-        pass  # Dummy
 
     def get_nginx_version(): return "N/A"
     def get_mysql_version(): return "N/A"
@@ -51,10 +50,15 @@ try:
     from .services_page import ServicesPage
     from .php_page import PhpPage
     from .sites_page import SitesPage
+
+    from .php_extensions_dialog import PhpExtensionsDialog
+    from .add_service_dialog import AddServiceDialog
 except ImportError as e:
      print(f"ERROR in main_window.py: Could not import page widgets - {e}")
-     sys.exit(1)
 
+     class PhpExtensionsDialog(QWidget): pass
+     class AddServiceDialog(QWidget): pass
+     sys.exit(1)
 
 class MainWindow(QMainWindow):
     triggerWorker = Signal(str, dict)
@@ -62,113 +66,81 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle(f"{config.APP_NAME} (Alpha)") # Use config
-        self.setGeometry(100, 100, 850, 650)
-
-        # --- Main Layout ---
-        main_widget = QWidget()
-        # It's good practice to give the main container an object name too
-        main_widget.setObjectName("main_widget")
-        main_h_layout = QHBoxLayout(main_widget)
-        main_h_layout.setContentsMargins(0,0,0,0)
-        main_h_layout.setSpacing(0)
-        self.setCentralWidget(main_widget) # Set central widget early
-
-        # --- Sidebar ---
-        self.sidebar = QListWidget()
-        self.sidebar.setObjectName("sidebar") # <<< SET OBJECT NAME EARLY
-        self.sidebar.setFixedWidth(180)
-        self.sidebar.setViewMode(QListWidget.ListMode)
-        self.sidebar.setSpacing(5)
-        self.sidebar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        self.sidebar.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        # Stylesheet is applied globally in main.py now
-        # self.sidebar.setStyleSheet("""...""") # REMOVED
-        self.sidebar.addItem(QListWidgetItem("Services")) # Index 0
-        self.sidebar.addItem(QListWidgetItem("PHP"))      # Index 1
-        self.sidebar.addItem(QListWidgetItem("Sites"))    # Index 2
-        main_h_layout.addWidget(self.sidebar)
-
-        # --- Content Area Container ---
-        content_container = QWidget()
-        content_container.setObjectName("content_container") # Name for styling
-        content_v_layout = QVBoxLayout(content_container)
-        content_v_layout.setContentsMargins(20, 15, 15, 10) # Padding inside content area
-        content_v_layout.setSpacing(15)
-
-        # --- Stacked Widget for Pages ---
-        self.stacked_widget = QStackedWidget()
-        content_v_layout.addWidget(self.stacked_widget, 1) # Stack stretches
-
-        # --- Create Page Instances --- (Separate Lines)
-        self.services_page = ServicesPage(self)
-        self.php_page = PhpPage(self)
-        self.sites_page = SitesPage(self)
-
-        # --- Add Pages to Stacked Widget ---
-        self.stacked_widget.addWidget(self.services_page) # Index 0
-        self.stacked_widget.addWidget(self.php_page)      # Index 1
-        self.stacked_widget.addWidget(self.sites_page)     # Index 2
-
-        # --- Log Area ---
-        log_frame = QFrame()
-        log_frame.setObjectName("log_frame") # Name for styling
-        log_frame.setFrameShape(QFrame.StyledPanel) # Use Panel for potential border from QSS
-        log_frame.setFrameShadow(QFrame.Sunken) # Example shadow
-        log_layout = QVBoxLayout(log_frame)
-        log_layout.setContentsMargins(5, 5, 5, 5)
-        log_label = QLabel("Log / Output:")
-        log_label.setObjectName("log_label")
-        log_layout.addWidget(log_label)
-        self.log_text_area = QTextEdit()
-        self.log_text_area.setObjectName("log_area") # <<< SET OBJECT NAME
-        self.log_text_area.setReadOnly(True)
-        self.log_text_area.setFixedHeight(100)
-        log_layout.addWidget(self.log_text_area)
-        content_v_layout.addWidget(log_frame) # Add frame to main content layout
-
-        # --- Add Content Area to Main Layout ---
-        main_h_layout.addWidget(content_container, 1) # Content takes stretch
-
+        self.setWindowTitle(f"{config.APP_NAME} (Alpha)");
+        self.setGeometry(100, 100, 850, 650);
+        main_widget = QWidget();
+        main_h_layout = QHBoxLayout(main_widget);
+        main_h_layout.setContentsMargins(0, 0, 0, 0);
+        main_h_layout.setSpacing(0);
+        self.sidebar = QListWidget();
+        self.sidebar.setObjectName("sidebar");
+        self.sidebar.setFixedWidth(180);
+        self.sidebar.setViewMode(QListWidget.ListMode);
+        self.sidebar.setSpacing(5);
+        self.sidebar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding);
+        self.sidebar.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded);
+        self.sidebar.setStyleSheet("...");
+        self.sidebar.addItem(QListWidgetItem("Services"));
+        self.sidebar.addItem(QListWidgetItem("PHP"));
+        self.sidebar.addItem(QListWidgetItem("Sites"));
+        main_h_layout.addWidget(self.sidebar);
+        content_container = QWidget();
+        content_container.setObjectName("content_container");
+        content_v_layout = QVBoxLayout(content_container);
+        content_v_layout.setContentsMargins(20, 15, 15, 10);
+        content_v_layout.setSpacing(15);
+        self.stacked_widget = QStackedWidget();
+        content_v_layout.addWidget(self.stacked_widget, 1);
+        self.services_page = ServicesPage(self);
+        self.php_page = PhpPage(self);
+        self.sites_page = SitesPage(self);
+        self.stacked_widget.addWidget(self.services_page);
+        self.stacked_widget.addWidget(self.php_page);
+        self.stacked_widget.addWidget(self.sites_page);
+        log_frame = QFrame();
+        log_frame.setObjectName("log_frame");
+        log_frame.setFrameShape(QFrame.StyledPanel);
+        log_frame.setFrameShadow(QFrame.Sunken);
+        log_layout = QVBoxLayout(log_frame);
+        log_layout.setContentsMargins(5, 5, 5, 5);
+        log_label = QLabel("Log / Output:");
+        log_label.setObjectName("log_label");
+        log_layout.addWidget(log_label);
+        self.log_text_area = QTextEdit();
+        self.log_text_area.setObjectName("log_area");
+        self.log_text_area.setReadOnly(True);
+        self.log_text_area.setFixedHeight(100);
+        log_layout.addWidget(self.log_text_area);
+        content_v_layout.addWidget(log_frame);
+        main_h_layout.addWidget(content_container, 1);
+        self.setCentralWidget(main_widget)
         self.current_extension_dialog = None
-
-        # --- Setup Worker Thread ---
-        self.thread = QThread(self)
-        self.worker = Worker()
-        self.worker.moveToThread(self.thread)
-        self.triggerWorker.connect(self.worker.doWork)
-        self.worker.resultReady.connect(self.handleWorkerResult)
-        print("MAIN_WINDOW DEBUG: Connected worker.resultReady signal.") # Debug print
-        # Connect thread cleanup signals
-        self.thread.finished.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread = QThread(self);
+        self.worker = Worker();
+        self.worker.moveToThread(self.thread);
+        self.triggerWorker.connect(self.worker.doWork);
+        self.worker.resultReady.connect(self.handleWorkerResult);
+        self.thread.finished.connect(self.worker.deleteLater);
+        self.thread.finished.connect(self.thread.deleteLater);
         self.thread.start()
-
-        # --- Connect Signals ---
-        self.sidebar.currentRowChanged.connect(self.change_page)
-        self.services_page.serviceActionTriggered.connect(self.on_service_action_triggered)
-        self.sites_page.linkDirectoryClicked.connect(self.add_site_dialog)
-        self.sites_page.unlinkSiteClicked.connect(self.remove_selected_site)
-        self.sites_page.saveSiteDomainClicked.connect(self.on_save_site_domain)
-        self.sites_page.setSitePhpVersionClicked.connect(self.on_set_site_php_version)
-        self.sites_page.enableSiteSslClicked.connect(self.on_enable_site_ssl)
-        self.sites_page.disableSiteSslClicked.connect(self.on_disable_site_ssl)
-        self.php_page.managePhpFpmClicked.connect(self.on_manage_php_fpm_triggered)
-        self.php_page.saveIniSettingsClicked.connect(self.on_save_php_ini_settings)
-        self.php_page.managePhpFpmClicked.connect(self.on_manage_php_fpm_triggered)
-        self.php_page.saveIniSettingsClicked.connect(self.on_save_php_ini_settings)
+        self.sidebar.currentRowChanged.connect(self.change_page);
+        self.services_page.serviceActionTriggered.connect(self.on_service_action_triggered);
+        self.services_page.addServiceClicked.connect(self.on_add_service_button_clicked);
+        self.services_page.removeServiceRequested.connect(self.on_remove_service_config)
+        self.sites_page.linkDirectoryClicked.connect(self.add_site_dialog);
+        self.sites_page.unlinkSiteClicked.connect(self.remove_selected_site);
+        self.sites_page.saveSiteDomainClicked.connect(self.on_save_site_domain);
+        self.sites_page.setSitePhpVersionClicked.connect(self.on_set_site_php_version);
+        self.sites_page.enableSiteSslClicked.connect(self.on_enable_site_ssl);
+        self.sites_page.disableSiteSslClicked.connect(self.on_disable_site_ssl);
+        self.php_page.managePhpFpmClicked.connect(self.on_manage_php_fpm_triggered);
+        self.php_page.saveIniSettingsClicked.connect(self.on_save_php_ini_settings);
         self.php_page.showExtensionsDialog.connect(self.on_show_extensions_dialog)
-
-        # --- Initial State Setup ---
-        self.log_message("Application starting...")
-        self.log_message("UI Structure Initialized.")
+        self.log_message("Application starting...");
+        self.log_message("UI Structure Initialized.");
         self.sidebar.setCurrentRow(0)
-
-        self.log_message("Attempting to start bundled services (Nginx, MySQL)...")
+        self.log_message("Attempting to start bundled Nginx...");
         QTimer.singleShot(100, lambda: self.triggerWorker.emit("start_internal_nginx", {}))
-        QTimer.singleShot(200, lambda: self.triggerWorker.emit("start_mysql", {}))
-        QTimer.singleShot(300, lambda: self.triggerWorker.emit("start_redis", {}))
-        QTimer.singleShot(400, lambda: self.triggerWorker.emit("start_minio", {}))
 
     # --- Navigation Slot ---
     @Slot(int)
@@ -187,104 +159,99 @@ class MainWindow(QMainWindow):
     @Slot(str, dict, bool, str)
     def handleWorkerResult(self, task_name, context_data, success, message):
         """Handles results emitted by the worker thread and updates relevant pages."""
-        print(
-            f"MAIN_WINDOW DEBUG: handleWorkerResult SLOT called for task '{task_name}'. Success: {success}")  # Keep Debug
+        print(f"MAIN_WINDOW DEBUG: handleWorkerResult SLOT called for task '{task_name}'. Success: {success}")
 
-        # Initialize variables
-        target_page = None  # Will be assigned based on task_name
-        display_name = "N/A"  # Default display name for logging
-        path = context_data.get("path", context_data.get("site_info", {}).get("path", "N/A"))
+        target_page = None;
+        display_name = "N/A";
+        service_id = None  # Determine service_id if applicable
+        path = context_data.get("path", context_data.get("site_info", {}).get("path", "N/A"));
         domain_ctx = context_data.get("site_info", {}).get("domain", Path(path).name if path != "N/A" else "N/A")
-        service_name_ctx = context_data.get("service_name", "N/A")
-        php_version_ctx = context_data.get("version", context_data.get("site_info", {}).get("php_version", "N/A"))
+        service_name_ctx = context_data.get("service_name", "N/A");
+        php_version_ctx = context_data.get("version", "N/A");
         ext_name_ctx = context_data.get("extension_name", "N/A")
 
-        # --- Determine target_page and display_name based on task_name ---
-        # Ensure correct indentation for each block
-        if task_name in ["install_nginx", "uninstall_nginx", "update_site_domain", "set_site_php", "enable_ssl", "disable_ssl"]:
-            target_page = self.sites_page
+        # Determine target page and display name
+        if task_name in ["install_nginx", "uninstall_nginx", "update_site_domain", "set_site_php", "enable_ssl",
+                         "disable_ssl"]:
+            target_page = self.sites_page;
             display_name = f"Site ({domain_ctx or path})"
         elif task_name in ["start_internal_nginx", "stop_internal_nginx"]:
-            target_page = self.services_page  # <<< Assign target for Nginx tasks
-            display_name = "Internal Nginx"
+            target_page = self.services_page;
+            display_name = "Internal Nginx";
+            service_id = config.NGINX_PROCESS_ID
         elif task_name in ["start_mysql", "stop_mysql"]:
-            target_page = self.services_page  # <<< Assign target for MySQL tasks
-            display_name = "Bundled MySQL"
+            target_page = self.services_page;
+            display_name = "Bundled MySQL";
+            service_id = config.MYSQL_PROCESS_ID
         elif task_name in ["start_redis", "stop_redis"]:
-            target_page = self.services_page  # <<< Assign target for Redis tasks
-            display_name = "Bundled Redis"
-        elif task_name in ["start_minio", "stop_minio"]:  # <<< Added MinIO
-            target_page = self.services_page
-            display_name = "Bundled MinIO"
-        elif task_name == "run_helper":  # System Dnsmasq checks (if kept)
-            target_page = self.services_page
+            target_page = self.services_page;
+            display_name = "Bundled Redis";
+            service_id = config.REDIS_PROCESS_ID
+        elif task_name in ["start_minio", "stop_minio"]:
+            target_page = self.services_page;
+            display_name = "Bundled MinIO";
+            service_id = config.MINIO_PROCESS_ID
+        elif task_name == "run_helper":  # System Dnsmasq checks
+            target_page = self.services_page;
             display_name = f"System Service ({service_name_ctx})"
         elif task_name in ["start_php_fpm", "stop_php_fpm", "save_php_ini"]:
-            target_page = self.php_page
+            target_page = self.php_page;
             display_name = f"PHP {php_version_ctx}" + (" INI" if task_name == "save_php_ini" else " FPM")
         elif task_name == "toggle_php_extension":
-            target_page = self.php_page  # Assign target page for re-enabling
+            target_page = self.php_page;
             display_name = f"PHP {php_version_ctx} Ext ({ext_name_ctx})"
-        # If task_name doesn't match any, target_page remains None
 
-        # Log Outcome
-        self.log_message(f"Task '{task_name}' for '{display_name}' finished.")
+        self.log_message(f"Task '{task_name}' for '{display_name}' finished.");
         self.log_message(f"Result: {'OK' if success else 'Fail'}. Details: {message}")
 
-        # --- Task-specific data updates ---
+        # Task-specific data updates
         if task_name == "uninstall_nginx" and success:
-            # Update storage only after worker confirms success
-            if remove_site(path):
-                self.log_message("Site removed from storage.")
-            else:
-                self.log_message("Warn: Site not found in storage for removal.")
+            if remove_site(path): self.log_message("Site removed from storage.")
 
         # --- Trigger UI Refreshes ---
-        # Use QTimer to allow current execution path to finish first
-        refresh_delay = 750  # Delay before checking status
+        refresh_delay = 750
         if target_page == self.sites_page:
             if isinstance(target_page, SitesPage): QTimer.singleShot(50, target_page.refresh_data)
             if task_name != "uninstall_nginx": QTimer.singleShot(refresh_delay, self.refresh_nginx_status_on_page)
         elif target_page == self.services_page:
-            # Schedule specific refresh based on which service task finished
-            if task_name in ["start_internal_nginx", "stop_internal_nginx"]:
-                QTimer.singleShot(refresh_delay, self.refresh_nginx_status_on_page)
-            elif task_name in ["start_mysql", "stop_mysql"]:
-                QTimer.singleShot(refresh_delay, self.refresh_mysql_status_on_page)
-            elif task_name in ["start_redis", "stop_redis"]:
-                QTimer.singleShot(refresh_delay, self.refresh_redis_status_on_page)
-            elif task_name in ["start_minio", "stop_minio"]:
-                QTimer.singleShot(refresh_delay, self.refresh_minio_status_on_page)
+            # Schedule specific refresh based on which service task finished <<< CORRECTED
+            refresh_slot = None
+            if service_id == config.NGINX_PROCESS_ID:
+                refresh_slot = self.refresh_nginx_status_on_page
+            elif service_id == config.MYSQL_PROCESS_ID:
+                refresh_slot = self.refresh_mysql_status_on_page
+            elif service_id == config.REDIS_PROCESS_ID:
+                refresh_slot = self.refresh_redis_status_on_page
+            elif service_id == config.MINIO_PROCESS_ID:
+                refresh_slot = self.refresh_minio_status_on_page
             elif task_name == "run_helper" and context_data.get("service_name") == config.SYSTEM_DNSMASQ_SERVICE_NAME:
-                QTimer.singleShot(refresh_delay, self.refresh_dnsmasq_status_on_page)
+                refresh_slot = self.refresh_dnsmasq_status_on_page
+
+            if refresh_slot:
+                print(f"DEBUG handleWorkerResult: Scheduling {refresh_slot.__name__}")
+                QTimer.singleShot(refresh_delay, refresh_slot)  # Call the specific refresh method
+            else:
+                print(
+                    f"DEBUG handleWorkerResult: No specific refresh slot found for service_id '{service_id}' or task '{task_name}'")
+
         elif target_page == self.php_page:
             if isinstance(target_page, PhpPage): QTimer.singleShot(refresh_delay, target_page.refresh_data)
-            # Handle extension dialog callback
-            if task_name == "toggle_php_extension":
-                if self.current_extension_dialog and self.current_extension_dialog.isVisible():
-                    if hasattr(self.current_extension_dialog, 'update_extension_state'):
-                        print(f"MAIN_WINDOW: Calling dialog.update_extension_state for {ext_name_ctx}")
-                        self.current_extension_dialog.update_extension_state(php_version_ctx, ext_name_ctx, success)
+            if task_name == "toggle_php_extension":  # Handle extension dialog callback
+                php_v = context_data.get("version");
+                ext = context_data.get("extension_name")
+                if php_v and ext and self.current_extension_dialog and self.current_extension_dialog.isVisible():
+                    if hasattr(self.current_extension_dialog,
+                               'update_extension_state'): self.current_extension_dialog.update_extension_state(php_v, ext, success)
 
-        # --- Re-enable controls on the page ---
-        print(f"DEBUG handleWorkerResult: Checking target_page for control re-enable. Task='{task_name}'")
-        if target_page:  # Check if target_page was assigned
-            print(f"DEBUG handleWorkerResult: target_page is {target_page.__class__.__name__}")
-            has_method = hasattr(target_page, 'set_controls_enabled')
-            print(f"DEBUG handleWorkerResult: target_page has 'set_controls_enabled' method: {has_method}")
-            if has_method:
-                print(
-                    f"DEBUG handleWorkerResult: Scheduling {target_page.__class__.__name__}.set_controls_enabled(True)")
-                # Use a slightly longer delay than refresh
-                QTimer.singleShot(refresh_delay + 150, lambda: target_page.set_controls_enabled(True))
-            else:
-                print(f"DEBUG handleWorkerResult: NOT scheduling re-enable because method missing on target page.")
+        # --- Re-enable controls ---
+        print(f"DEBUG handleWorkerResult: Checking target_page for re-enable. Task='{task_name}'")
+        if target_page and hasattr(target_page, 'set_controls_enabled'):
+            print(f"DEBUG handleWorkerResult: Scheduling {target_page.__class__.__name__}.set_controls_enabled(True)")
+            QTimer.singleShot(refresh_delay + 150, lambda: target_page.set_controls_enabled(True))
         else:
-            # This case should ideally not happen for tasks initiated by user interaction on a page
-            print(
-                f"DEBUG handleWorkerResult: NOT scheduling re-enable because target_page is None for task '{task_name}'.")
+            print(f"DEBUG handleWorkerResult: NOT scheduling re-enable (target_page is None or no method).")
 
-        self.log_message("-" * 30)  # Log separator
+        self.log_message("-" * 30)
 
     # --- Methods that Trigger Worker Tasks ---
     @Slot()
@@ -381,6 +348,55 @@ class MainWindow(QMainWindow):
         }
         # Trigger the new worker task
         self.triggerWorker.emit("toggle_php_extension", task_data)
+
+    @Slot()
+    def on_add_service_button_clicked(self):
+        """Opens the Add Service dialog and handles adding the service."""
+        self.log_message("Add Service button clicked...")
+        try:
+            # Create and show the dialog
+            dialog = AddServiceDialog(self)  # Parent is MainWindow
+            result = dialog.exec()  # Show modally, returns Accepted/Rejected
+
+            if result == QDialog.Accepted:  # Check if user clicked Save/OK
+                service_data = dialog.get_service_data()  # Get data from dialog
+                if service_data:
+                    self.log_message(f"Attempting to add service: {service_data}")
+                    # Call service_config_manager to add (synchronous)
+                    if add_configured_service(service_data):
+                        self.log_message("Service added successfully to configuration.")
+                        # Refresh services page UI to show the new service
+                        if isinstance(self.services_page, ServicesPage):
+                            self.services_page.refresh_data()
+                        # Optionally trigger start task for new service if autostart was checked
+                        if service_data.get('autostart'):
+                            service_type = service_data.get('service_type')
+                            start_task = None
+                            if service_type == 'mysql':
+                                start_task = "start_mysql"
+                            elif service_type == 'redis':
+                                start_task = "start_redis"
+                            elif service_type == 'minio':
+                                start_task = "start_minio"
+                            # Add other service types here
+                            if start_task:
+                                self.log_message(f"Triggering autostart for new {service_type} service...")
+                                self.triggerWorker.emit(start_task, {})
+                            else:
+                                self.log_message(f"Warn: Unknown service type '{service_type}' for autostart.")
+                    else:
+                        self.log_message("Error saving new service configuration.")
+                        QMessageBox.warning(self, "Save Error", "Could not save the new service configuration.")
+                else:
+                    self.log_message("No valid service data returned from dialog.")
+            else:
+                self.log_message("Add Service dialog cancelled.")
+
+        except Exception as e:
+            self.log_message(f"Error during Add Service dialog: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Dialog Error", f"An unexpected error occurred:\n{e}")
 
     @Slot(dict)
     def remove_selected_site(self, site_info):
@@ -480,117 +496,158 @@ class MainWindow(QMainWindow):
         if isinstance(self.sites_page, SitesPage): self.sites_page.set_controls_enabled(False)
         QApplication.processEvents(); task_data = {"site_info": site_info}; self.triggerWorker.emit("disable_ssl", task_data)
 
+    # Slot connected to services_page.removeServiceRequested <<< NEW
+    @Slot(str)  # Receives service_id (the unique ID from services.json)
+    def on_remove_service_config(self, service_id):
+        """Handles signal from ServicesPage to remove a service configuration."""
+        self.log_message(f"Request received to remove service config ID: {service_id}")
+
+        # Find the service details to potentially stop it first
+        # This requires loading the config again, maybe pass full dict in signal?
+        # For now, just remove config. User must stop service first based on UI rule.
+        # TODO: Add logic to find process_id from config_id and trigger stop task first?
+
+        # Call service_config_manager to remove from JSON (synchronous)
+        if remove_configured_service(service_id):
+            self.log_message(f"Service configuration ID {service_id} removed successfully.")
+            # Refresh services page UI to remove the item visually
+            if isinstance(self.services_page, ServicesPage):
+                self.services_page.refresh_data()
+        else:
+            self.log_message(f"Error removing service configuration ID {service_id}.")
+            QMessageBox.warning(self, "Remove Error", "Could not remove the service configuration.")
 
     # --- Methods for Refreshing Page Data ---
     def refresh_nginx_status_on_page(self):
-        # (Unchanged - uses process_manager, calls services_page update)
-        if not isinstance(self.services_page, ServicesPage): return
-        self.log_message("Checking Nginx status & version...")
-        status = process_manager.get_process_status(config.NGINX_PROCESS_ID)
-        version = get_nginx_version()  # Call the new function
-        self.log_message(f"Nginx status: {status}, Version: {version}")
+        self.refresh_service_status_on_page(config.NGINX_PROCESS_ID)
 
-        detail_text = f"Version: {version} | Ports: 80 / 443"  # Combine info
+    def refresh_mysql_status_on_page(self):
+        self.refresh_service_status_on_page(config.MYSQL_PROCESS_ID)
 
-        # Update status display
-        if hasattr(self.services_page, 'update_service_status'):
-            self.services_page.update_service_status(config.NGINX_PROCESS_ID, status)
-        # Update details display <<< NEW
-        if hasattr(self.services_page, 'update_service_details'):
-            self.services_page.update_service_details(config.NGINX_PROCESS_ID, detail_text)
+    def refresh_redis_status_on_page(self):
+        self.refresh_service_status_on_page(config.REDIS_PROCESS_ID)
 
-    def refresh_dnsmasq_status_on_page(self):
-        """Checks SYSTEM Dnsmasq status via systemctl and updates ServicesPage."""
+    def refresh_minio_status_on_page(self):
+        self.refresh_service_status_on_page(config.MINIO_PROCESS_ID)
+
+    def refresh_dnsmasq_status_on_page(self):  # Checks SYSTEM Dnsmasq status
+        # (Implementation unchanged - calls services_page update slots)
         if not isinstance(self.services_page, ServicesPage): return
         self.log_message("Checking system Dnsmasq status...")
         try:
-            # Use imported function and constant
-            status, message = check_service_status(config.SYSTEM_DNSMASQ_SERVICE_NAME)
+            status, msg = check_service_status(config.SYSTEM_DNSMASQ_SERVICE_NAME)
         except Exception as e:
-            self.log_message(f"Error checking system dnsmasq status: {e}")
-            status = "error"
-        self.log_message(f"System Dnsmasq status: {status}")
-        # Update the UI using the generic service update slot on ServicesPage
-        # Pass the SYSTEM service name as the ID for the widget lookup
-        if hasattr(self.services_page, 'update_service_status'):
-            self.services_page.update_service_status(config.SYSTEM_DNSMASQ_SERVICE_NAME, status)
-        else:
-            self.log_message("Warning: ServicesPage missing update_service_status method.")
-
-    def refresh_mysql_status_on_page(self):
-        """Checks BUNDLED MySQL status via manager and updates ServicesPage."""
-        if not isinstance(self.services_page, ServicesPage): return
-        self.log_message("Checking bundled MySQL status & version...")
-        try:
-            status = get_mysql_status()  # Use function from mysql_manager
-            version = get_mysql_version()
-        except Exception as e:
-            self.log_message(f"Error getting mysql status/version: {e}")
-            status = "error"
-            version = "N/A"
-
-        self.log_message(f"Bundled MySQL status: {status}, Version: {version}")
-
-        # Determine port (usually fixed)
-        port = "3306"  # Assuming standard port from our config
-        detail_text = f"Version: {version} | Port: {port}" if status == "running" else f"Version: {version} | Port: -"
-
-        # Update status display
-        if hasattr(self.services_page, 'update_service_status'):
-            self.services_page.update_service_status(config.MYSQL_PROCESS_ID, status)
-        # Update details display <<< NEW
-        if hasattr(self.services_page, 'update_service_details'):
-            self.services_page.update_service_details(config.MYSQL_PROCESS_ID, detail_text)
-
-    def refresh_redis_status_on_page(self):
-        """Checks BUNDLED Redis status via manager and updates ServicesPage."""
-        if not isinstance(self.services_page, ServicesPage): return
-        self.log_message("Checking bundled Redis status...")
-        try:
-            status = get_redis_status()  # Use function from redis_manager
-            version = get_redis_version()  # Use function from redis_manager
-        except Exception as e:
-            self.log_message(f"Error getting bundled redis status/version: {e}")
-            status = "error";
-            version = "N/A"
-        self.log_message(f"Bundled Redis status: {status}, Version: {version}")
-
-        # Determine port (usually fixed)
-        port = getattr(config, 'REDIS_PORT', 6379)  # Use config or default
-        detail_text = f"Version: {version} | Port: {port}" if status == "running" else f"Version: {version} | Port: -"
-
-        # Update the UI using the generic service update slots
-        if hasattr(self.services_page, 'update_service_status'):
-            self.services_page.update_service_status(config.REDIS_PROCESS_ID, status)
-        if hasattr(self.services_page, 'update_service_details'):
-            self.services_page.update_service_details(config.REDIS_PROCESS_ID, detail_text)
-
-    def refresh_minio_status_on_page(self):
-        """Checks BUNDLED MinIO status via manager and updates ServicesPage."""
-        if not isinstance(self.services_page, ServicesPage): return
-        self.log_message("Checking bundled MinIO status...")
-        try:
-            status = get_minio_status()
-            version = get_minio_version()
-        except Exception as e:
-            self.log_message(f"Error getting bundled minio status/version: {e}")
-            status = "error";
-            version = "N/A"
-        self.log_message(f"Bundled MinIO status: {status}, Version: {version}")
-
-        # Determine port (usually fixed)
-        api_port = getattr(config, 'MINIO_API_PORT', 9000)
-        console_port = getattr(config, 'MINIO_CONSOLE_PORT', 9001)
-        detail_text = f"Version: {version} | API: {api_port} | Console: {console_port}" if status == "running" else f"Version: {version} | Ports: -"
-
-        # Update the UI using the generic service update slots
-        if hasattr(self.services_page, 'update_service_status'):
-            self.services_page.update_service_status(config.MINIO_PROCESS_ID, status)
-        if hasattr(self.services_page, 'update_service_details'):
-            self.services_page.update_service_details(config.MINIO_PROCESS_ID, detail_text)
+            self.log_message(f"Error checking system dnsmasq: {e}"); status = "error"
+        self.log_message(f"System Dnsmasq status: {status}");
+        status_text = status.replace('_', ' ').capitalize();
+        style = "";
+        detail = "Port: 53"
+        if status == "active": style = "background-color:lightgreen;";
+        elif status == "inactive": style = "background-color:lightyellow;"
+        elif status == "not_found": style = "background-color:default;"; detail = "N/A";
+        else: style = "background-color:lightcoral;";
+        detail = "N/A"
+        if hasattr(self.services_page,
+                   'update_system_dnsmasq_status_display'): self.services_page.update_system_dnsmasq_status_display(
+            status_text, style)
+        if hasattr(self.services_page,
+                   'update_system_dnsmasq_details'): self.services_page.update_system_dnsmasq_details(detail)
 
     def refresh_php_versions(self):  # Delegates to PhpPage
         if isinstance(self.php_page, PhpPage): self.php_page.refresh_data()
+
+    # Generic refresh method for managed services
+    def refresh_service_status_on_page(self, service_id):
+        """Checks status, version, and CONFIGURED port for a specific managed service and updates UI."""
+        if not isinstance(self.services_page, ServicesPage): return
+
+        status = "unknown"; version = "N/A"; port_info = "-"; name = service_id # Defaults
+        status_func = None; version_func = None; default_port = 0
+        service_definition = None
+        service_type = None # e.g., 'mysql', 'redis'
+
+        # Map service_id to functions and get default info from AVAILABLE_BUNDLED_SERVICES
+        for svc_type_key, details in config.AVAILABLE_BUNDLED_SERVICES.items():
+            if details.get('process_id') == service_id:
+                service_definition = details
+                service_type = svc_type_key # Store the type ('mysql', 'redis', etc.)
+                name = details.get('display_name', service_id)
+                default_port = details.get('default_port', 0)
+                # Map status/version functions based on service type
+                if service_id == config.NGINX_PROCESS_ID:
+                     status_func = process_manager.get_process_status; version_func = get_nginx_version
+                     port_info = "80 / 443" # Nginx ports are fixed for now
+                elif service_id == config.MYSQL_PROCESS_ID:
+                     status_func = get_mysql_status; version_func = get_mysql_version
+                     # Default port set above, will be overridden by config below
+                elif service_id == config.REDIS_PROCESS_ID:
+                     status_func = get_redis_status; version_func = get_redis_version
+                     # Default port set above
+                elif service_id == config.MINIO_PROCESS_ID:
+                     status_func = get_minio_status; version_func = get_minio_version
+                     # Default ports set above, MinIO formatting handled later
+                break # Found the service definition
+
+        # Handle Nginx separately if it's not in AVAILABLE_BUNDLED_SERVICES
+        if service_id == config.NGINX_PROCESS_ID and not service_definition:
+             status_func = process_manager.get_process_status; version_func = get_nginx_version
+             port_info = "80 / 443"; name = "Nginx"
+        elif not service_definition:
+             self.log_message(f"Warn: Unknown service ID '{service_id}' for status refresh."); return
+
+        # Get Status and Version
+        self.log_message(f"Checking {name} status & version...")
+        try:
+            # Call status_func with service_id for process_manager, no arg otherwise? Check func signatures.
+            # Assuming process_manager functions need the ID, others might not.
+            if status_func:
+                if status_func == process_manager.get_process_status:
+                     status = status_func(service_id)
+                else:
+                     status = status_func() # Assumes manager funcs (get_mysql_status etc) don't need ID
+            if version_func: version = version_func()
+        except Exception as e: self.log_message(f"Error getting {name} status/ver: {e}"); status="error"; version="N/A"
+        self.log_message(f"{name} status:{status} v:{version}")
+
+        # Get CONFIGURED Port from services.json <<< CORRECTED LOGIC vvv
+        configured_port = default_port # Start with default
+        if service_id != config.NGINX_PROCESS_ID and service_type: # Only lookup for non-nginx services
+            try:
+                configured_services = load_configured_services()
+                service_config_found = False
+                for svc_config in configured_services:
+                    # Find the entry in services.json whose service_type matches the type
+                    # associated with the service_id we are currently refreshing.
+                    if svc_config.get('service_type') == service_type:
+                        # Found the config for this service type. Assume only one instance for now.
+                        # Get the port saved in services.json for this instance.
+                        configured_port = svc_config.get('port', default_port)
+                        self.log_message(f"Found configured port {configured_port} for {service_id} (type: {service_type}) in services.json")
+                        service_config_found = True
+                        break # Found the matching service config
+                if not service_config_found:
+                     self.log_message(f"Warn: Config for service type '{service_type}' (process ID '{service_id}') not found in services.json, using default port {default_port}")
+                     configured_port = default_port # Use default if no config entry found
+            except Exception as e:
+                self.log_message(f"Error loading configured services to get port for {service_id}: {e}")
+                configured_port = default_port # Fallback on error
+
+        # Format Detail String using the determined configured_port
+        if service_id == config.MINIO_PROCESS_ID:
+             api_port = configured_port # Assume saved port is API port for MinIO
+             con_port = getattr(config, 'MINIO_CONSOLE_PORT', 9001) # Get console port separately
+             port_info = f"API:{api_port} | Console:{con_port}"
+        elif service_id != config.NGINX_PROCESS_ID: # For MySQL, Redis
+             port_info = configured_port # Use the loaded/default port
+        # For Nginx, port_info remains "80 / 443" set earlier
+
+        detail_text = f"Version: {version} | Port: {port_info}" if status=="running" else f"Version: {version} | Port: -"
+
+        # Update UI
+        if hasattr(self.services_page, 'update_service_status'):
+            self.services_page.update_service_status(service_id, status)
+        if hasattr(self.services_page, 'update_service_details'):
+            self.services_page.update_service_details(service_id, detail_text)
 
     # --- Window Close Event ---
     def closeEvent(self, event):

@@ -14,6 +14,49 @@ RUN_DIR = CONFIG_DIR / 'run'
 LOG_DIR = CONFIG_DIR / 'logs'
 CERT_DIR = CONFIG_DIR / 'certs'
 
+# --- Service Configuration Storage <<< NEW ---
+SERVICES_CONFIG_FILE = CONFIG_DIR / 'services.json'
+
+# --- Definitions of AVAILABLE Bundled Services <<< NEW ---
+# This dictionary defines the services the user CAN add, based on bundles
+# Key: Service Type (internal identifier)
+# Value: Dictionary of properties
+AVAILABLE_BUNDLED_SERVICES = {
+    "mysql": {
+        "display_name": "MySQL / MariaDB",
+        "category": "Database",
+        "process_id": "internal-mysql", # Matches Process Management ID below
+        "default_port": 3306,
+        "version_args": ["--version"], # Command args to get version
+        "version_regex": r'Ver\s+([\d\.]+)(?:-MariaDB)?', # Regex to extract version
+        "binary_path_constant": "MYSQLD_BINARY", # Key in config pointing to binary
+        "manager_module": "mysql_manager" # For potential future dynamic calls
+    },
+    "redis": {
+        "display_name": "Redis",
+        "category": "Cache & Queue",
+        "process_id": "internal-redis",
+        "default_port": 6379,
+        "version_args": ["--version"],
+        "version_regex": r'Redis server v=([0-9\.]+)',
+        "binary_path_constant": "REDIS_BINARY",
+        "manager_module": "redis_manager"
+    },
+    "minio": {
+        "display_name": "MinIO Storage",
+        "category": "Storage",
+        "process_id": "internal-minio",
+        "default_port": 9000, # API Port
+        "console_port": 9001, # Default Console Port
+        "version_args": ["--version"],
+        "version_regex": r'version\s+RELEASE\.([0-9TZ\-]+)',
+        "binary_path_constant": "MINIO_BINARY",
+        "manager_module": "minio_manager"
+    }
+    # Add other bundled services here later (e.g., mailhog, memcached)
+}
+# --- End Service Definitions ---
+
 # --- Nginx Specific Paths ---
 NGINX_BUNDLES_DIR = BUNDLES_DIR / 'nginx'
 NGINX_BINARY = NGINX_BUNDLES_DIR / 'sbin/nginx'
@@ -50,6 +93,7 @@ MYSQLADMIN_BINARY = MYSQL_BINARY_DIR / 'mysqladmin'
 MYSQL_INSTALL_DB_BINARY = MYSQL_BINARY_DIR / 'mysql_install_db' # Path if needed
 MYSQL_LIB_DIR = MYSQL_BUNDLES_DIR / 'lib' # Location of bundled libs + system libs
 MYSQL_SHARE_DIR = MYSQL_BUNDLES_DIR / 'share' # Location of support files
+MYSQL_DEFAULT_PORT = 3306 # Default Port
 INTERNAL_MYSQL_CONF_DIR = CONFIG_DIR / 'mysql' # Config files go here
 INTERNAL_MYSQL_CONF_FILE = INTERNAL_MYSQL_CONF_DIR / 'my.cnf'
 # Store persistent data under DATA_DIR, not CONFIG_DIR

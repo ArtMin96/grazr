@@ -8,18 +8,21 @@ import time
 from pathlib import Path
 import subprocess
 import shutil
-import re
+import re # Keep re if used elsewhere (e.g., get_mysql_version)
+import tempfile # Keep for potential future atomic writes if needed
 
 # --- Import Core Modules ---
 try:
     from ..core import config
     from ..core import process_manager
-    from ..core.system_utils import run_command # May need run_command for init
+    from ..core.system_utils import run_command # Keep if needed for init/version
+    from .services_config_manager import load_configured_services
 except ImportError as e:
-    print(f"ERROR in mysql_manager.py: Could not import core modules: {e}")
+    print(f"ERROR in mysql_manager.py: Could not import core/managers: {e}")
     class ProcessManagerDummy: pass; process_manager = ProcessManagerDummy()
-    class ConfigDummy: pass; config = ConfigDummy() # Needs required constants
+    class ConfigDummy: pass; config = ConfigDummy(); config.MYSQL_DEFAULT_PORT = 3306  # Ensure default exists
     def run_command(*args): return -1, "", "Import Error"
+    def load_configured_services(): return []
 # --- End Imports ---
 
 
@@ -71,70 +74,37 @@ def get_mysql_version():
     print(f"MySQL Manager: Detected version: {version_string}")
     return version_string
 
-def _get_default_mysql_config_content():
-    """Generates content for internal my.cnf."""
-    # Ensure necessary directories exist
-    config.ensure_dir(config.LOG_DIR)
-    config.ensure_dir(config.RUN_DIR)
-    config.ensure_dir(config.INTERNAL_MYSQL_DATA_DIR) # Ensure data dir parent exists
-
-    # Get current user for running the process
+def _get_default_mysql_config_content(port_to_use):
+    config.ensure_dir(config.LOG_DIR); config.ensure_dir(config.RUN_DIR); config.ensure_dir(config.INTERNAL_MYSQL_DATA_DIR)
     try: current_user = os.getlogin()
-    except OSError: current_user = "nobody" # Fallback, less ideal
-
-    # Use absolute paths resolved from config
-    datadir = str(config.INTERNAL_MYSQL_DATA_DIR.resolve())
-    socket = str(config.INTERNAL_MYSQL_SOCK_FILE.resolve())
-    pidfile = str(config.INTERNAL_MYSQL_PID_FILE.resolve())
-    log_error = str(config.INTERNAL_MYSQL_ERROR_LOG.resolve())
-    basedir = str(config.MYSQL_BUNDLES_DIR.resolve()) # MySQL needs basedir
-
-    # Basic config pointing everything to internal paths and running as user
-    content = f"""\
-[mysqld]
-# Settings managed by LinuxHerd
-user={current_user}
-pid-file={pidfile}
-socket={socket}
-port=3306
-basedir={basedir}
-datadir={datadir}
-# Ensure paths are writable by the user running the app
-log-error={log_error}
-
-# Minimal InnoDB settings (adjust as needed)
-# default-storage-engine=INNODB # Usually default anyway
-innodb_buffer_pool_size=128M
-innodb_log_file_size=48M
-innodb_flush_log_at_trx_commit=1 # ACID compliance
-innodb_flush_method=O_DIRECT # Common Linux setting
-
-# Skip networking checks potentially problematic in containers/local
-# skip-host-cache
-# skip-name-resolve
-
-# Secure defaults (some might be implicit in MySQL 8+)
-# ssl=0 # Disable SSL within MySQL itself if Nginx handles it? Or enable with mkcert? Skip for now.
-# bind-address=127.0.0.1 # Listen only locally
-
-# Other settings...
-lc-messages-dir={basedir}/share # Point to bundled share dir
-# character-set-server=utf8mb4
-# collation-server=utf8mb4_unicode_ci
-"""
+    except OSError: current_user = "nobody"
+    datadir = str(config.INTERNAL_MYSQL_DATA_DIR.resolve()); socket = str(config.INTERNAL_MYSQL_SOCK_FILE.resolve())
+    pidfile = str(config.INTERNAL_MYSQL_PID_FILE.resolve()); log_error = str(config.INTERNAL_MYSQL_ERROR_LOG.resolve())
+    basedir = str(config.MYSQL_BUNDLES_DIR.resolve())
+    content = f"""[mysqld]\nuser={current_user}\npid-file={pidfile}\nsocket={socket}\nport={port_to_use}\nbasedir={basedir}\ndatadir={datadir}\nlog-error={log_error}\ninnodb_buffer_pool_size=128M\ninnodb_log_file_size=48M\ninnodb_flush_log_at_trx_commit=1\ninnodb_flush_method=O_DIRECT\nlc-messages-dir={basedir}/share\n"""
     return content
 
-def ensure_mysql_config():
-    """Ensures the internal my.cnf file exists."""
+def ensure_mysql_config(port_to_use):
+    """Ensures the internal my.cnf file exists and has the correct port."""
     conf_file = config.INTERNAL_MYSQL_CONF_FILE
     conf_dir = conf_file.parent
     try:
-        conf_dir.mkdir(parents=True, exist_ok=True)
-        if not conf_file.is_file():
-            print(f"MySQL Manager: Creating default config at {conf_file}")
-            content = _get_default_mysql_config_content()
-            conf_file.write_text(content, encoding='utf-8')
-        return True
+        if not config.ensure_dir(conf_dir): raise OSError(f"Failed dir {conf_dir}")
+        # Always write the config to ensure the port is correct <<< CHANGED
+        print(f"MySQL Manager: Writing config to {conf_file} with port {port_to_use}")
+        content = _get_default_mysql_config_content(port_to_use)
+        # Use atomic write for safety
+        temp_path_str = None
+        try:
+            fd, temp_path_str = tempfile.mkstemp(dir=conf_dir, prefix='my.cnf.tmp')
+            with os.fdopen(fd, 'w', encoding='utf-8') as temp_f: temp_f.write(content)
+            if conf_file.exists(): shutil.copystat(conf_file, temp_path_str) # Copy permissions if exists
+            os.replace(temp_path_str, conf_file); temp_path_str = None # Atomic replace
+            return True
+        except Exception as write_e: print(f"MySQL Error writing config: {write_e}"); return False
+        finally:
+             if temp_path_str and os.path.exists(temp_path_str): os.unlink(temp_path_str)
+
     except Exception as e: print(f"MySQL Error ensuring config: {e}"); return False
 
 def ensure_mysql_datadir():
@@ -220,70 +190,73 @@ def start_mysql():
     print(f"MySQL Manager: Requesting start for {process_id}...")
 
     if process_manager.get_process_status(process_id) == "running":
-        print("MySQL Manager: Already running.")
-        return True
+        print("MySQL Manager: Already running."); return True
 
-    # Ensure config and data directory are ready
-    if not ensure_mysql_config() or not ensure_mysql_datadir():
-        print("MySQL Manager Error: Prerequisite config/data directory setup failed.")
+    # --- Determine Configured Port ---
+    default_port = config.MYSQL_DEFAULT_PORT
+    configured_port = default_port # Start with default
+    service_config_found = None
+    print(f"MySQL Manager DEBUG: Default port is {default_port}") # <<< DEBUG
+    try:
+        services = load_configured_services()
+        print(f"MySQL Manager DEBUG: Loaded configured services: {services}") # <<< DEBUG
+        for svc in services:
+            if svc.get('service_type') == 'mysql': # Assumes only ONE mysql service
+                service_config_found = svc # Store the found config
+                configured_port = svc.get('port', default_port) # Get saved port
+                print(f"MySQL Manager DEBUG: Found configured mysql service: {svc}") # <<< DEBUG
+                print(f"MySQL Manager DEBUG: Using configured port: {configured_port}") # <<< DEBUG
+                break # Found it
+        if not service_config_found:
+             print(f"MySQL Manager DEBUG: No 'mysql' service found in config, using default port {default_port}.") # <<< DEBUG
+
+    except Exception as e:
+        print(f"MySQL Manager Warning: Failed loading service config, using default port {default_port}. Error: {e}")
+        configured_port = default_port # Ensure fallback on error
+    # --- End Port Determination ---
+
+    # Ensure config file exists AND has the correct port written to it
+    if not ensure_mysql_config(configured_port): # Pass determined port
+        print("MySQL Manager Error: Failed to write/ensure config file with correct port.")
         return False
 
+    # Ensure data directory is initialized
+    if not ensure_mysql_datadir():
+        print("MySQL Manager Error: Data directory setup failed.")
+        return False
+
+    # Get paths
     mysqld_path = config.MYSQLD_BINARY
     config_path = config.INTERNAL_MYSQL_CONF_FILE
     pid_path = config.INTERNAL_MYSQL_PID_FILE
-    log_path = config.INTERNAL_MYSQL_ERROR_LOG # mysqld logs errors here based on my.cnf
+    log_path = config.INTERNAL_MYSQL_ERROR_LOG
 
     if not mysqld_path.is_file() or not os.access(mysqld_path, os.X_OK):
-        print(f"MySQL Error: mysqld binary not found/executable: {mysqld_path}")
-        return False
+        print(f"MySQL Error: mysqld binary not found/executable: {mysqld_path}"); return False
 
-    # Command to run mysqld
-    # Run as current user, using our config file
+    # Command uses --defaults-file, which reads the port from the file
     try: user = os.getlogin()
     except OSError: user = "nobody"
-    command = [
-        str(mysqld_path.resolve()),
-        f"--defaults-file={str(config_path.resolve())}",
-        f"--user={user}" # Explicitly tell it which user to run as
-        # Add --console or similar if needed to keep in foreground for Popen? Check mysqld --help.
-        # Might daemonize by default based on config - process_manager relies on PID file anyway.
+    command = [ str(mysqld_path.resolve()), f"--defaults-file={str(config_path.resolve())}", f"--user={user}" ]
 
+    # Setup environment (LD_LIBRARY_PATH)
+    mysql_lib_path = config.MYSQL_LIB_DIR; env = os.environ.copy(); ld = env.get('LD_LIBRARY_PATH', '');
+    if mysql_lib_path.is_dir(): env['LD_LIBRARY_PATH'] = f"{mysql_lib_path.resolve()}{os.pathsep}{ld}" if ld else str(mysql_lib_path.resolve())
 
-        # f"--datadir={str(config.INTERNAL_MYSQL_DATA_DIR.resolve())}",
-        # f"--socket={str(config.INTERNAL_MYSQL_SOCK_FILE.resolve())}",
-        # f"--pid-file={str(config.INTERNAL_MYSQL_PID_FILE.resolve())}",
-        # f"--log-error={str(config.INTERNAL_MYSQL_ERROR_LOG.resolve())}"
-    ]
-
-    # Setup environment (mainly LD_LIBRARY_PATH for bundled libs)
-    mysql_lib_path = config.MYSQL_LIB_DIR # Assumes libs are directly in bundle/lib
-    env = os.environ.copy()
-    ld = env.get('LD_LIBRARY_PATH', '')
-    if mysql_lib_path.is_dir():
-        env['LD_LIBRARY_PATH'] = f"{mysql_lib_path.resolve()}{os.pathsep}{ld}" if ld else str(mysql_lib_path.resolve())
-
-    print(f"MySQL Manager: Starting {process_id}...")
+    print(f"MySQL Manager: Starting {process_id} using config {config_path} (Port: {configured_port})...") # Log port being used
     success = process_manager.start_process(
-        process_id=process_id,
-        command=command,
+        process_id=process_id, command=command,
         pid_file_path=str(pid_path.resolve()),
-        env=env,
-        log_file_path=str(log_path.resolve()) # Log initial Popen stdout/stderr here
+        env=env, log_file_path=str(log_path.resolve())
     )
 
     if success:
-        print(f"MySQL Manager: Start command issued for {process_id}. Verifying status...")
-        time.sleep(2.0) # MySQL can take longer to start up fully
+        print(f"MySQL Manager: Start command issued. Verifying status...")
+        time.sleep(2.5) # Give MySQL more time
         status = process_manager.get_process_status(process_id)
-        if status != "running":
-             print(f"MySQL Error: {process_id} failed to stay running (Status: {status}). Check log: {log_path}")
-             return False
-        else:
-             print(f"MySQL Manager Info: {process_id} confirmed running.")
-             return True
-    else:
-        print(f"MySQL Manager: Failed to issue start command for {process_id}.")
-        return False
+        if status != "running": print(f"MySQL Error: {process_id} failed (Status:{status}). Log:{log_path}"); return False
+        else: print(f"MySQL Manager Info: {process_id} confirmed running."); return True
+    else: print(f"MySQL Manager: Failed start command."); return False
 
 def stop_mysql():
     """Stops the bundled MySQL server process using process_manager."""
