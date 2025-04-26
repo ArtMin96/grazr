@@ -18,347 +18,279 @@ try:
 except ImportError:
     print("ProcessManager WARNING: Could not import core.config")
 
-# -----------------------------------------------------------------------------
-# Process Tracking
-# -----------------------------------------------------------------------------
-# Stores info about processes managed by start_process
+# --- Process Tracking ---
+# Stores info about managed processes
 # Key: unique process id (e.g., config.NGINX_PROCESS_ID)
-# Value: {"pid_file": "/path/to/pid", "command": ["cmd", "arg"], "initial_pid": 123}
+# Value: {
+#    "pid_file": "/path/to/pid" OR None,
+#    "process": Popen object OR None (if tracked only by pid file after restart),
+#    "pid": integer OR None (actual PID if known),
+#    "command": ["cmd", "arg"],
+#    "log_path": "/path/to/log" OR None
+# }
 running_processes = {}
 
+# --- Internal Helper Functions ---
 
-# -----------------------------------------------------------------------------
-# Internal Helper Functions
-# -----------------------------------------------------------------------------
 def _read_pid_file(pid_file_path_str):
-    """
-    Internal helper: Reads PID from a file.
-
-    Args:
-        pid_file_path_str (str): Path to the PID file
-
-    Returns:
-        int or None: Process ID if found and valid, None otherwise
-    """
-    if not pid_file_path_str:
-        return None
-
+    """Internal helper: Reads PID from a file."""
+    if not pid_file_path_str: return None
     pid_file = Path(pid_file_path_str)
-    if not pid_file.is_file():
-        return None  # File doesn't exist
-
+    if not pid_file.is_file(): return None
     try:
-        pid_str = pid_file.read_text(encoding='utf-8').strip()
-        if not pid_str:
-            return None  # File is empty
-
-        pid = int(pid_str)
-        if pid <= 0:
-            print(f"PM Warning: Invalid PID {pid} in {pid_file}.")
-            return None
-
-        return pid
-    except (ValueError, IOError) as e:
-        print(f"PM Warning: Failed reading PID from {pid_file}: {e}")
-        return None
-    except Exception as e:
-        print(f"PM Error: Unexpected error reading PID file {pid_file}: {e}")
-        return None
-
+        pid = int(pid_file.read_text(encoding='utf-8').strip())
+        return pid if pid > 0 else None
+    except (ValueError, IOError, TypeError): return None # Handle None path, empty file, non-int etc.
 
 def _check_pid_running(pid):
+    """Internal helper: Checks if a process with the given PID exists using signal 0."""
+    if pid is None or pid <= 0: return False
+    try: os.kill(pid, 0); return True # Signal 0 succeeded
+    except OSError as e: return False # ESRCH (no process) or EPERM (no permission)
+    except Exception: return False # Other errors
+
+# --- Public Process Management API ---
+
+def start_process(process_id, command, pid_file_path=None, working_dir=None, env=None, log_file_path=None):
     """
-    Internal helper: Checks if a process with the given PID exists using signal 0.
+    Starts an external command using Popen.
+    Tracks via PID file if pid_file_path is provided, otherwise tracks Popen object directly.
 
     Args:
-        pid (int): Process ID to check
-
-    Returns:
-        bool: True if process is running, False otherwise
-    """
-    if pid is None or pid <= 0:
-        return False
-
-    try:
-        os.kill(pid, 0)  # Signal 0 just checks existence/permissions
-    except OSError:
-        # ESRCH (No such process) or EPERM (don't have permission)
-        return False
-    except Exception as e:
-        print(f"PM Warning: Unexpected error checking PID {pid}: {e}")
-        return False
-    else:
-        # Signal 0 succeeded, process exists and we can signal it
-        return True
-
-
-# -----------------------------------------------------------------------------
-# Public Process Management API
-# -----------------------------------------------------------------------------
-def start_process(process_id, command, pid_file_path, working_dir=None, env=None, log_file_path=None):
-    """
-    Starts an external command using Popen, tracking via PID file.
-
-    Args:
-        process_id (str): Unique identifier (e.g., config.NGINX_PROCESS_ID).
+        process_id (str): Unique identifier.
         command (list): Command and arguments.
-        pid_file_path (str): Absolute path where the process writes its PID.
+        pid_file_path (str, optional): Absolute path where the process writes its PID.
+                                       If None, the Popen object itself is tracked.
         working_dir (str, optional): Working directory.
         env (dict, optional): Environment variables.
-        log_file_path (str, optional): Path to redirect stdout/stderr of initial launch.
+        log_file_path (str, optional): Path to redirect stdout/stderr.
 
     Returns:
         bool: True if launch command was issued successfully, False on Popen exception.
-              NOTE: True only means Popen succeeded, not that the daemon is running long-term.
     """
-    # Check if process is already running
     if get_process_status(process_id) == "running":
-        print(f"Process Manager: Process '{process_id}' already running (PID file check).")
+        print(f"Process Manager: Process '{process_id}' already running.")
         return True
 
     log_handle = None
-    pid_path_obj = Path(pid_file_path)
-    temp_log_used = False
+    pid_path_obj = Path(pid_file_path) if pid_file_path else None
     actual_log_path = log_file_path
+    temp_log_used = False
+    process = None # Define process variable
 
     try:
         # Ensure directories exist
-        if log_file_path:
-            Path(log_file_path).parent.mkdir(parents=True, exist_ok=True)
-        pid_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        if log_file_path: config.ensure_dir(Path(log_file_path).parent)
+        if pid_path_obj: config.ensure_dir(pid_path_obj.parent)
 
-        # Remove stale PID file before starting
-        pid_path_obj.unlink(missing_ok=True)
+        # Remove stale PID file before starting if using PID file tracking
+        if pid_path_obj:
+            pid_path_obj.unlink(missing_ok=True)
 
-        # Prepare environment
         effective_env = os.environ.copy()
-        if env:
-            effective_env.update(env)
+        if env: effective_env.update(env)
 
         # Setup logging for the Popen call
-        stdout_dest = subprocess.DEVNULL
-        stderr_dest = subprocess.DEVNULL
-
+        stdout_dest = subprocess.DEVNULL; stderr_dest = subprocess.DEVNULL
         if log_file_path:
             log_path_obj = Path(log_file_path)
             log_handle = open(log_path_obj, 'a', encoding='utf-8')
-            stdout_dest = log_handle
-            stderr_dest = subprocess.STDOUT
-        else:
-            # Use temp file if no explicit log provided, to capture launch errors
-            temp_log_file = Path(tempfile.gettempdir()) / f"linuxherd_proc_{process_id}.log"
-            actual_log_path = str(temp_log_file)  # Store path for logging
-            log_handle = open(temp_log_file, 'w', encoding='utf-8')  # Overwrite temp
-            stdout_dest = log_handle
-            stderr_dest = subprocess.STDOUT
-            temp_log_used = True
+            stdout_dest = log_handle; stderr_dest = subprocess.STDOUT
+        else: # Use temp log if no explicit log provided
+             temp_log_file = Path(tempfile.gettempdir()) / f"linuxherd_proc_{process_id}.log"
+             actual_log_path = str(temp_log_file)
+             log_handle = open(temp_log_file, 'w', encoding='utf-8')
+             stdout_dest = log_handle; stderr_dest = subprocess.STDOUT
+             temp_log_used = True
 
-        print(f"Process Manager: Starting '{process_id}' (PID file: {pid_file_path}).")
-        print(f"Command: {' '.join(command)}")
-
+        print(f"Process Manager: Starting '{process_id}'. CMD: {' '.join(command)}")
         # Use Popen for non-blocking launch
         process = subprocess.Popen(
-            command,
-            cwd=working_dir,
-            env=effective_env,
-            stdout=stdout_dest,
-            stderr=stderr_dest,
-            start_new_session=True
+            command, cwd=working_dir, env=effective_env,
+            stdout=stdout_dest, stderr=stderr_dest, start_new_session=True
         )
 
         # Store info needed for later management
         running_processes[process_id] = {
-            "pid_file": str(pid_path_obj.resolve()),
+            "pid_file": str(pid_path_obj.resolve()) if pid_path_obj else None,
+            "process": process, # Store the Popen object if tracking directly
+            "pid": process.pid, # Store initial PID
             "command": command,
-            "initial_pid": process.pid  # Store initial PID for debugging
+            "log_path": actual_log_path
         }
 
         # Brief check if the initial Popen'd process failed immediately
         time.sleep(0.2)
         initial_poll = process.poll()
         if initial_poll is not None:
-            print(f"PM Warning: Initial process for '{process_id}' exited immediately "
-                  f"(code: {initial_poll}). Daemon start likely failed.")
-
-            # If we used a temp log, print its content for debugging
-            if temp_log_used and log_handle:
-                log_handle.close()
-                log_handle = None
-                try:
-                    print(f"--- Contents of temp log {actual_log_path} ---")
-                    print(Path(actual_log_path).read_text(encoding='utf-8'))
-                    print("--- End temp log ---")
-                except Exception as read_e:
-                    print(f"Could not read temp log: {read_e}")
+            print(f"PM Warning: Initial process for '{process_id}' exited immediately (code: {initial_poll}). Check logs.")
+            if temp_log_used and log_handle: # Print temp log content
+                log_handle.close(); log_handle = None
+                try: print(f"-- Temp Log: {actual_log_path} --\n{Path(actual_log_path).read_text()}\n----------------------")
+                except Exception: pass
+            # If tracking via Popen and it exited, it's definitely failed
+            if not pid_path_obj:
+                 del running_processes[process_id] # Untrack failed process
+                 return False # Report failure immediately
 
         print(f"Process Manager: Launch command issued for '{process_id}'.")
-        return True  # Report launch attempt success
+        return True # Report launch attempt success
 
     except Exception as e:
         print(f"Process Manager Error: Failed to launch process '{process_id}': {e}")
-        print("--- Traceback ---")
-        traceback.print_exc()
-        print("--- End Traceback ---")
-
-        # Untrack if launch failed
-        if process_id in running_processes:
-            del running_processes[process_id]
-
+        print("--- Traceback ---"); traceback.print_exc(); print("--- End Traceback ---")
+        if process_id in running_processes: del running_processes[process_id]
         return False
-
     finally:
-        if log_handle:
-            try:
-                log_handle.close()
-            except Exception:
-                pass
+         if log_handle:
+             try: log_handle.close()
+             except Exception: pass
 
 
 def stop_process(process_id, signal_to_use=signal.SIGTERM, timeout=5):
-    """
-    Stops a managed process using its PID file and signals.
-
-    Args:
-        process_id (str): Unique identifier of the process to stop
-        signal_to_use (signal, optional): Signal to send. Defaults to SIGTERM.
-        timeout (int, optional): Seconds to wait before SIGKILL. Defaults to 5.
-
-    Returns:
-        bool: True if process stopped successfully, False otherwise
-    """
+    """Stops a managed process using PID file or Popen object."""
     print(f"Process Manager: Requesting stop for '{process_id}'...")
-
     if process_id not in running_processes:
-        # Maybe check PID file anyway? For now, only stop tracked processes.
-        print(f"Process Manager: Process '{process_id}' not tracked. Assuming stopped.")
+        print(f"PM Info: Process '{process_id}' not tracked. Assuming stopped.")
         return True
 
     proc_info = running_processes[process_id]
     pid_file = proc_info.get("pid_file")
-    pid = _read_pid_file(pid_file)
+    popen_obj = proc_info.get("process")
+    pid_to_signal = None
 
-    if not pid:
-        print(f"PM: No PID for '{process_id}' in {pid_file}. Assuming stopped.")
+    if pid_file:
+        pid_to_signal = _read_pid_file(pid_file)
+        print(f"PM: Found PID file '{pid_file}', read PID: {pid_to_signal}")
+    elif popen_obj:
+        # Check if Popen object is still valid and process hasn't exited
+        if popen_obj.poll() is None:
+            pid_to_signal = popen_obj.pid
+            print(f"PM: Using PID {pid_to_signal} from stored Popen object.")
+        else:
+            print(f"PM Info: Stored Popen object for '{process_id}' already exited (Code: {popen_obj.poll()}).")
+            pid_to_signal = None # Already stopped
+    else:
+        print(f"PM Error: No PID file or Popen object tracked for '{process_id}'. Cannot stop.")
+        # Should we remove from tracking? Maybe.
         del running_processes[process_id]
+        return False # Cannot determine how to stop
+
+    # If PID is None or 0 after checks, assume stopped
+    if not pid_to_signal or pid_to_signal <= 0:
+        print(f"PM Info: No valid PID found for '{process_id}'. Assuming stopped.")
+        if pid_file: Path(pid_file).unlink(missing_ok=True) # Clean up PID file if it exists
+        if process_id in running_processes: del running_processes[process_id]
         return True
 
-    if not _check_pid_running(pid):
-        print(f"PM: PID {pid} for '{process_id}' not running. Cleaning up.")
-        try:
-            Path(pid_file).unlink(missing_ok=True)
-        except OSError:
-            pass
-        del running_processes[process_id]
+    # Check if the determined PID is actually running
+    if not _check_pid_running(pid_to_signal):
+        print(f"PM Info: Process PID {pid_to_signal} for '{process_id}' not running. Cleaning up.")
+        if pid_file: Path(pid_file).unlink(missing_ok=True)
+        if process_id in running_processes: del running_processes[process_id]
         return True
 
-    print(f"PM: Stopping '{process_id}' (PID: {pid}) with {signal_to_use.name}...")
-
+    # Process is running, try stopping it
+    print(f"PM: Stopping '{process_id}' (PID: {pid_to_signal}) with {signal_to_use.name}...")
+    stopped_cleanly = False
     try:
-        # Send initial signal
-        os.kill(pid, signal_to_use)
+        os.kill(pid_to_signal, signal_to_use)
         start_time = time.monotonic()
-
-        # Wait for process to exit gracefully
         while (time.monotonic() - start_time) < timeout:
-            if not _check_pid_running(pid):
-                print(f"PM: Process '{process_id}' (PID: {pid}) stopped gracefully.")
-                try:
-                    Path(pid_file).unlink(missing_ok=True)
-                except OSError:
-                    pass
-                del running_processes[process_id]
-                return True
+            if not _check_pid_running(pid_to_signal):
+                print(f"PM: Process '{process_id}' (PID: {pid_to_signal}) stopped gracefully.")
+                stopped_cleanly = True; break
             time.sleep(0.2)
 
-        # Timeout reached, use SIGKILL
-        print(f"PM: Process '{process_id}' timeout. Sending SIGKILL.")
-        os.kill(pid, signal.SIGKILL)
-        time.sleep(0.5)
+        if not stopped_cleanly:
+            print(f"PM: Process '{process_id}' timeout. Sending SIGKILL."); os.kill(pid_to_signal, signal.SIGKILL); time.sleep(0.5)
+            if not _check_pid_running(pid_to_signal):
+                 print(f"PM: Process '{process_id}' stopped after SIGKILL."); stopped_cleanly = True
+            else: print(f"PM Error: Process '{process_id}' did not stop after SIGKILL.")
 
-        if not _check_pid_running(pid):
-            print(f"PM: Process '{process_id}' stopped after SIGKILL.")
-            try:
-                Path(pid_file).unlink(missing_ok=True)
-            except OSError:
-                pass
-            del running_processes[process_id]
-            return True
-        else:
-            print(f"PM Error: Process '{process_id}' did not stop after SIGKILL.")
-            return False
+    except ProcessLookupError: print(f"PM Info: Process PID {pid_to_signal} disappeared during stop."); stopped_cleanly = True
+    except PermissionError: print(f"PM Error: Permission denied sending signal to PID {pid_to_signal}."); stopped_cleanly = False
+    except Exception as e: print(f"PM Error: Unexpected error stopping '{process_id}': {e}"); stopped_cleanly = False
 
-    except Exception as e:
-        print(f"PM Error: stopping '{process_id}' (PID: {pid}): {e}")
-        return False
+    # Cleanup tracking and PID file only if stop was successful
+    if stopped_cleanly:
+        if pid_file: Path(pid_file).unlink(missing_ok=True)
+        if process_id in running_processes: del running_processes[process_id]
+        return True
+    else:
+        return False # Stop failed
 
 
 def get_process_status(process_id):
-    """
-    Checks status of a managed process using its PID file.
-
-    Args:
-        process_id (str): Unique identifier of the process
-
-    Returns:
-        str: "running" if process is active, "stopped" otherwise
-    """
+    """Checks status using PID file or Popen object."""
     if process_id not in running_processes:
-        return "stopped"
+        return "stopped" # Not tracked, assume stopped
 
     proc_info = running_processes[process_id]
     pid_file = proc_info.get("pid_file")
-    pid = _read_pid_file(pid_file)
+    popen_obj = proc_info.get("process")
+    pid_from_tracking = proc_info.get("pid") # Initial PID
 
-    if pid and _check_pid_running(pid):
-        return "running"
+    if pid_file:
+        # Priority to PID file method
+        pid = _read_pid_file(pid_file)
+        if pid and _check_pid_running(pid):
+            # Update tracked PID if it changed from initial?
+            if pid != pid_from_tracking: running_processes[process_id]['pid'] = pid
+            return "running"
+        else:
+            # PID file missing/invalid or process dead, but keep tracking info
+            return "stopped"
+    elif popen_obj:
+        # Track via Popen object's poll() method
+        poll_result = popen_obj.poll()
+        if poll_result is None:
+            # Process hasn't terminated according to Popen
+            # Double check with os.kill just in case Popen state is stale
+            if _check_pid_running(popen_obj.pid):
+                return "running"
+            else:
+                # Popen says running but os.kill says no -> likely terminated uncleanly
+                print(f"PM Warning: Popen object for '{process_id}' exists but PID {popen_obj.pid} not running.")
+                # Clean up tracking for this inconsistent state
+                if process_id in running_processes: del running_processes[process_id]
+                return "stopped"
+        else:
+            # Process terminated according to Popen
+            print(f"PM Info: Popen object for '{process_id}' poll result: {poll_result}. Cleaning up.")
+            if process_id in running_processes: del running_processes[process_id] # Untrack stopped process
+            return "stopped"
     else:
-        return "stopped"  # Treat missing PID file or non-running PID as stopped
+        # No PID file and no Popen object - invalid tracking state
+        print(f"PM Error: Invalid tracking info for '{process_id}'. Assuming stopped.")
+        if process_id in running_processes: del running_processes[process_id]
+        return "stopped"
 
 
 def get_process_pid(process_id):
-    """
-    Gets the running PID of a tracked process from its PID file.
-
-    Args:
-        process_id (str): Unique identifier of the process
-
-    Returns:
-        int or None: Process ID if running, None otherwise
-    """
-    if process_id not in running_processes:
-        return None
-
+    """Gets the running PID from PID file or Popen object."""
+    if process_id not in running_processes: return None
     proc_info = running_processes[process_id]
     pid_file = proc_info.get("pid_file")
-    pid = _read_pid_file(pid_file)
+    popen_obj = proc_info.get("process")
 
-    if pid and _check_pid_running(pid):
-        return pid
-    else:
-        return None
-
+    if pid_file:
+        pid = _read_pid_file(pid_file)
+        if pid and _check_pid_running(pid): return pid
+    elif popen_obj and popen_obj.poll() is None:
+        if _check_pid_running(popen_obj.pid): return popen_obj.pid
+    return None # Not running or PID unknown
 
 def stop_all_processes():
-    """
-    Stops all managed processes.
-
-    Returns:
-        bool: True if all processes stopped successfully, False otherwise
-    """
-    print("Process Manager: Stopping all processes...")
-    all_ok = True
-
+    """Stops all managed processes."""
+    print("Process Manager: Stopping all processes..."); all_ok = True
     for process_id in list(running_processes.keys()):
-        # Use SIGQUIT for nginx, SIGTERM for others
+        # Determine appropriate signal (can be customized per process type)
         sig = signal.SIGQUIT if 'nginx' in process_id else signal.SIGTERM
-        if not stop_process(process_id, signal_to_use=sig):
-            all_ok = False
-
+        if not stop_process(process_id, signal_to_use=sig): all_ok = False
     return all_ok
 
-
-# -----------------------------------------------------------------------------
-# Example Usage (Keep for basic testing)
-# -----------------------------------------------------------------------------
+# --- Example Usage --- (Keep for basic testing)
 if __name__ == "__main__":
-    pass
+     # ... (Example usage needs update to test both PID file and Popen tracking) ...
+     pass

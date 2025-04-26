@@ -15,7 +15,7 @@ try:
 except ImportError as e:
     print(f"ERROR in services_page.py: Could not import dependencies: {e}")
     class ServiceItemWidget(QWidget): pass # Dummy
-    class ConfigDummy: NGINX_PROCESS_ID="err-nginx"; MYSQL_PROCESS_ID="err-mysql"; REDIS_PROCESS_ID="err-redis"; SYSTEM_DNSMASQ_SERVICE_NAME="dnsmasq.service";
+    class ConfigDummy: NGINX_PROCESS_ID="err-nginx"; MYSQL_PROCESS_ID="err-mysql"; REDIS_PROCESS_ID="err-redis"; MINIO_PROCESS_ID="err-minio"; SYSTEM_DNSMASQ_SERVICE_NAME="dnsmasq.service";
     config = ConfigDummy()
 
 
@@ -63,6 +63,11 @@ class ServicesPage(QWidget):
         redis_widget.actionClicked.connect(self.on_service_action)
         internal_layout.addWidget(redis_widget)
         self.service_widgets[config.REDIS_PROCESS_ID] = redis_widget
+
+        minio_widget = ServiceItemWidget(config.MINIO_PROCESS_ID, "MinIO Storage", "unknown")
+        minio_widget.actionClicked.connect(self.on_service_action)
+        internal_layout.addWidget(minio_widget)
+        self.service_widgets[config.MINIO_PROCESS_ID] = minio_widget
 
         main_layout.addWidget(internal_group)
 
@@ -158,6 +163,8 @@ class ServicesPage(QWidget):
                 self._main_window.refresh_mysql_status_on_page()
             if config.REDIS_PROCESS_ID in self.service_widgets and hasattr(self._main_window, 'refresh_redis_status_on_page'):
                 self._main_window.refresh_redis_status_on_page()
+            if config.MINIO_PROCESS_ID in self.service_widgets and hasattr(self._main_window, 'refresh_minio_status_on_page'):
+                self._main_window.refresh_minio_status_on_page()
             # Refresh SYSTEM Dnsmasq status (for display only)
             if hasattr(self._main_window, 'refresh_dnsmasq_status_on_page'):
                 self._main_window.refresh_dnsmasq_status_on_page()

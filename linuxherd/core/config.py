@@ -70,6 +70,22 @@ INTERNAL_REDIS_PID_FILE = RUN_DIR / "redis.pid"
 INTERNAL_REDIS_LOG = LOG_DIR / 'redis.log'
 # --- End Redis Section ---
 
+# --- MinIO Specific Paths <<< NEW SECTION ---
+MINIO_BUNDLES_DIR = BUNDLES_DIR / 'minio'
+MINIO_BINARY = MINIO_BUNDLES_DIR / 'bin/minio' # Assumed path from bundling step
+INTERNAL_MINIO_DATA_DIR = DATA_DIR / 'minio_data' # Store data buckets here
+INTERNAL_MINIO_CONFIG_DIR = CONFIG_DIR / 'minio' # For potential future config files
+INTERNAL_MINIO_PID_FILE = RUN_DIR / "minio.pid"
+INTERNAL_MINIO_LOG = LOG_DIR / 'minio.log'
+# Default ports (can be overridden via config/env later if needed)
+MINIO_API_PORT = 9000
+MINIO_CONSOLE_PORT = 9001 # Default console port might vary or be dynamic
+# Default credentials (SHOULD NOT be used for production!)
+# MinIO binary uses ENV variables MINIO_ROOT_USER and MINIO_ROOT_PASSWORD
+MINIO_DEFAULT_ROOT_USER = "linuxherd" # Simple default user
+MINIO_DEFAULT_ROOT_PASSWORD = "password" # Simple default password - user should be aware!
+# --- End MinIO Section ---
+
 # --- Site Management ---
 SITES_FILE = CONFIG_DIR / 'sites.json'
 SITE_TLD = "test"
@@ -85,6 +101,7 @@ NGINX_PROCESS_ID = "internal-nginx"
 PHP_FPM_PROCESS_ID_TEMPLATE = "php-fpm-{version}"
 MYSQL_PROCESS_ID = "internal-mysql"
 REDIS_PROCESS_ID = "internal-redis"
+MINIO_PROCESS_ID = "internal-minio"
 
 # --- System Interaction Paths ---
 SYSTEMCTL_PATH = "/usr/bin/systemctl"

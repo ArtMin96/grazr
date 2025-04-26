@@ -6,6 +6,7 @@
 from PySide6.QtCore import QObject, Signal, Slot
 import traceback
 import time
+from pathlib import Path
 
 # Import the functions that the worker will call using new structure
 try:
@@ -19,6 +20,7 @@ try:
     from ..managers.ssl_manager import generate_certificate, delete_certificate
     from ..managers.mysql_manager import start_mysql, stop_mysql
     from ..managers.redis_manager import start_redis, stop_redis
+    from ..managers.minio_manager import start_minio, stop_minio
     from .system_utils import run_root_helper_action
 
 except ImportError as e:
@@ -43,6 +45,8 @@ except ImportError as e:
     def stop_mysql(*args, **kwargs): return True
     def start_redis(*args, **kwargs): return False
     def stop_redis(*args, **kwargs): return True
+    def start_minio(*args, **kwargs): return False
+    def stop_minio(*args, **kwargs): return True
     def run_root_helper_action(*args, **kwargs): return False, "Not imported"
 
 
@@ -350,6 +354,18 @@ class Worker(QObject):
                 local_success = stop_redis()  # Returns bool
                 local_message = "Bundled Redis stop attempt finished."
                 print(f"WORKER: stop_redis returned: success={local_success}")
+
+            elif task_name == "start_minio":
+                print(f"WORKER: Calling start_minio...")
+                local_success = start_minio()
+                local_message = "Bundled MinIO start attempt finished."
+                print(f"WORKER: start_minio returned: success={local_success}")
+
+            elif task_name == "stop_minio":
+                print(f"WORKER: Calling stop_minio...")
+                local_success = stop_minio()
+                local_message = "Bundled MinIO stop attempt finished."
+                print(f"WORKER: stop_minio returned: success={local_success}")
 
             elif task_name == "run_helper":
                 action = data.get("action");

@@ -28,6 +28,7 @@ try:
     from ..managers.nginx_manager import get_nginx_version
     from ..managers.mysql_manager import get_mysql_version, get_mysql_status
     from ..managers.redis_manager import get_redis_status, get_redis_version
+    from ..managers.minio_manager import get_minio_status, get_minio_version
     # system_utils might still be needed if check_service_status is used for conflicts
     from ..core.system_utils import check_service_status
     from ..managers.mysql_manager import get_mysql_status
@@ -129,6 +130,8 @@ class MainWindow(QMainWindow):
         # --- Add Content Area to Main Layout ---
         main_h_layout.addWidget(content_container, 1) # Content takes stretch
 
+        self.current_extension_dialog = None
+
         # --- Setup Worker Thread ---
         self.thread = QThread(self)
         self.worker = Worker()
@@ -165,6 +168,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(100, lambda: self.triggerWorker.emit("start_internal_nginx", {}))
         QTimer.singleShot(200, lambda: self.triggerWorker.emit("start_mysql", {}))
         QTimer.singleShot(300, lambda: self.triggerWorker.emit("start_redis", {}))
+        QTimer.singleShot(400, lambda: self.triggerWorker.emit("start_minio", {}))
 
     # --- Navigation Slot ---
     @Slot(int)
@@ -197,8 +201,7 @@ class MainWindow(QMainWindow):
 
         # --- Determine target_page and display_name based on task_name ---
         # Ensure correct indentation for each block
-        if task_name in ["install_nginx", "uninstall_nginx", "update_site_domain", "set_site_php", "enable_ssl",
-                         "disable_ssl"]:
+        if task_name in ["install_nginx", "uninstall_nginx", "update_site_domain", "set_site_php", "enable_ssl", "disable_ssl"]:
             target_page = self.sites_page
             display_name = f"Site ({domain_ctx or path})"
         elif task_name in ["start_internal_nginx", "stop_internal_nginx"]:
@@ -210,6 +213,9 @@ class MainWindow(QMainWindow):
         elif task_name in ["start_redis", "stop_redis"]:
             target_page = self.services_page  # <<< Assign target for Redis tasks
             display_name = "Bundled Redis"
+        elif task_name in ["start_minio", "stop_minio"]:  # <<< Added MinIO
+            target_page = self.services_page
+            display_name = "Bundled MinIO"
         elif task_name == "run_helper":  # System Dnsmasq checks (if kept)
             target_page = self.services_page
             display_name = f"System Service ({service_name_ctx})"
@@ -247,6 +253,8 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(refresh_delay, self.refresh_mysql_status_on_page)
             elif task_name in ["start_redis", "stop_redis"]:
                 QTimer.singleShot(refresh_delay, self.refresh_redis_status_on_page)
+            elif task_name in ["start_minio", "stop_minio"]:
+                QTimer.singleShot(refresh_delay, self.refresh_minio_status_on_page)
             elif task_name == "run_helper" and context_data.get("service_name") == config.SYSTEM_DNSMASQ_SERVICE_NAME:
                 QTimer.singleShot(refresh_delay, self.refresh_dnsmasq_status_on_page)
         elif target_page == self.php_page:
@@ -414,6 +422,11 @@ class MainWindow(QMainWindow):
                 task_name = "start_redis"
             elif action == "stop":
                 task_name = "stop_redis"
+        elif service_id == config.MINIO_PROCESS_ID:
+            if action == "start":
+                task_name = "start_minio"
+            elif action == "stop":
+                task_name = "stop_minio"
 
         if task_name:
             self.triggerWorker.emit(task_name, task_data)
@@ -551,6 +564,30 @@ class MainWindow(QMainWindow):
             self.services_page.update_service_status(config.REDIS_PROCESS_ID, status)
         if hasattr(self.services_page, 'update_service_details'):
             self.services_page.update_service_details(config.REDIS_PROCESS_ID, detail_text)
+
+    def refresh_minio_status_on_page(self):
+        """Checks BUNDLED MinIO status via manager and updates ServicesPage."""
+        if not isinstance(self.services_page, ServicesPage): return
+        self.log_message("Checking bundled MinIO status...")
+        try:
+            status = get_minio_status()
+            version = get_minio_version()
+        except Exception as e:
+            self.log_message(f"Error getting bundled minio status/version: {e}")
+            status = "error";
+            version = "N/A"
+        self.log_message(f"Bundled MinIO status: {status}, Version: {version}")
+
+        # Determine port (usually fixed)
+        api_port = getattr(config, 'MINIO_API_PORT', 9000)
+        console_port = getattr(config, 'MINIO_CONSOLE_PORT', 9001)
+        detail_text = f"Version: {version} | API: {api_port} | Console: {console_port}" if status == "running" else f"Version: {version} | Ports: -"
+
+        # Update the UI using the generic service update slots
+        if hasattr(self.services_page, 'update_service_status'):
+            self.services_page.update_service_status(config.MINIO_PROCESS_ID, status)
+        if hasattr(self.services_page, 'update_service_details'):
+            self.services_page.update_service_details(config.MINIO_PROCESS_ID, detail_text)
 
     def refresh_php_versions(self):  # Delegates to PhpPage
         if isinstance(self.php_page, PhpPage): self.php_page.refresh_data()
