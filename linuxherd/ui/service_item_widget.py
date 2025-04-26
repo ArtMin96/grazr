@@ -19,6 +19,8 @@ class ServiceItemWidget(QWidget):
     actionClicked = Signal(str, str)
     # Args: service_id (str)
     removeClicked = Signal(str)
+    # Args: service_id (str)
+    settingsClicked = Signal(str)
 
     def __init__(self, service_id, display_name, initial_status="unknown", parent=None):
         super().__init__(parent)
@@ -49,18 +51,25 @@ class ServiceItemWidget(QWidget):
         self.button_layout.setSpacing(5)
         self.button_layout.addStretch()  # Push buttons right
 
+        # Settings Button
+        self.settings_button = QPushButton("...")  # Placeholder text, use icon later
+        self.settings_button.setToolTip(f"Configure {self.display_name} settings and view logs")
+        self.settings_button.setObjectName("SettingsButton")  # For specific styling
+        self.settings_button.setFixedSize(QSize(28, 28))  # Make it small and square-ish for icon
+        self.settings_button.clicked.connect(lambda: self.settingsClicked.emit(self.service_id))
+        self.button_layout.addWidget(self.settings_button)
+
         # Single Action Button (Start/Stop)
         self.action_button = QPushButton("Start")  # Default text
-        self.action_button.setMinimumWidth(70)  # Ensure minimum width
+        self.action_button.setMinimumWidth(60)  # Ensure minimum width
         self.action_button.clicked.connect(self._on_action_button_clicked)  # Connect to internal slot
         self.button_layout.addWidget(self.action_button)
 
         # Remove Button
-        self.remove_button = QPushButton("Remove")  # Use text for now, icon later
-        self.remove_button.setToolTip(f"Remove {self.display_name} service configuration")
-        # Make it less prominent? Maybe smaller or different style via QSS
-        self.remove_button.setObjectName("RemoveButton")  # For specific styling
-        self.remove_button.setFixedWidth(60)  # Smaller fixed width
+        self.remove_button = QPushButton("X")  # Use X for remove? Icon better
+        self.remove_button.setToolTip(f"Remove {self.display_name} configuration")
+        self.remove_button.setObjectName("RemoveButton")
+        self.remove_button.setFixedSize(QSize(28, 28))  # Small square button
         self.remove_button.clicked.connect(lambda: self.removeClicked.emit(self.service_id))
         self.button_layout.addWidget(self.remove_button)
 
@@ -83,48 +92,37 @@ class ServiceItemWidget(QWidget):
     @Slot(str)
     def update_status(self, status):
         """Updates status indicator and action/remove button states."""
+        # (Modified to handle remove button disable for Nginx)
         self._current_status = status
-        status_color = Qt.gray;
-        button_text = "Start";
-        action_button_enabled = False;
-        remove_button_enabled = False;
-        tooltip = ""
+        status_color = Qt.gray; button_text = "Start"; action_enabled = False; remove_enabled = False; tooltip = ""
+
+        # Import NGINX_PROCESS_ID here if needed, or pass it in constructor?
+        # Assuming config is accessible globally for simplicity here (not ideal)
+        try: from ..core import config
+        except ImportError:
+            class config: NGINX_PROCESS_ID = "internal-nginx" # Dummy
+
+        is_nginx = (self.service_id == config.NGINX_PROCESS_ID)
 
         if status == "running" or status == "active":
-            status_color = Qt.darkGreen;
-            button_text = "Stop";
-            action_button_enabled = True;
-            remove_button_enabled = False;
-            tooltip = f"Stop {self.display_name}"  # <<< Remove disabled when running
+            status_color = Qt.darkGreen; button_text = "Stop"; action_enabled = True; remove_enabled = False; tooltip = f"Stop {self.display_name}"
         elif status == "stopped" or status == "inactive":
-            status_color = Qt.darkRed;
-            button_text = "Start";
-            action_button_enabled = True;
-            remove_button_enabled = True;
-            tooltip = f"Start {self.display_name}"  # <<< Remove enabled when stopped
+            status_color = Qt.darkRed; button_text = "Start"; action_enabled = True; remove_enabled = (not is_nginx); tooltip = f"Start {self.display_name}" # Enable remove if stopped (and not nginx)
         elif status == "not_found":
-            status_color = Qt.lightGray;
-            button_text = "N/A";
-            action_button_enabled = False;
-            remove_button_enabled = True;
-            tooltip = f"{self.display_name} bundle not found"  # <<< Allow removal if bundle missing? Yes.
-        else:  # unknown, error, checking etc.
-            status_color = Qt.darkYellow;
-            button_text = "Status?";
-            action_button_enabled = False;
-            remove_button_enabled = False;
-            tooltip = f"Status unknown or error"  # <<< Remove disabled on error/unknown
+            status_color = Qt.lightGray; button_text = "N/A"; action_enabled = False; remove_enabled = (not is_nginx); tooltip = f"{self.display_name} bundle not found" # Allow removal if bundle missing (except nginx)
+        else: # unknown, error, checking etc.
+             status_color = Qt.darkYellow; button_text = "Status?"; action_enabled = False; remove_enabled = False; tooltip = f"Status unknown or error" # Disable remove on error
 
         self.status_indicator.set_color(status_color)
         self.action_button.setText(button_text)
-        self.action_button.setEnabled(action_button_enabled)
+        self.action_button.setEnabled(action_enabled)
         self.action_button.setToolTip(tooltip)
-        self.remove_button.setEnabled(remove_button_enabled)  # <<< SET STATE
+        self.remove_button.setEnabled(remove_enabled) # Set remove button state
+        # Settings button always enabled if service exists?
+        self.settings_button.setEnabled(True)
 
         # Force repaint
-        self.status_indicator.update();
-        self.action_button.update();
-        self.remove_button.update()
+        self.status_indicator.update(); self.action_button.update(); self.remove_button.update(); self.settings_button.update()
 
     @Slot(str)
     def update_details(self, detail_text):  # (Unchanged)
@@ -132,13 +130,13 @@ class ServiceItemWidget(QWidget):
         self.detail_label.update()
 
     @Slot(bool)
-    def set_controls_enabled(self, enabled):
-        """Disables/Enables action buttons (used during background tasks)."""
-        # When enabling, update_status will set the correct state.
-        # When disabling, force disable both action and remove buttons.
+    def set_controls_enabled(self, enabled): # (Updated to include settings button)
+        """Disables/Enables action buttons during background tasks."""
+        self.settings_button.setEnabled(enabled) # Also disable settings during tasks
         self.action_button.setEnabled(enabled)
         self.remove_button.setEnabled(enabled)
         if not enabled:
-            self.action_button.setText("...")  # Indicate working
+            self.action_button.setText("...") # Indicate working
             self.action_button.update()
             self.remove_button.update()
+            self.settings_button.update()

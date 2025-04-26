@@ -4,11 +4,11 @@
 # Current time is Tuesday, April 22, 2025 at 8:49:54 PM +04 (Yerevan, Yerevan, Armenia).
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                               QPushButton, QFrame, QApplication,
-                               QSizePolicy, QSpacerItem, QMessageBox
-                               )
-from PySide6.QtCore import Signal, Slot, Qt, QTimer
-from PySide6.QtGui import QFont
+                               QPushButton, QListWidget, QListWidgetItem,
+                               QFrame, QSplitter, QSizePolicy, QStackedWidget,
+                               QTextEdit, QScrollArea, QMessageBox, QGroupBox)
+from PySide6.QtCore import Signal, Slot, Qt, QTimer, QObject
+from PySide6.QtGui import QFont, QPalette, QColor
 
 # --- Import Core Config & Custom Widget ---
 try:
@@ -17,9 +17,16 @@ try:
     from ..managers.services_config_manager import load_configured_services
 except ImportError as e:
     print(f"ERROR in services_page.py: Could not import dependencies: {e}")
-    class ServiceItemWidget(QWidget): actionClicked=Signal(str,str); removeClicked=Signal(str); pass
-    def load_configured_services(): return []
-    class ConfigDummy: NGINX_PROCESS_ID="err-nginx"; MYSQL_PROCESS_ID="err-mysql"; REDIS_PROCESS_ID="err-redis"; MINIO_PROCESS_ID="err-minio"; SYSTEM_DNSMASQ_SERVICE_NAME="dnsmasq.service";
+    class ServiceItemWidget(QWidget):
+        actionClicked=Signal(str,str); removeClicked=Signal(str); settingsClicked=Signal(str);
+        display_name="Dummy";
+        def update_status(self,s): pass;
+        def update_details(self,t): pass;
+        def set_controls_enabled(self,e):pass;
+        def property(self, name): return "dummy_id" # For config_id property
+        pass
+    def load_configured_services(): return [] # Dummy
+    class ConfigDummy: NGINX_PROCESS_ID="err-nginx"; AVAILABLE_BUNDLED_SERVICES={}; SYSTEM_DNSMASQ_SERVICE_NAME="dnsmasq.service"
     config = ConfigDummy()
 
 
@@ -33,49 +40,51 @@ class ServicesPage(QWidget):
     def __init__(self, parent=None):
         """Initializes the Services page UI - dynamically loads services."""
         super().__init__(parent)
+
         self._main_window = parent
-        self.service_widgets = {} # Only holds Nginx now
+        self.service_widgets = {}
+        self.current_selected_service_id = None
+        self.service_detail_widgets = {}
 
-        main_layout = QVBoxLayout(self);
-        main_layout.setContentsMargins(5, 5, 5, 5);
-        main_layout.setSpacing(15)
-        title_layout = QHBoxLayout();
-        title = QLabel("Services Status & Control");
-        title.setFont(QFont("Sans Serif", 12, QFont.Bold));
-        self.add_service_button = QPushButton("Add Service...");
+        # --- Main Layout (Splitter) ---
+        main_layout = QHBoxLayout(self);
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        splitter = QSplitter(Qt.Horizontal);
+        main_layout.addWidget(splitter)
+
+        # --- Left Pane: Service List & Controls ---
+        left_pane_widget = QWidget();
+        left_pane_widget.setObjectName("ServiceListPane")
+        left_layout = QVBoxLayout(left_pane_widget);
+        left_layout.setContentsMargins(0, 5, 0, 5);
+        left_layout.setSpacing(8)
+        self.add_service_button = QPushButton(" Add Service...");
+        self.add_service_button.setObjectName("AddServiceButton");
         self.add_service_button.clicked.connect(self.addServiceClicked.emit);
-        title_layout.addWidget(title);
-        title_layout.addStretch();
-        title_layout.addWidget(self.add_service_button);
-        main_layout.addLayout(title_layout)
+        button_layout = QHBoxLayout();
+        button_layout.addStretch();
+        button_layout.addWidget(self.add_service_button);
+        button_layout.addStretch();
+        left_layout.addLayout(button_layout)
+        self.service_list_widget = QListWidget();
+        self.service_list_widget.setObjectName("ServiceList");
+        self.service_list_widget.setSpacing(0);
+        self.service_list_widget.setStyleSheet(
+            "QListWidget { border: none; } QListWidget::item { border-bottom: 1px solid #E9ECEF; padding: 0; margin: 0; }")
+        left_layout.addWidget(self.service_list_widget)
+        left_pane_widget.setMinimumWidth(300);
+        left_pane_widget.setMaximumWidth(450);
+        splitter.addWidget(left_pane_widget)
 
-        # Managed Services Group
-        self.managed_group = QFrame();
-        self.managed_group.setObjectName("ServiceGroupFrame")
-        self.managed_layout = QVBoxLayout(self.managed_group);
-        self.managed_layout.setContentsMargins(10, 10, 10, 10)
-        managed_title = QLabel("Managed Services:");
-        managed_title.setFont(QFont("Sans Serif", 10, QFont.Bold));
-        self.managed_layout.addWidget(managed_title)
-        main_layout.addWidget(self.managed_group)
-
-        # --- System Services Status Group --- (Informational Dnsmasq)
-        system_group = QFrame();
-        system_group.setObjectName("ServiceGroupFrame");
-        system_layout = QVBoxLayout(system_group);
-        system_layout.setContentsMargins(10, 10, 10, 10)
-        system_title = QLabel("System Services (Informational):");
-        system_title.setFont(QFont("Sans Serif", 10, QFont.Bold));
-        system_layout.addWidget(system_title)
-        self.system_dnsmasq_status_label = QLabel("System Dnsmasq: Unknown");
-        self.system_dnsmasq_status_label.setObjectName("StatusLabel");
-        self.system_dnsmasq_status_label.setFont(QFont("Sans Serif", 10));
-        self.system_dnsmasq_status_label.setStyleSheet("...");  # Keep style
-        self.system_dnsmasq_status_label.setToolTip("Status of system dnsmasq.service.")
-        system_layout.addWidget(self.system_dnsmasq_status_label)
-        main_layout.addWidget(system_group)
-
-        main_layout.addStretch(1)
+        # --- Right Pane: Details Area using QStackedWidget ---
+        self.details_stack = QStackedWidget();
+        self.details_stack.setObjectName("ServiceDetailsPane")
+        self.placeholder_widget = QLabel("Click the '...' settings button on a service to view details.");
+        self.placeholder_widget.setAlignment(Qt.AlignCenter);
+        self.placeholder_widget.setStyleSheet("color: grey;")
+        self.details_stack.addWidget(self.placeholder_widget)  # Index 0
+        splitter.addWidget(self.details_stack)
+        splitter.setSizes([250, 600])
 
     @Slot(str, str)
     def on_service_action(self, service_id, action):
@@ -84,29 +93,201 @@ class ServicesPage(QWidget):
         self.log_to_main(f"ServicesPage: Action '{action}' requested for '{service_id}'")
         self.serviceActionTriggered.emit(service_id, action)
 
-    @Slot(str)
-    def on_remove_service_requested(self, service_id):
-        """Shows confirmation dialog and emits signal if user confirms."""
-        self.log_to_main(f"ServicesPage: Remove requested for service ID '{service_id}'")
+    @Slot(str)  # Receives process_id from the ServiceItemWidget signal
+    def on_remove_service_requested(self, process_id):
+        """Shows confirmation dialog and emits signal with config_id if user confirms."""
+        self.log_to_main(f"ServicesPage: Remove requested for process ID '{process_id}'")
 
-        # Find the display name for the confirmation message
-        display_name = service_id # Fallback
-        widget = self.service_widgets.get(service_id)
-        if widget and hasattr(widget, 'display_name'):
-            display_name = widget.display_name
+        # Find the widget using the process_id from the signal
+        widget = self.service_widgets.get(process_id)
 
-        # Show confirmation dialog <<< ADDED
-        reply = QMessageBox.question(self,
-                                     'Confirm Remove',
-                                     f"Are you sure you want to remove the '{display_name}' service configuration?\n(This will stop the service if running but won't delete its data.)",
+        if not widget:
+            self.log_to_main(f"Error: Could not find widget matching process ID {process_id} for removal.")
+            QMessageBox.warning(self, "Error", "Could not identify service widget to remove.")
+            return
+
+        # Retrieve the config_id stored on the widget
+        config_id = widget.property("config_id")
+        display_name = widget.display_name
+
+        if not config_id:
+            self.log_to_main(
+                f"Error: Could not retrieve config ID from widget {display_name} (Process ID: {process_id}).")
+            QMessageBox.warning(self, "Error", "Could not identify service configuration ID to remove.")
+            return
+
+        # Show confirmation dialog
+        reply = QMessageBox.question(self, 'Confirm Remove',
+                                     f"Remove '{display_name}' service configuration?\n(Service must be stopped first. Data is not deleted.)",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                     QMessageBox.StandardButton.No) # Default button is No
+                                     QMessageBox.StandardButton.No)
 
         if reply == QMessageBox.StandardButton.Yes:
-            self.log_to_main(f"ServicesPage: User confirmed removal for '{service_id}'. Emitting signal.")
-            self.removeServiceRequested.emit(service_id) # Emit signal ONLY if confirmed
+            self.log_to_main(f"Confirmed removal for config_id '{config_id}'.")
+            self.removeServiceRequested.emit(config_id)  # Emit the unique config_id
         else:
-            self.log_to_main(f"ServicesPage: User cancelled removal for '{service_id}'.")
+            self.log_to_main("Removal cancelled.")
+
+    # --- Slot for Settings button clicks <<< NEW ---
+    @Slot(str)
+    def on_show_service_details(self, process_id): # Handles Settings click
+        """Creates (if needed) and shows the detail widget for the service."""
+        self.log_to_main(f"ServicesPage: Show details requested for {process_id}")
+        self.current_selected_service_id = process_id # Track selected service
+        self._update_details_view(process_id)
+
+    # --- Detail View Handling ---
+    def _update_details_view(self, process_id):
+        """Creates (if needed) and shows the detail widget for the service."""
+        if not process_id:
+             self.details_stack.setCurrentWidget(self.placeholder_widget)
+             return
+
+        detail_widget = self.service_detail_widgets.get(process_id)
+
+        if not detail_widget:
+            # Widget not cached, try to create it
+            print(f"DEBUG ServicesPage: Creating detail widget for {process_id}")
+            detail_widget = self._create_detail_widget(process_id) # Assign to detail_widget
+            if detail_widget:
+                 # Creation successful, cache it and add to stack
+                 self.service_detail_widgets[process_id] = detail_widget
+                 self.details_stack.addWidget(detail_widget)
+            else:
+                 # Creation failed, show placeholder and exit
+                 self.log_to_main(f"Error: Failed to create detail widget for {process_id}")
+                 self.details_stack.setCurrentWidget(self.placeholder_widget)
+                 return
+
+        # If we reach here, detail_widget should be valid (either from cache or newly created)
+        self.details_stack.setCurrentWidget(detail_widget) # Show the correct widget
+        self._update_detail_content(process_id) # Populate/refresh content
+        self._trigger_single_refresh(process_id) # Refresh status when shown
+
+    def _create_detail_widget(self, process_id):
+        """Creates the specific detail widget for a service type."""
+        # Find service name/type
+        name = process_id; service_type = None
+        for svc_type, details in config.AVAILABLE_BUNDLED_SERVICES.items():
+            if details.get('process_id') == process_id: name = details.get('display_name', process_id); service_type = svc_type; break
+        if process_id == config.NGINX_PROCESS_ID: name = "Internal Nginx"; service_type = "nginx"
+        if not service_type: self.log_to_main(f"Error creating details: Unknown process_id {process_id}"); return None
+
+        # Create Base Widget and Layout
+        widget = QWidget(); widget.setObjectName(f"DetailWidget_{process_id}")
+        layout = QVBoxLayout(widget); layout.setContentsMargins(15, 15, 15, 15); layout.setSpacing(15)
+        title = QLabel(f"{name} Details"); title.setFont(QFont("Sans Serif", 11, QFont.Bold)); layout.addWidget(title)
+
+        # Env Vars GroupBox
+        env_group = QGroupBox("Connection Environment Variables"); env_layout = QVBoxLayout(env_group)
+        env_text_edit = QTextEdit(); env_text_edit.setReadOnly(True); env_text_edit.setFont(QFont("Monospace", 9)); env_text_edit.setFixedHeight(100); env_text_edit.setPlainText("# Env vars...")
+        env_layout.addWidget(env_text_edit); layout.addWidget(env_group)
+        # Store reference using process_id as key part
+        self.service_detail_widgets[f"{process_id}_env_text"] = env_text_edit
+
+        # Log Viewer GroupBox
+        log_group = QGroupBox("Service Logs"); log_layout = QVBoxLayout(log_group)
+        log_text_edit = QTextEdit(); log_text_edit.setReadOnly(True); log_text_edit.setFont(QFont("Monospace", 9)); log_text_edit.setPlainText("Logs loading...")
+        log_layout.addWidget(log_text_edit); layout.addWidget(log_group, 1) # Log viewer takes stretch
+        # Store reference using process_id as key part
+        self.service_detail_widgets[f"{process_id}_log_text"] = log_text_edit
+
+        layout.addStretch(0) # Prevent stretch below log viewer
+        return widget
+
+    def _update_detail_content(self, process_id):
+        """Populates the detail widget content (Env Vars, Logs)."""
+        # Use the stored references to update content
+        env_text_widget = self.service_detail_widgets.get(f"{process_id}_env_text")
+        log_text_widget = self.service_detail_widgets.get(f"{process_id}_log_text")
+        if not env_text_widget or not log_text_widget:
+            # This might happen if called before widget is fully created/cached
+            self.log_to_main(f"Warn: Detail widgets not found yet for {process_id} in _update_detail_content.")
+            return
+
+        # Populate Env Vars
+        env_vars_text = self._get_env_vars_for_service(process_id)
+        env_text_widget.setPlainText(env_vars_text)
+
+        # Populate Log Viewer
+        log_file_path = self._get_log_path_for_service(process_id)
+        log_content = "Log file not found or cannot be read.";
+        if log_file_path and log_file_path.is_file():
+            try:
+                with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines(); log_content = "".join(lines[-100:])  # Last 100 lines
+            except Exception as e:
+                log_content = f"Error reading log file:\n{e}"
+        elif log_file_path:
+            log_content = f"Log file not found: {log_file_path}"
+        log_text_widget.setPlainText(log_content);
+        log_text_widget.verticalScrollBar().setValue(log_text_widget.verticalScrollBar().maximum())  # Scroll bottom
+
+    def _get_env_vars_for_service(self, process_id):
+        """Generates example environment variables text for connection."""
+        # Find service type and configured port
+        service_type = None
+        configured_port = None
+        service_config = None
+        try:
+            services = load_configured_services()
+            for svc in services:
+                svc_type_lookup = svc.get('service_type')
+                svc_process_id = config.AVAILABLE_BUNDLED_SERVICES.get(svc_type_lookup, {}).get('process_id')
+                if svc_process_id == process_id:
+                    service_type = svc_type_lookup
+                    configured_port = svc.get('port')
+                    service_config = svc
+                    break
+        except Exception:
+            pass  # Ignore errors loading config here
+
+        lines = ["# Example connection variables for .env file"]
+        host = "127.0.0.1"
+
+        if process_id == config.MYSQL_PROCESS_ID:
+            port = configured_port or config.MYSQL_DEFAULT_PORT
+            lines.append(f"DB_CONNECTION=mysql")
+            lines.append(f"DB_HOST={host}")
+            lines.append(f"DB_PORT={port}")
+            lines.append(f"DB_DATABASE=database")  # Default name
+            lines.append(f"DB_USERNAME=root")  # Default user
+            lines.append(f"DB_PASSWORD=")  # Default empty password after --initialize-insecure
+        elif process_id == config.REDIS_PROCESS_ID:
+            port = configured_port or getattr(config, 'REDIS_PORT', 6379)
+            lines.append(f"REDIS_HOST={host}")
+            lines.append(f"REDIS_PASSWORD=null")  # Default no password
+            lines.append(f"REDIS_PORT={port}")
+        elif process_id == config.MINIO_PROCESS_ID:
+            port = configured_port or getattr(config, 'MINIO_API_PORT', 9000)
+            user = getattr(config, 'MINIO_DEFAULT_ROOT_USER', 'linuxherd')
+            password = getattr(config, 'MINIO_DEFAULT_ROOT_PASSWORD', 'password')
+            bucket_name = "your-bucket-name"  # Placeholder
+            lines.append(
+                f"# Create '{bucket_name}' in the MinIO Console (http://{host}:{getattr(config, 'MINIO_CONSOLE_PORT', 9001)})")
+            lines.append(f"AWS_ACCESS_KEY_ID={user}")
+            lines.append(f"AWS_SECRET_ACCESS_KEY={password}")
+            lines.append(f"AWS_DEFAULT_REGION=us-east-1")
+            lines.append(f"AWS_BUCKET={bucket_name}")
+            lines.append(f"AWS_USE_PATH_STYLE_ENDPOINT=true")
+            lines.append(f"AWS_ENDPOINT=http://{host}:{port}")  # Endpoint URL
+            lines.append(f"AWS_URL=http://{host}:{port}/{bucket_name}")  # URL if needed
+
+        return "\n".join(lines)
+
+    def _get_log_path_for_service(self, process_id):
+        """Gets the log file path for a given service process ID."""
+        if process_id == config.NGINX_PROCESS_ID:
+            return config.INTERNAL_NGINX_ERROR_LOG
+        elif process_id == config.MYSQL_PROCESS_ID:
+            return config.INTERNAL_MYSQL_ERROR_LOG
+        elif process_id == config.REDIS_PROCESS_ID:
+            return config.INTERNAL_REDIS_LOG
+        elif process_id == config.MINIO_PROCESS_ID:
+            return config.INTERNAL_MINIO_LOG
+        # Add PHP FPM log paths later if needed
+        else:
+            return None
 
     # --- Public Slots for MainWindow to Update This Page's UI ---
 
@@ -126,14 +307,14 @@ class ServicesPage(QWidget):
         # ... (set label text) ...
         # Set property for QSS styling based on raw status
         raw_status = status_text.replace(' ', '_').lower()  # e.g. "Not found" -> "not_found"
-        self.system_dnsmasq_status_label.setProperty("status", raw_status)
-        # Re-apply style sheet to force property update evaluation (needed?)
-        self.system_dnsmasq_status_label.setStyleSheet(
-            self.system_dnsmasq_status_label.styleSheet())  # Or set directly?
-        # Setting style sheet directly might be better if property selector doesn't work dynamically
-        base_style = "padding: 5px; border-radius: 3px; font-weight: bold;"  # Example base
-        final_style = f"{base_style} {style_sheet_extra}"  # Append calculated background
-        self.system_dnsmasq_status_label.setStyleSheet(final_style)
+        # self.system_dnsmasq_status_label.setProperty("status", raw_status)
+        # # Re-apply style sheet to force property update evaluation (needed?)
+        # self.system_dnsmasq_status_label.setStyleSheet(
+        #     self.system_dnsmasq_status_label.styleSheet())  # Or set directly?
+        # # Setting style sheet directly might be better if property selector doesn't work dynamically
+        # base_style = "padding: 5px; border-radius: 3px; font-weight: bold;"  # Example base
+        # final_style = f"{base_style} {style_sheet_extra}"  # Append calculated background
+        # self.system_dnsmasq_status_label.setStyleSheet(final_style)
 
     # Optional: Method to update detail text if needed later
     @Slot(str, str)
@@ -162,79 +343,95 @@ class ServicesPage(QWidget):
                 # within the slot handling the worker result.
                 QTimer.singleShot(100, self.refresh_data)  # Short delay
 
+    # --- Refresh Data Method ---
+    def refresh_data(self):  # <<< MODIFIED signal connection logic
+        """Loads configured services and updates/creates the list items and triggers refreshes."""
+        self.log_to_main("ServicesPage: Refreshing data (rebuilding list)...")
+        try:
+            configured_services = load_configured_services()
+        except Exception as e:
+            self.log_to_main(f"Error loading services: {e}"); configured_services = []
 
-    # --- Refresh ---
-    def refresh_data(self):
-        """Loads configured services and updates/creates the displayed items."""
-        self.log_to_main("ServicesPage: Refresh data triggered.")
-        try: configured_services = load_configured_services()
-        except Exception as e: self.log_to_main(f"Error loading services: {e}"); configured_services = []
-
-        current_ids_in_ui = set(self.service_widgets.keys())
-        # Map unique service config ID to process ID for required IDs set
-        required_ids_map = {config.NGINX_PROCESS_ID: config.NGINX_PROCESS_ID} # Nginx always required (key=process_id, value=config_id)
-        configured_service_map = {} # Map unique config ID to service_config dict
+        # Map process IDs to their config ID and data for efficient lookup
+        current_process_ids_in_ui = set(self.service_widgets.keys())
+        required_process_ids = {config.NGINX_PROCESS_ID}
+        process_to_config_id_map = {config.NGINX_PROCESS_ID: None}  # Nginx has no config ID
+        config_id_data_map = {}
 
         for service_config in configured_services:
-            config_id = service_config.get('id') # Unique ID from services.json
+            config_id = service_config.get('id');
             service_type = service_config.get('service_type')
             process_id = config.AVAILABLE_BUNDLED_SERVICES.get(service_type, {}).get('process_id')
-
             if config_id and process_id:
-                required_ids_map[process_id] = config_id # Store mapping
-                configured_service_map[config_id] = service_config # Store config by unique ID
-            else: self.log_to_main(f"Warn: Invalid/incomplete configured service: {service_config}")
+                required_process_ids.add(process_id);
+                process_to_config_id_map[process_id] = config_id;
+                config_id_data_map[config_id] = service_config
 
-        # Remove Obsolete Widgets (Iterate through widgets currently in UI)
-        ids_to_remove_ui = current_ids_in_ui - set(required_ids_map.keys())
+        # Remove Obsolete Widgets
+        ids_to_remove_ui = current_process_ids_in_ui - required_process_ids
         for process_id in ids_to_remove_ui:
-            # Find widget by process_id key and remove
             widget = self.service_widgets.pop(process_id, None)
-            if widget:
-                 self.log_to_main(f"ServicesPage: Removing obsolete service widget for {process_id}")
-                 self.managed_layout.removeWidget(widget); widget.deleteLater()
+            if widget:  # Find corresponding list item to remove
+                for i in range(self.service_list_widget.count()):
+                    item = self.service_list_widget.item(i)
+                    # Check if item exists and its stored data matches the process_id
+                    if item and item.data(Qt.UserRole) == process_id:
+                        self.service_list_widget.takeItem(i)
+                        break
+                widget.deleteLater()
+            detail_widget = self.service_detail_widgets.pop(process_id, None)
+            if detail_widget: self.details_stack.removeWidget(detail_widget); detail_widget.deleteLater()
 
-        # Add/Update Required Widgets
-        # Nginx (Always add/ensure)
+        # Add/Update Required Widgets in the list
+        # Nginx
         if config.NGINX_PROCESS_ID not in self.service_widgets:
-             nginx_widget = ServiceItemWidget(config.NGINX_PROCESS_ID,"Internal Nginx","unknown")
-             nginx_widget.actionClicked.connect(self.on_service_action)
-             # Nginx is not removable, so don't connect removeClicked
-             self.managed_layout.addWidget(nginx_widget)
-             self.service_widgets[config.NGINX_PROCESS_ID] = nginx_widget
+            nginx_item = QListWidgetItem();
+            nginx_item.setData(Qt.UserRole, config.NGINX_PROCESS_ID);
+            self.service_list_widget.addItem(nginx_item)
+            nginx_widget = ServiceItemWidget(config.NGINX_PROCESS_ID, "Internal Nginx", "unknown")
+            nginx_widget.actionClicked.connect(self.on_service_action)
+            nginx_widget.settingsClicked.connect(self.on_show_service_details)
+            nginx_item.setSizeHint(nginx_widget.sizeHint());
+            self.service_list_widget.setItemWidget(nginx_item, nginx_widget);
+            self.service_widgets[config.NGINX_PROCESS_ID] = nginx_widget
 
-        # Other configured services (Iterate required process IDs)
-        for process_id, config_id in required_ids_map.items():
-            if process_id == config.NGINX_PROCESS_ID: continue # Already handled
-
+        # Other configured services
+        for process_id in required_process_ids:
+            if process_id == config.NGINX_PROCESS_ID: continue
             if process_id not in self.service_widgets:
-                 # Widget doesn't exist, create it
-                 service_config = configured_service_map.get(config_id)
-                 if service_config:
-                     display_name = service_config.get('name', process_id)
-                     # Create widget using PROCESS ID for actions, but store CONFIG ID for removal
-                     widget = ServiceItemWidget(process_id, display_name, "unknown")
-                     widget.setProperty("config_id", config_id) # Store config ID on widget
-                     widget.actionClicked.connect(self.on_service_action)
-                     # Connect removeClicked to emit the CONFIG ID <<< IMPORTANT
-                     widget.removeClicked.connect(lambda checked=False, cid=config_id: self.on_remove_service_requested(cid))
-                     self.managed_layout.addWidget(widget)
-                     self.service_widgets[process_id] = widget # Track by process_id
-                 else:
-                      self.log_to_main(f"Error: Config data missing for required process_id {process_id} / config_id {config_id}")
-            # else: Widget already exists, status will be updated below
+                config_id = process_to_config_id_map.get(process_id)
+                service_config = config_id_data_map.get(config_id)
+                if service_config and config_id:
+                    display_name = service_config.get('name', process_id)
+                    item = QListWidgetItem();
+                    item.setData(Qt.UserRole, process_id);
+                    self.service_list_widget.addItem(item)
+                    widget = ServiceItemWidget(process_id, display_name, "unknown")
+                    widget.setProperty("config_id", config_id)  # Store config ID
+                    widget.actionClicked.connect(self.on_service_action)
+                    # Connect removeClicked directly to the slot <<< CORRECTED CONNECTION
+                    widget.removeClicked.connect(self.on_remove_service_requested)
+                    widget.settingsClicked.connect(self.on_show_service_details)
+                    item.setSizeHint(widget.sizeHint());
+                    self.service_list_widget.setItemWidget(item, widget);
+                    self.service_widgets[process_id] = widget
 
         # Trigger Status Updates via MainWindow
         if self._main_window:
-            # Refresh all currently displayed services (using process IDs)
-            for service_id in self.service_widgets.keys():
-                 refresh_method_name = f"refresh_{service_id.replace('internal-','')}_status_on_page"
-                 if hasattr(self._main_window, refresh_method_name):
-                      refresh_method = getattr(self._main_window, refresh_method_name)
-                      QTimer.singleShot(0, refresh_method)
-            # Refresh System Dnsmasq
-            if hasattr(self._main_window,'refresh_dnsmasq_status_on_page'):
-                 QTimer.singleShot(0, self._main_window.refresh_dnsmasq_status_on_page)
+            for service_id in self.service_widgets.keys(): self._trigger_single_refresh(service_id)
+            if hasattr(self._main_window, 'refresh_dnsmasq_status_on_page'): QTimer.singleShot(0, self._main_window.refresh_dnsmasq_status_on_page)
+
+        # Update Details Pane
+        if not self.current_selected_service_id or self.current_selected_service_id not in self.service_widgets:
+            self.current_selected_service_id = None;
+            self.details_stack.setCurrentWidget(self.placeholder_widget)
+        elif self.current_selected_service_id:
+            self._update_details_view(self.current_selected_service_id)
+
+    def _trigger_single_refresh(self, service_id):  # (Unchanged)
+        if not self._main_window: return
+        refresh_method_name = f"refresh_{service_id.replace('internal-', '')}_status_on_page"
+        if hasattr(self._main_window, refresh_method_name): getattr(self._main_window, refresh_method_name)()
 
     # Helper to log messages via MainWindow
     def log_to_main(self, message):
