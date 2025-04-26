@@ -15,7 +15,7 @@ try:
 except ImportError as e:
     print(f"ERROR in services_page.py: Could not import dependencies: {e}")
     class ServiceItemWidget(QWidget): pass # Dummy
-    class ConfigDummy: NGINX_PROCESS_ID="err-nginx"; SYSTEM_DNSMASQ_SERVICE_NAME="dnsmasq.service" # Add system name
+    class ConfigDummy: NGINX_PROCESS_ID="err-nginx"; MYSQL_PROCESS_ID="err-mysql"; REDIS_PROCESS_ID="err-redis"; SYSTEM_DNSMASQ_SERVICE_NAME="dnsmasq.service";
     config = ConfigDummy()
 
 
@@ -30,53 +30,57 @@ class ServicesPage(QWidget):
         self._main_window = parent
         self.service_widgets = {} # Only holds Nginx now
 
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout = QVBoxLayout(self);
+        main_layout.setContentsMargins(5, 5, 5, 5);
         main_layout.setSpacing(15)
-
-        title = QLabel("Services Status & Control")
-        title.setFont(QFont("Sans Serif", 12, QFont.Bold))
+        title = QLabel("Services Status & Control");
+        title.setFont(QFont("Sans Serif", 12, QFont.Bold));
         main_layout.addWidget(title)
 
-        # --- Internal Services Group ---
-        internal_group = QFrame(); internal_group.setFrameShape(QFrame.StyledPanel)
+        # --- Managed Services Group ---
+        internal_group = QFrame();
         internal_group.setObjectName("ServiceGroupFrame")
-        internal_layout = QVBoxLayout(internal_group)
+        internal_layout = QVBoxLayout(internal_group);
         internal_layout.setContentsMargins(10, 10, 10, 10)
-        internal_title = QLabel("Managed Services:"); internal_title.setFont(QFont("Sans Serif", 10, QFont.Bold))
+        internal_title = QLabel("Managed Services:");
+        internal_title.setFont(QFont("Sans Serif", 10, QFont.Bold));
         internal_layout.addWidget(internal_title)
 
         # Nginx Item
-        nginx_widget = ServiceItemWidget(config.NGINX_PROCESS_ID, "Internal Nginx", "unknown")
-        nginx_widget.actionClicked.connect(self.on_service_action) # Connect its signal
-        internal_layout.addWidget(nginx_widget)
+        nginx_widget = ServiceItemWidget(config.NGINX_PROCESS_ID, "Internal Nginx", "unknown");
+        nginx_widget.actionClicked.connect(self.on_service_action);
+        internal_layout.addWidget(nginx_widget);
         self.service_widgets[config.NGINX_PROCESS_ID] = nginx_widget
 
-        mysql_widget = ServiceItemWidget(config.MYSQL_PROCESS_ID, "MySQL / MariaDB", "unknown")
-        mysql_widget.actionClicked.connect(self.on_service_action)
-        internal_layout.addWidget(mysql_widget)
+        # MySQL/MariaDB Item
+        mysql_widget = ServiceItemWidget(config.MYSQL_PROCESS_ID, "MySQL / MariaDB", "unknown");
+        mysql_widget.actionClicked.connect(self.on_service_action);
+        internal_layout.addWidget(mysql_widget);
         self.service_widgets[config.MYSQL_PROCESS_ID] = mysql_widget
+
+        # Redis Item
+        redis_widget = ServiceItemWidget(config.REDIS_PROCESS_ID, "Redis", "unknown")
+        redis_widget.actionClicked.connect(self.on_service_action)
+        internal_layout.addWidget(redis_widget)
+        self.service_widgets[config.REDIS_PROCESS_ID] = redis_widget
 
         main_layout.addWidget(internal_group)
 
-        # --- System Services Status (Informational Only) ---
-        system_group = QFrame(); system_group.setFrameShape(QFrame.StyledPanel)
-        system_group.setObjectName("ServiceGroupFrame")
-        system_layout = QVBoxLayout(system_group)
+        # --- System Services Status Group --- (Unchanged)
+        system_group = QFrame();
+        system_group.setObjectName("ServiceGroupFrame");
+        system_layout = QVBoxLayout(system_group);
         system_layout.setContentsMargins(10, 10, 10, 10)
-        system_title = QLabel("System Services (Informational):"); system_title.setFont(QFont("Sans Serif", 10, QFont.Bold))
+        system_title = QLabel("System Services (Informational):");
+        system_title.setFont(QFont("Sans Serif", 10, QFont.Bold));
         system_layout.addWidget(system_title)
-
-        # Simple Display for System Dnsmasq Status <<< CHANGED
-        self.system_dnsmasq_status_label = QLabel("System Dnsmasq: Unknown")
-        self.system_dnsmasq_status_label.setObjectName("StatusLabel")
-        self.system_dnsmasq_status_label.setProperty("status", "unknown")
-        self.system_dnsmasq_status_label.setFont(QFont("Sans Serif", 10))
-        self.system_dnsmasq_status_label.setStyleSheet("padding: 5px; border: 1px solid lightgrey; border-radius: 3px;")
-        self.system_dnsmasq_status_label.setToolTip("Status of the system-wide dnsmasq.service (if installed). LinuxHerd uses systemd-resolved for .test domains.")
+        self.system_dnsmasq_status_label = QLabel("System Dnsmasq: Unknown");
+        self.system_dnsmasq_status_label.setObjectName("StatusLabel");
+        self.system_dnsmasq_status_label.setFont(QFont("Sans Serif", 10));
+        self.system_dnsmasq_status_label.setStyleSheet("...");  # Keep style
         system_layout.addWidget(self.system_dnsmasq_status_label)
-
         main_layout.addWidget(system_group)
+
         main_layout.addStretch(1)
 
     @Slot(str, str)
@@ -131,11 +135,15 @@ class ServicesPage(QWidget):
                 widget.set_controls_enabled(enabled)
             else:
                 widget.setEnabled(enabled)
-            if enabled and hasattr(self, '_main_window'):  # Refresh status on enable
-                if service_id == config.NGINX_PROCESS_ID and hasattr(self._main_window, 'refresh_nginx_status_on_page'):
-                    QTimer.singleShot(0, self._main_window.refresh_nginx_status_on_page)
-                elif service_id == config.MYSQL_PROCESS_ID and hasattr(self._main_window, 'refresh_mysql_status_on_page'):
-                    QTimer.singleShot(0, self._main_window.refresh_mysql_status_on_page)
+            # If we are RE-ENABLING controls, schedule a refresh AFTER a tiny delay.
+            # This ensures that the refresh_data call (which checks the actual
+            # service status) runs AFTER the worker task has fully completed
+            # and sets the correct Start/Stop button states based on the NEW status.
+            if enabled:
+                # Schedule a single refresh_data call for the whole page
+                # Use a timer to avoid potential issues with immediate refresh
+                # within the slot handling the worker result.
+                QTimer.singleShot(100, self.refresh_data)  # Short delay
 
 
     # --- Refresh ---
@@ -148,6 +156,8 @@ class ServicesPage(QWidget):
                 self._main_window.refresh_nginx_status_on_page()
             if config.MYSQL_PROCESS_ID in self.service_widgets and hasattr(self._main_window, 'refresh_mysql_status_on_page'):
                 self._main_window.refresh_mysql_status_on_page()
+            if config.REDIS_PROCESS_ID in self.service_widgets and hasattr(self._main_window, 'refresh_redis_status_on_page'):
+                self._main_window.refresh_redis_status_on_page()
             # Refresh SYSTEM Dnsmasq status (for display only)
             if hasattr(self._main_window, 'refresh_dnsmasq_status_on_page'):
                 self._main_window.refresh_dnsmasq_status_on_page()

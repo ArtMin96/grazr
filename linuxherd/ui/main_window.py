@@ -24,7 +24,10 @@ try:
     from ..core.worker import Worker
     # Import managers needed by MainWindow or its methods
     from ..managers.php_manager import detect_bundled_php_versions
-    from ..managers.site_manager import add_site, remove_site # remove_site needed for handleWorkerResult
+    from ..managers.site_manager import add_site, remove_site
+    from ..managers.nginx_manager import get_nginx_version
+    from ..managers.mysql_manager import get_mysql_version, get_mysql_status
+    from ..managers.redis_manager import get_redis_status, get_redis_version
     # system_utils might still be needed if check_service_status is used for conflicts
     from ..core.system_utils import check_service_status
     from ..managers.mysql_manager import get_mysql_status
@@ -47,8 +50,6 @@ try:
     from .services_page import ServicesPage
     from .php_page import PhpPage
     from .sites_page import SitesPage
-    from ..managers.nginx_manager import get_nginx_version
-    from ..managers.mysql_manager import get_mysql_version, get_mysql_status
 except ImportError as e:
      print(f"ERROR in main_window.py: Could not import page widgets - {e}")
      sys.exit(1)
@@ -163,6 +164,7 @@ class MainWindow(QMainWindow):
         self.log_message("Attempting to start bundled services (Nginx, MySQL)...")
         QTimer.singleShot(100, lambda: self.triggerWorker.emit("start_internal_nginx", {}))
         QTimer.singleShot(200, lambda: self.triggerWorker.emit("start_mysql", {}))
+        QTimer.singleShot(300, lambda: self.triggerWorker.emit("start_redis", {}))
 
     # --- Navigation Slot ---
     @Slot(int)
@@ -185,78 +187,96 @@ class MainWindow(QMainWindow):
             f"MAIN_WINDOW DEBUG: handleWorkerResult SLOT called for task '{task_name}'. Success: {success}")  # Keep Debug
 
         # Initialize variables
-        target_page = None  # Page widget associated with the task for UI updates
-        site_info = context_data.get("site_info", {})  # Get site_info if present
-        path = context_data.get("path", site_info.get("path", "N/A"))  # Get path if present
-        domain_ctx = site_info.get("domain", Path(path).name if path != "N/A" else "N/A")
+        target_page = None  # Will be assigned based on task_name
+        display_name = "N/A"  # Default display name for logging
+        path = context_data.get("path", context_data.get("site_info", {}).get("path", "N/A"))
+        domain_ctx = context_data.get("site_info", {}).get("domain", Path(path).name if path != "N/A" else "N/A")
         service_name_ctx = context_data.get("service_name", "N/A")
-        php_version_ctx = context_data.get("version", site_info.get("php_version", "N/A"))
-        ext_name_ctx = context_data.get("extension_name", "N/A")  # For toggle task
-        version = context_data.get("version", "N/A")
+        php_version_ctx = context_data.get("version", context_data.get("site_info", {}).get("php_version", "N/A"))
+        ext_name_ctx = context_data.get("extension_name", "N/A")
 
-        # Determine display name for logging more accurately
-        display_name = "N/A"
-        if task_name == "start_mysql":
-            display_name = "Bundled MySQL"
-            target_page = self.services_page
-        elif task_name == "stop_mysql":
-            display_name = "Bundled MySQL"
-            target_page = self.services_page
-        elif task_name in ["install_nginx", "uninstall_nginx", "update_site_domain", "set_site_php", "enable_ssl",
+        # --- Determine target_page and display_name based on task_name ---
+        # Ensure correct indentation for each block
+        if task_name in ["install_nginx", "uninstall_nginx", "update_site_domain", "set_site_php", "enable_ssl",
                          "disable_ssl"]:
-            display_name = f"Site ({domain_ctx or path})"
             target_page = self.sites_page
+            display_name = f"Site ({domain_ctx or path})"
         elif task_name in ["start_internal_nginx", "stop_internal_nginx"]:
+            target_page = self.services_page  # <<< Assign target for Nginx tasks
             display_name = "Internal Nginx"
+        elif task_name in ["start_mysql", "stop_mysql"]:
+            target_page = self.services_page  # <<< Assign target for MySQL tasks
+            display_name = "Bundled MySQL"
+        elif task_name in ["start_redis", "stop_redis"]:
+            target_page = self.services_page  # <<< Assign target for Redis tasks
+            display_name = "Bundled Redis"
+        elif task_name == "run_helper":  # System Dnsmasq checks (if kept)
             target_page = self.services_page
-        elif task_name == "run_helper":  # System Dnsmasq checks
             display_name = f"System Service ({service_name_ctx})"
-            target_page = self.services_page
         elif task_name in ["start_php_fpm", "stop_php_fpm", "save_php_ini"]:
-            display_name = f"PHP {php_version_ctx}" + (" INI" if task_name == "save_php_ini" else " FPM")
             target_page = self.php_page
-        elif task_name == "toggle_php_extension":  # <<< ADDED BACK
+            display_name = f"PHP {php_version_ctx}" + (" INI" if task_name == "save_php_ini" else " FPM")
+        elif task_name == "toggle_php_extension":
+            target_page = self.php_page  # Assign target page for re-enabling
             display_name = f"PHP {php_version_ctx} Ext ({ext_name_ctx})"
-            # Target page is the dialog, handled separately
-            target_page = self.php_page  # Set page for potential later refresh/enable
+        # If task_name doesn't match any, target_page remains None
 
         # Log Outcome
         self.log_message(f"Task '{task_name}' for '{display_name}' finished.")
         self.log_message(f"Result: {'OK' if success else 'Fail'}. Details: {message}")
 
-        # --- Task-specific follow-up actions ---
+        # --- Task-specific data updates ---
         if task_name == "uninstall_nginx" and success:
+            # Update storage only after worker confirms success
             if remove_site(path):
-                self.log_message("Site removed from storage.")  # Update storage
+                self.log_message("Site removed from storage.")
             else:
                 self.log_message("Warn: Site not found in storage for removal.")
 
-        # Refresh appropriate page based on task category
+        # --- Trigger UI Refreshes ---
+        # Use QTimer to allow current execution path to finish first
+        refresh_delay = 750  # Delay before checking status
         if target_page == self.sites_page:
             if isinstance(target_page, SitesPage): QTimer.singleShot(50, target_page.refresh_data)
-            if task_name != "uninstall_nginx": QTimer.singleShot(100, self.refresh_nginx_status_on_page)
+            if task_name != "uninstall_nginx": QTimer.singleShot(refresh_delay, self.refresh_nginx_status_on_page)
         elif target_page == self.services_page:
-            # Refresh specific service status
+            # Schedule specific refresh based on which service task finished
             if task_name in ["start_internal_nginx", "stop_internal_nginx"]:
-                QTimer.singleShot(100, self.refresh_nginx_status_on_page)
+                QTimer.singleShot(refresh_delay, self.refresh_nginx_status_on_page)
             elif task_name in ["start_mysql", "stop_mysql"]:
-                QTimer.singleShot(100, self.refresh_mysql_status_on_page)  # <<< Refresh MySQL
-            elif task_name == "run_helper" and context_data.get(
-                "service_name") == config.SYSTEM_DNSMASQ_SERVICE_NAME:
-                QTimer.singleShot(100, self.refresh_dnsmasq_status_on_page)  # System Dnsmasq
+                QTimer.singleShot(refresh_delay, self.refresh_mysql_status_on_page)
+            elif task_name in ["start_redis", "stop_redis"]:
+                QTimer.singleShot(refresh_delay, self.refresh_redis_status_on_page)
+            elif task_name == "run_helper" and context_data.get("service_name") == config.SYSTEM_DNSMASQ_SERVICE_NAME:
+                QTimer.singleShot(refresh_delay, self.refresh_dnsmasq_status_on_page)
         elif target_page == self.php_page:
-            if isinstance(target_page, PhpPage): QTimer.singleShot(100, target_page.refresh_data)
-            # Also update extension dialog if open
+            if isinstance(target_page, PhpPage): QTimer.singleShot(refresh_delay, target_page.refresh_data)
+            # Handle extension dialog callback
             if task_name == "toggle_php_extension":
-                if version and ext_name_ctx and self.current_extension_dialog and self.current_extension_dialog.isVisible():
-                    if hasattr(self.current_extension_dialog,
-                               'update_extension_state'): self.current_extension_dialog.update_extension_state(
-                        php_version_ctx, ext_name_ctx, success)
+                if self.current_extension_dialog and self.current_extension_dialog.isVisible():
+                    if hasattr(self.current_extension_dialog, 'update_extension_state'):
+                        print(f"MAIN_WINDOW: Calling dialog.update_extension_state for {ext_name_ctx}")
+                        self.current_extension_dialog.update_extension_state(php_version_ctx, ext_name_ctx, success)
 
-        # Re-enable controls
-        if target_page and hasattr(target_page, 'set_controls_enabled'):
-            QTimer.singleShot(250, lambda: target_page.set_controls_enabled(True))
-        self.log_message("-" * 30)
+        # --- Re-enable controls on the page ---
+        print(f"DEBUG handleWorkerResult: Checking target_page for control re-enable. Task='{task_name}'")
+        if target_page:  # Check if target_page was assigned
+            print(f"DEBUG handleWorkerResult: target_page is {target_page.__class__.__name__}")
+            has_method = hasattr(target_page, 'set_controls_enabled')
+            print(f"DEBUG handleWorkerResult: target_page has 'set_controls_enabled' method: {has_method}")
+            if has_method:
+                print(
+                    f"DEBUG handleWorkerResult: Scheduling {target_page.__class__.__name__}.set_controls_enabled(True)")
+                # Use a slightly longer delay than refresh
+                QTimer.singleShot(refresh_delay + 150, lambda: target_page.set_controls_enabled(True))
+            else:
+                print(f"DEBUG handleWorkerResult: NOT scheduling re-enable because method missing on target page.")
+        else:
+            # This case should ideally not happen for tasks initiated by user interaction on a page
+            print(
+                f"DEBUG handleWorkerResult: NOT scheduling re-enable because target_page is None for task '{task_name}'.")
+
+        self.log_message("-" * 30)  # Log separator
 
     # --- Methods that Trigger Worker Tasks ---
     @Slot()
@@ -389,8 +409,11 @@ class MainWindow(QMainWindow):
                 task_name = "start_mysql"
             elif action == "stop":
                 task_name = "stop_mysql"
-            # elif service_id == config.SYSTEM_DNSMASQ_SERVICE_NAME: # Control for system dnsmasq removed
-            #     if action in ["start", "stop"]: ... task_name = "run_helper" ...
+        elif service_id == config.REDIS_PROCESS_ID:
+            if action == "start":
+                task_name = "start_redis"
+            elif action == "stop":
+                task_name = "stop_redis"
 
         if task_name:
             self.triggerWorker.emit(task_name, task_data)
@@ -505,6 +528,29 @@ class MainWindow(QMainWindow):
         # Update details display <<< NEW
         if hasattr(self.services_page, 'update_service_details'):
             self.services_page.update_service_details(config.MYSQL_PROCESS_ID, detail_text)
+
+    def refresh_redis_status_on_page(self):
+        """Checks BUNDLED Redis status via manager and updates ServicesPage."""
+        if not isinstance(self.services_page, ServicesPage): return
+        self.log_message("Checking bundled Redis status...")
+        try:
+            status = get_redis_status()  # Use function from redis_manager
+            version = get_redis_version()  # Use function from redis_manager
+        except Exception as e:
+            self.log_message(f"Error getting bundled redis status/version: {e}")
+            status = "error";
+            version = "N/A"
+        self.log_message(f"Bundled Redis status: {status}, Version: {version}")
+
+        # Determine port (usually fixed)
+        port = getattr(config, 'REDIS_PORT', 6379)  # Use config or default
+        detail_text = f"Version: {version} | Port: {port}" if status == "running" else f"Version: {version} | Port: -"
+
+        # Update the UI using the generic service update slots
+        if hasattr(self.services_page, 'update_service_status'):
+            self.services_page.update_service_status(config.REDIS_PROCESS_ID, status)
+        if hasattr(self.services_page, 'update_service_details'):
+            self.services_page.update_service_details(config.REDIS_PROCESS_ID, detail_text)
 
     def refresh_php_versions(self):  # Delegates to PhpPage
         if isinstance(self.php_page, PhpPage): self.php_page.refresh_data()

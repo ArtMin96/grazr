@@ -50,7 +50,6 @@ MYSQLADMIN_BINARY = MYSQL_BINARY_DIR / 'mysqladmin'
 MYSQL_INSTALL_DB_BINARY = MYSQL_BINARY_DIR / 'mysql_install_db' # Path if needed
 MYSQL_LIB_DIR = MYSQL_BUNDLES_DIR / 'lib' # Location of bundled libs + system libs
 MYSQL_SHARE_DIR = MYSQL_BUNDLES_DIR / 'share' # Location of support files
-
 INTERNAL_MYSQL_CONF_DIR = CONFIG_DIR / 'mysql' # Config files go here
 INTERNAL_MYSQL_CONF_FILE = INTERNAL_MYSQL_CONF_DIR / 'my.cnf'
 # Store persistent data under DATA_DIR, not CONFIG_DIR
@@ -59,6 +58,17 @@ INTERNAL_MYSQL_PID_FILE = RUN_DIR / "mysqld.pid"   # Runtime PID
 INTERNAL_MYSQL_SOCK_FILE = RUN_DIR / "mysqld.sock" # Runtime Socket
 INTERNAL_MYSQL_ERROR_LOG = LOG_DIR / 'mysql_error.log'
 # --- End MySQL Section ---
+
+# --- Redis Specific Paths <<< NEW SECTION ---
+REDIS_BUNDLES_DIR = BUNDLES_DIR / 'redis'
+REDIS_BINARY = REDIS_BUNDLES_DIR / 'bin/redis-server' # Assumed path from redis-server package
+REDIS_CLI_BINARY = REDIS_BUNDLES_DIR / 'bin/redis-cli' # Assumed path from redis-tools package
+INTERNAL_REDIS_CONF_DIR = CONFIG_DIR / 'redis'
+INTERNAL_REDIS_CONF_FILE = INTERNAL_REDIS_CONF_DIR / 'redis.conf'
+INTERNAL_REDIS_DATA_DIR = DATA_DIR / 'redis_data' # Store data (RDB/AOF) in DATA_DIR
+INTERNAL_REDIS_PID_FILE = RUN_DIR / "redis.pid"
+INTERNAL_REDIS_LOG = LOG_DIR / 'redis.log'
+# --- End Redis Section ---
 
 # --- Site Management ---
 SITES_FILE = CONFIG_DIR / 'sites.json'
@@ -74,7 +84,7 @@ MKCERT_BINARY = MKCERT_BUNDLES_DIR / 'mkcert'
 NGINX_PROCESS_ID = "internal-nginx"
 PHP_FPM_PROCESS_ID_TEMPLATE = "php-fpm-{version}"
 MYSQL_PROCESS_ID = "internal-mysql"
-# No bundled Dnsmasq process ID
+REDIS_PROCESS_ID = "internal-redis"
 
 # --- System Interaction Paths ---
 SYSTEMCTL_PATH = "/usr/bin/systemctl"

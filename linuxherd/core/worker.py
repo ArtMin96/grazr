@@ -18,6 +18,7 @@ try:
     from ..managers.site_manager import update_site_settings, remove_site, get_site_settings
     from ..managers.ssl_manager import generate_certificate, delete_certificate
     from ..managers.mysql_manager import start_mysql, stop_mysql
+    from ..managers.redis_manager import start_redis, stop_redis
     from .system_utils import run_root_helper_action
 
 except ImportError as e:
@@ -40,6 +41,8 @@ except ImportError as e:
     def delete_certificate(*args, **kwargs): return True
     def start_mysql(*args, **kwargs): return False
     def stop_mysql(*args, **kwargs): return True
+    def start_redis(*args, **kwargs): return False
+    def stop_redis(*args, **kwargs): return True
     def run_root_helper_action(*args, **kwargs): return False, "Not imported"
 
 
@@ -335,6 +338,18 @@ class Worker(QObject):
                 local_success = stop_mysql()  # Returns bool
                 local_message = "Bundled MySQL stop attempt finished."
                 print(f"WORKER: stop_mysql returned: success={local_success}")
+
+            elif task_name == "start_redis":
+                print(f"WORKER: Calling start_redis...")
+                local_success = start_redis()  # Returns bool
+                local_message = "Bundled Redis start attempt finished."
+                print(f"WORKER: start_redis returned: success={local_success}")
+
+            elif task_name == "stop_redis":
+                print(f"WORKER: Calling stop_redis...")
+                local_success = stop_redis()  # Returns bool
+                local_message = "Bundled Redis stop attempt finished."
+                print(f"WORKER: stop_redis returned: success={local_success}")
 
             elif task_name == "run_helper":
                 action = data.get("action");
