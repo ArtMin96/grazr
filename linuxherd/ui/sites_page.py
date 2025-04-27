@@ -8,14 +8,15 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QListWidget, QListWidgetItem,
                                QFileDialog, QApplication, QFrame, QSplitter,
                                QSizePolicy, QLineEdit, QMessageBox,
-                               QComboBox, QCheckBox)
-from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression
-from PySide6.QtGui import QFont, QRegularExpressionValidator
+                               QComboBox, QCheckBox, QMenu)
+from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QUrl
+from PySide6.QtGui import QFont, QRegularExpressionValidator, QAction, QDesktopServices
 
 import re
 import subprocess
 import shutil
-import os # Keep os for shutil.which fallback or potential path ops
+import os
+import shlex # Keep for terminal command quoting
 from pathlib import Path
 
 # --- Import Core Config and Manager Modules (using new paths) ---
@@ -243,6 +244,143 @@ class SitesPage(QWidget):
         path_value.setObjectName("path_value")
         php_version_display_label.setObjectName("php_version_display")
 
+        actions_label = QLabel("Actions:");
+        actions_label.setFont(label_font)
+        self.details_layout.addWidget(actions_label)
+
+        self.actions_menu_button = QPushButton("...");
+        self.actions_menu_button.setToolTip("Site Actions");
+        self.actions_menu_button.setFixedWidth(40);
+        self.actions_menu_button.setObjectName("ActionsMenuButton")
+        actions_menu = QMenu(self.actions_menu_button)
+
+        # Create QAction objects
+        action_open_site = QAction("Open Site in Browser", self)  # <<< NEW Action
+        action_terminal = QAction("Open Terminal", self)
+        action_editor = QAction("Open Editor", self)  # Tooltip set in slot
+        action_db_gui = QAction("Open DB GUI", self)  # Tooltip set in slot
+
+        # Connect action triggers to slots
+        action_open_site.triggered.connect(self.on_open_site_clicked)  # <<< Connect NEW
+        action_terminal.triggered.connect(self.on_open_terminal_clicked)
+        action_editor.triggered.connect(self.on_open_editor_clicked)
+        action_db_gui.triggered.connect(self.on_open_db_gui_clicked)
+
+        # Add actions to the menu
+        actions_menu.addAction(action_open_site)  # <<< Add NEW
+        actions_menu.addSeparator()
+        actions_menu.addAction(action_terminal)
+        actions_menu.addAction(action_editor)
+        actions_menu.addAction(action_db_gui)
+
+        self.actions_menu_button.setMenu(actions_menu)
+        button_container_layout = QHBoxLayout();
+        button_container_layout.addWidget(self.actions_menu_button);
+        button_container_layout.addStretch();
+        self.details_layout.addLayout(button_container_layout)
+        self._detail_widgets['actions_menu_button'] = self.actions_menu_button
+        # --- END Site Actions Dropdown ---
+
+        self.details_layout.addStretch()
+
+    # --- Action Button Slots
+    @Slot()
+    def on_open_terminal_clicked(self):
+        # ... (Implementation as before) ...
+        if not self.current_site_info or not self.current_site_info.get('path'): self.log_to_main(
+            "Error: No site selected for terminal."); return
+        site_path = self.current_site_info['path'];
+        self.log_to_main(f"Opening terminal in: {site_path}")
+        try:
+            terminal = None;
+            cmd = []
+            for term_cmd in ["gnome-terminal", "konsole", "xfce4-terminal", "xterm"]:
+                if shutil.which(term_cmd): terminal = term_cmd; break
+            if not terminal: self.log_to_main("Error: No known terminal found."); QMessageBox.warning(self, "Not Found",
+                                                                                                      "Could not find common terminal."); return
+            quoted_site_path = shlex.quote(site_path)
+            if terminal == "gnome-terminal":
+                cmd = [terminal, f"--working-directory={site_path}"]
+            elif terminal == "konsole":
+                cmd = [terminal, "--workdir", site_path]
+            elif terminal == "xfce4-terminal":
+                cmd = [terminal, f"--working-directory={site_path}"]
+            elif terminal == "xterm":
+                cmd = [terminal, "-e", f"cd {quoted_site_path} ; $SHELL || bash"]
+            if cmd:
+                self.log_to_main(f"Running: {cmd}"); subprocess.Popen(cmd)
+            else:
+                self.log_to_main(f"Error: Could not construct command for terminal '{terminal}'."); QMessageBox.warning(
+                    self, "Error", f"Could not determine command for: {terminal}")
+        except Exception as e:
+            self.log_to_main(f"Error opening terminal: {e}"); QMessageBox.critical(self, "Error", f"Failed:\n{e}")
+
+    @Slot()
+    def on_open_editor_clicked(self):
+        """Opens the site directory in a preferred editor (PhpStorm, VS Code)."""
+        if not self.current_site_info or not self.current_site_info.get('path'): return
+        site_path = self.current_site_info['path']
+        editor_cmd_path = None
+        editor_name = "editor"
+        # Prioritize PhpStorm, then VS Code
+        for cmd_name in ["phpstorm", "code"]:
+            found_path = shutil.which(cmd_name)
+            if found_path:
+                editor_cmd_path = found_path
+                editor_name = "PhpStorm" if cmd_name == "phpstorm" else "VS Code"
+                break
+
+        self.log_to_main(f"Attempting to open '{site_path}' in {editor_name}...")
+        if not editor_cmd_path:
+            self.log_to_main(f"Error: Neither 'phpstorm' nor 'code' found in PATH.");
+            QMessageBox.warning(self, "Not Found", "PhpStorm or VS Code ('code') not found in PATH.");
+            return
+        try:
+            subprocess.Popen([editor_cmd_path, site_path])
+        except Exception as e:
+            self.log_to_main(f"Error opening {editor_name}: {e}"); QMessageBox.critical(self, "Error", f"Failed:\n{e}")
+
+    @Slot()
+    def on_open_db_gui_clicked(self):
+        """Opens a preferred database GUI tool (TablePlus, DBeaver, Workbench)."""
+        self.log_to_main("Attempting to open Database GUI...")
+        db_gui_cmd_path = None
+        db_gui_name = "DB GUI"
+        # Prioritize TablePlus, then DBeaver, then Workbench
+        for cmd_name in ["tableplus", "dbeaver", "mysql-workbench"]:
+            found_path = shutil.which(cmd_name)
+            if found_path:
+                db_gui_cmd_path = found_path
+                db_gui_name = cmd_name.capitalize()  # Simple name
+                break
+        if not db_gui_cmd_path:
+            self.log_to_main("Error: DB GUI not found (TablePlus, DBeaver, MySQL Workbench).");
+            QMessageBox.warning(self, "Not Found", "TablePlus, DBeaver or MySQL Workbench not found in PATH.");
+            return
+        try:
+            self.log_to_main(f"Launching {db_gui_name}..."); subprocess.Popen([db_gui_cmd_path])
+        except Exception as e:
+            self.log_to_main(f"Error opening {db_gui_name}: {e}"); QMessageBox.critical(self, "Error", f"Failed:\n{e}")
+
+    @Slot()
+    def on_open_site_clicked(self):
+        """Opens the site's URL (HTTP or HTTPS) in the default web browser."""
+        if not self.current_site_info or not self.current_site_info.get('domain'):
+            self.log_to_main("Error: No site selected or domain missing for opening site.")
+            return
+
+        domain = self.current_site_info['domain']
+        use_https = self.current_site_info.get('https', False)
+        protocol = "https" if use_https else "http"
+        url_str = f"{protocol}://{domain}"
+        url = QUrl(url_str)
+
+        self.log_to_main(f"Attempting to open URL: {url.toString()}")
+        if not QDesktopServices.openUrl(url):
+            self.log_to_main(f"Error: Failed to open URL {url.toString()}")
+            QMessageBox.warning(self, "Cannot Open URL",
+                                f"Could not open the URL:\n{url.toString()}\n\nIs a default browser configured?")
+
     def _add_section_separator(self):
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
@@ -386,6 +524,7 @@ class SitesPage(QWidget):
         self._set_detail_widget_enabled('save_url_button', enabled, check_condition=self.on_url_text_changed if enabled else None)
         self._set_detail_widget_enabled('set_php_button', enabled, check_condition=self.on_php_version_changed if enabled else None)
         self._set_detail_widget_enabled('https_checkbox', enabled) # Simple enable/disable for checkbox
+        self._set_detail_widget_enabled('actions_menu_button', enabled)
 
     def _set_detail_widget_enabled(self, widget_key, enabled, check_condition=None):
         """Helper to enable/disable detail widgets, optionally re-evaluating state."""
