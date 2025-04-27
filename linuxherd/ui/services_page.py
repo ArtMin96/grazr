@@ -6,7 +6,8 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QListWidget, QListWidgetItem,
                                QFrame, QSplitter, QSizePolicy, QStackedWidget,
-                               QTextEdit, QScrollArea, QMessageBox, QGroupBox)
+                               QTextEdit, QScrollArea, QMessageBox, QGroupBox,
+                               QApplication, QGridLayout)
 from PySide6.QtCore import Signal, Slot, Qt, QTimer, QObject
 from PySide6.QtGui import QFont, QPalette, QColor
 
@@ -167,33 +168,94 @@ class ServicesPage(QWidget):
     def _create_detail_widget(self, process_id):
         """Creates the specific detail widget for a service type."""
         # Find service name/type
-        name = process_id; service_type = None
+        name = process_id
+        service_type = None
         for svc_type, details in config.AVAILABLE_BUNDLED_SERVICES.items():
-            if details.get('process_id') == process_id: name = details.get('display_name', process_id); service_type = svc_type; break
+            if details.get('process_id') == process_id:
+                name = details.get('display_name', process_id)
+                service_type = svc_type
+                break
         if process_id == config.NGINX_PROCESS_ID: name = "Internal Nginx"; service_type = "nginx"
         if not service_type: self.log_to_main(f"Error creating details: Unknown process_id {process_id}"); return None
 
         # Create Base Widget and Layout
-        widget = QWidget(); widget.setObjectName(f"DetailWidget_{process_id}")
-        layout = QVBoxLayout(widget); layout.setContentsMargins(15, 15, 15, 15); layout.setSpacing(15)
-        title = QLabel(f"{name} Details"); title.setFont(QFont("Sans Serif", 11, QFont.Bold)); layout.addWidget(title)
+        widget = QWidget()
+        widget.setObjectName(f"DetailWidget_{process_id}")
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(15)
 
-        # Env Vars GroupBox
-        env_group = QGroupBox("Connection Environment Variables"); env_layout = QVBoxLayout(env_group)
-        env_text_edit = QTextEdit(); env_text_edit.setReadOnly(True); env_text_edit.setFont(QFont("Monospace", 9)); env_text_edit.setFixedHeight(100); env_text_edit.setPlainText("# Env vars...")
-        env_layout.addWidget(env_text_edit); layout.addWidget(env_group)
+        title = QLabel(f"{name} Details")
+        title.setFont(QFont("Sans Serif", 16, QFont.Bold))
+        title.setContentsMargins(0, 0, 0, 10)
+        layout.addWidget(title)
+
+
+
+        # Container with stacked layout for overlapping widgets
+        env_container = QWidget()
+        # Use QGridLayout for more precise control
+        env_layout = QGridLayout(env_container)
+        env_layout.setContentsMargins(0, 0, 0, 0)
+        env_layout.setSpacing(0)
+
+        # Environment Variables Text Edit
+        env_text_edit = QTextEdit()
+        env_text_edit.setReadOnly(True)
+        env_text_edit.setFont(QFont("Monospace", 10))
+        env_text_edit.setFixedHeight(150)
+        env_text_edit.setPlainText("# Env vars...")
+
+        # Copy button - add to the grid in the top-right position
+        copy_button = QPushButton("📋")
+        copy_button.setToolTip("Copy to clipboard")
+        copy_button.setFixedWidth(40)
+        copy_button.setFixedHeight(30)
+        copy_button.clicked.connect(lambda: self._copy_env_to_clipboard(process_id))
+
+        # Add text edit to the grid spanning the entire area
+        env_layout.addWidget(env_text_edit, 0, 0, 1, 2)
+        # Add button to the top-right corner of the grid
+        env_layout.addWidget(copy_button, 0, 1, Qt.AlignTop | Qt.AlignRight)
+
+        layout.addWidget(env_container)
+
         # Store reference using process_id as key part
         self.service_detail_widgets[f"{process_id}_env_text"] = env_text_edit
+        self.service_detail_widgets[f"{process_id}_copy_button"] = copy_button
 
-        # Log Viewer GroupBox
-        log_group = QGroupBox("Service Logs"); log_layout = QVBoxLayout(log_group)
-        log_text_edit = QTextEdit(); log_text_edit.setReadOnly(True); log_text_edit.setFont(QFont("Monospace", 9)); log_text_edit.setPlainText("Logs loading...")
-        log_layout.addWidget(log_text_edit); layout.addWidget(log_group, 1) # Log viewer takes stretch
+        # Log Viewer - Direct QLabel and QTextEdit
+        log_label = QLabel("Service Logs")
+        log_label.setFont(QFont("Sans Serif", 10, QFont.Bold))
+        layout.addWidget(log_label)
+
+        log_text_edit = QTextEdit()
+        log_text_edit.setReadOnly(True)
+        log_text_edit.setFont(QFont("Monospace", 10))
+        log_text_edit.setPlainText("Logs loading...")
+        layout.addWidget(log_text_edit, 1)  # Log viewer takes stretch
+
         # Store reference using process_id as key part
         self.service_detail_widgets[f"{process_id}_log_text"] = log_text_edit
 
-        layout.addStretch(0) # Prevent stretch below log viewer
         return widget
+
+    def _copy_env_to_clipboard(self, process_id):
+        """Copy the environment variables to the clipboard."""
+        env_text_widget = self.service_detail_widgets.get(f"{process_id}_env_text")
+        if env_text_widget:
+            # Get text and copy to clipboard
+            text = env_text_widget.toPlainText()
+            clipboard = QApplication.clipboard()
+            clipboard.setText(text)
+
+            # Provide visual feedback that copy succeeded
+            copy_button = self.service_detail_widgets.get(f"{process_id}_copy_button")
+            if copy_button:
+                original_text = copy_button.text()
+                copy_button.setText("✓ Copied!")
+                # Reset button text after 1.5 seconds
+                QTimer.singleShot(1500, lambda: copy_button.setText(original_text))
 
     def _update_detail_content(self, process_id):
         """Populates the detail widget content (Env Vars, Logs)."""

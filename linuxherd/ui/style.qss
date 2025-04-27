@@ -405,3 +405,128 @@ QPushButton#save_ini_button {
 QGroupBox[title^="Common PHP INI Settings"] QHBoxLayout {
     spacing: 10px;
 }
+
+/* Service List Styling */
+#ServiceListPane {
+    background-color: #F9FAFC;
+    border-right: 1px solid #E9ECEF;
+    padding: 12px;
+}
+
+#ServiceList {
+    background-color: transparent;
+    border: none;
+}
+
+#ServiceList::item {
+    padding: 0;
+    margin-bottom: 8px;
+}
+
+/* ServiceItemWidget consistent styling */
+ServiceItemWidget {
+    background-color: white;
+    border: 1px solid #E9ECEF;
+    border-radius: 6px;
+    padding: 12px 15px;
+}
+
+ServiceItemWidget QLabel[name="true"] {
+    font-weight: bold;
+    font-size: 11pt;
+    color: #212529;
+}
+
+ServiceItemWidget QLabel[version="true"] {
+    color: #6C757D;
+    font-size: 9pt;
+}
+
+/* Status indicators - consistent circles */
+ServiceItemWidget QLabel[statusIndicator="true"] {
+    min-width: 12px;
+    max-width: 12px;
+    min-height: 12px;
+    max-height: 12px;
+    border-radius: 6px;
+}
+
+ServiceItemWidget QLabel[statusIndicator="true"][status="running"] {
+    background-color: #28A745;
+    border: 1px solid #20c997;
+}
+
+ServiceItemWidget QLabel[statusIndicator="true"][status="stopped"] {
+    background-color: #DC3545;
+    border: 1px solid #c82333;
+}
+
+ServiceItemWidget QLabel[statusIndicator="true"][status="unknown"] {
+    background-color: #6C757D;
+    border: 1px solid #5a6268;
+}
+
+/* Button layout and spacing */
+ServiceItemWidget QPushButton {
+    min-width: 80px;
+}
+
+ServiceItemWidget QPushButton[settings="true"] {
+    border-radius: 3px;
+    padding: 4px;
+    min-width: 30px;
+    max-width: 30px;
+    background-color: #F8F9FA;
+}
+
+/* Details panel styling */
+#ServiceDetailsPane {
+    background-color: #FFFFFF;
+    padding: 15px;
+}
+
+#ServiceDetailsPane QLabel {
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #212529;
+}
+
+#ServiceDetailsPane QGroupBox {
+    margin-top: 15px;
+    border-radius: 6px;
+    border: 1px solid #E9ECEF;
+    background-color: #FFFFFF;
+}
+
+#ServiceDetailsPane QGroupBox::title {
+    subcontrol-origin: margin;
+    padding: 0 8px;
+    color: #495057;
+    font-weight: bold;
+}
+
+#ServiceDetailsPane QTextEdit {
+    border: 1px solid #E9ECEF;
+    border-radius: 4px;
+    background-color: #F8F9FA;
+    font-family: "Monospace", "Courier New";
+    font-size: 9pt;
+    padding: 10px;
+    line-height: 1.4;
+}
+
+/* Add Service button styling */
+#AddServiceButton {
+    background-color: #007AFF;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-weight: bold;
+    margin: 0 0 15px 0;
+}
+
+#AddServiceButton:hover {
+    background-color: #0069D9;
+}
