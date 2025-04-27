@@ -30,6 +30,7 @@ try:
     from ..managers.site_manager import add_site, remove_site
     from ..managers.nginx_manager import get_nginx_version
     from ..managers.mysql_manager import get_mysql_version, get_mysql_status
+    from ..managers.postgres_manager import get_postgres_status, get_postgres_version
     from ..managers.redis_manager import get_redis_status, get_redis_version
     from ..managers.minio_manager import get_minio_status, get_minio_version
 
@@ -140,7 +141,9 @@ class MainWindow(QMainWindow):
         self.log_message("UI Structure Initialized.");
         self.sidebar.setCurrentRow(0)
         self.log_message("Attempting to start bundled Nginx...");
+
         QTimer.singleShot(100, lambda: self.triggerWorker.emit("start_internal_nginx", {}))
+        self.start_configured_autostart_services()
 
     # --- Navigation Slot ---
     @Slot(int)
@@ -183,6 +186,10 @@ class MainWindow(QMainWindow):
             target_page = self.services_page;
             display_name = "Bundled MySQL";
             service_id = config.MYSQL_PROCESS_ID
+        elif task_name in ["start_postgres", "stop_postgres"]:
+            target_page = self.services_page
+            display_name = "Bundled PostgreSQL"
+            service_id = config.POSTGRES_PROCESS_ID
         elif task_name in ["start_redis", "stop_redis"]:
             target_page = self.services_page;
             display_name = "Bundled Redis";
@@ -220,6 +227,8 @@ class MainWindow(QMainWindow):
                 refresh_slot = self.refresh_nginx_status_on_page
             elif service_id == config.MYSQL_PROCESS_ID:
                 refresh_slot = self.refresh_mysql_status_on_page
+            elif service_id == config.POSTGRES_PROCESS_ID:
+                refresh_slot = self.refresh_postgres_status_on_page
             elif service_id == config.REDIS_PROCESS_ID:
                 refresh_slot = self.refresh_redis_status_on_page
             elif service_id == config.MINIO_PROCESS_ID:
@@ -372,18 +381,23 @@ class MainWindow(QMainWindow):
                         if service_data.get('autostart'):
                             service_type = service_data.get('service_type')
                             start_task = None
-                            if service_type == 'mysql':
-                                start_task = "start_mysql"
-                            elif service_type == 'redis':
-                                start_task = "start_redis"
-                            elif service_type == 'minio':
-                                start_task = "start_minio"
-                            # Add other service types here
+                            # Map service_type to task name using AVAILABLE_BUNDLED_SERVICES
+                            service_info = config.AVAILABLE_BUNDLED_SERVICES.get(service_type)
+                            if service_info:
+                                process_id = service_info.get('process_id')
+                                if process_id:
+                                    # Construct task name, e.g., start_mysql from internal-mysql
+                                    task_action = "start"
+                                    task_service = process_id.replace('internal-', '')  # mysql, redis, minio, postgres
+                                    start_task = f"{task_action}_{task_service}"
+
                             if start_task:
-                                self.log_message(f"Triggering autostart for new {service_type} service...")
+                                self.log_message(
+                                    f"Triggering autostart task '{start_task}' for new {service_type} service...")
                                 self.triggerWorker.emit(start_task, {})
                             else:
-                                self.log_message(f"Warn: Unknown service type '{service_type}' for autostart.")
+                                self.log_message(
+                                    f"Warn: Could not determine start task for service type '{service_type}'.")
                     else:
                         self.log_message("Error saving new service configuration.")
                         QMessageBox.warning(self, "Save Error", "Could not save the new service configuration.")
@@ -424,25 +438,15 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
 
         if service_id == config.NGINX_PROCESS_ID:
-            if action == "start":
-                task_name = "start_internal_nginx"
-            elif action == "stop":
-                task_name = "stop_internal_nginx"
+            task_name = f"{action}_internal_nginx"
         elif service_id == config.MYSQL_PROCESS_ID:
-            if action == "start":
-                task_name = "start_mysql"
-            elif action == "stop":
-                task_name = "stop_mysql"
+            task_name = f"{action}_mysql"
+        elif service_id == config.POSTGRES_PROCESS_ID:
+            task_name = f"{action}_postgres"
         elif service_id == config.REDIS_PROCESS_ID:
-            if action == "start":
-                task_name = "start_redis"
-            elif action == "stop":
-                task_name = "stop_redis"
+            task_name = f"{action}_redis"
         elif service_id == config.MINIO_PROCESS_ID:
-            if action == "start":
-                task_name = "start_minio"
-            elif action == "stop":
-                task_name = "stop_minio"
+            task_name = f"{action}_minio"
 
         if task_name:
             self.triggerWorker.emit(task_name, task_data)
@@ -523,6 +527,34 @@ class MainWindow(QMainWindow):
 
     def refresh_mysql_status_on_page(self):
         self.refresh_service_status_on_page(config.MYSQL_PROCESS_ID)
+
+    def refresh_postgres_status_on_page(self):
+        """Checks BUNDLED PostgreSQL status via manager and updates ServicesPage."""
+        print("MAIN_WINDOW DEBUG: Entered refresh_postgres_status_on_page") # <<< ADD DEBUG
+        if not isinstance(self.services_page, ServicesPage): return
+        self.log_message("Checking PostgreSQL status & version...") # Keep original log
+        try:
+           status = get_postgres_status() # Use function from postgres_manager
+           version = get_postgres_version() # Use function from postgres_manager
+        except Exception as e:
+           self.log_message(f"Error getting bundled postgres status/version: {e}")
+           status = "error"; version = "N/A"
+        self.log_message(f"Bundled PostgreSQL status: {status}, Version: {version}")
+
+        # Determine port (usually fixed)
+        configured_port = config.POSTGRES_DEFAULT_PORT # Start with default
+        try: # Load configured port
+            services = load_configured_services()
+            for svc in services:
+                if svc.get('service_type') == 'postgres': configured_port = svc.get('port', config.POSTGRES_DEFAULT_PORT); break
+        except Exception: pass # Ignore error loading port for status display
+        port_info = configured_port
+
+        detail_text = f"Version: {version} | Port: {port_info}" if status=="running" else f"Version: {version} | Port: -"
+
+        # Update the UI
+        if hasattr(self.services_page, 'update_service_status'): self.services_page.update_service_status(config.POSTGRES_PROCESS_ID, status)
+        if hasattr(self.services_page, 'update_service_details'): self.services_page.update_service_details(config.POSTGRES_PROCESS_ID, detail_text)
 
     def refresh_redis_status_on_page(self):
         self.refresh_service_status_on_page(config.REDIS_PROCESS_ID)
@@ -648,6 +680,25 @@ class MainWindow(QMainWindow):
             self.services_page.update_service_status(service_id, status)
         if hasattr(self.services_page, 'update_service_details'):
             self.services_page.update_service_details(service_id, detail_text)
+
+    # --- Autostart Logic ---
+    def start_configured_autostart_services(self):
+        """Loads configured services and starts any marked for autostart."""
+        self.log_message("Checking for services configured for autostart...")
+        try:
+            services = load_configured_services()
+            for svc in services:
+                if svc.get('autostart'):
+                    service_type = svc.get('service_type')
+                    start_task = f"start_{service_type}"  # e.g., start_mysql
+                    # Check if it's a known start task
+                    if start_task in ["start_mysql", "start_redis", "start_minio", "start_postgres"]:
+                        self.log_message(f"Autostarting {service_type}...")
+                        self.triggerWorker.emit(start_task, {})
+                    else:
+                        self.log_message(f"Warn: Unknown service type '{service_type}' configured for autostart.")
+        except Exception as e:
+            self.log_message(f"Error loading or starting autostart services: {e}")
 
     # --- Window Close Event ---
     def closeEvent(self, event):

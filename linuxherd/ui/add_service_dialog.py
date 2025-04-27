@@ -17,7 +17,9 @@ except ImportError:
     class ConfigDummy:
         AVAILABLE_BUNDLED_SERVICES = {
             "mysql": {"display_name": "MySQL", "category": "Database", "default_port": 3306},
+            "postgres": {"display_name": "PostgreSQL", "category": "Database", "default_port": 5432},
             "redis": {"display_name": "Redis", "category": "Cache & Queue", "default_port": 6379},
+            "minio": {"display_name": "MinIO", "category": "Storage", "default_port": 9000, "console_port": 9001},
         }
     config = ConfigDummy()
 
@@ -28,61 +30,157 @@ class AddServiceDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Create a New Service")
         self.setMinimumWidth(400)
+        self.setObjectName("AddServiceDialog")
 
         # --- Internal Data ---
         self._available_services = config.AVAILABLE_BUNDLED_SERVICES
-        self._categories = sorted(list(set(details['category'] for details in self._available_services.values())))
-        self._selected_service_type = None # Internal key like 'mysql'
+        # Get unique categories using set comprehension and sort
+        self._categories = sorted(list({
+            details['category']
+            for details in self._available_services.values()
+            if 'category' in details  # Ensure category key exists
+        }))
+        self._selected_service_type = None  # Internal key like 'mysql'
 
         # --- Layouts ---
         main_layout = QVBoxLayout(self)
-        form_layout = QFormLayout() # Good for label-input pairs
-        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
-        form_layout.setLabelAlignment(Qt.AlignRight) # Align labels to the right
+        form_widget = QWidget();
+        form_widget.setObjectName("AddServiceForm")
+        form_layout = QFormLayout(form_widget)
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)  # Prevent wrapping
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form_layout.setContentsMargins(10, 10, 10, 10);
+        form_layout.setSpacing(10)
 
         # --- Widgets ---
         # Category Selection
         self.category_combo = QComboBox()
-        self.category_combo.addItems(self._categories)
+        self.category_combo.setPlaceholderText("Select Category...")
+        # Add blank item first, then sorted unique categories
+        self.category_combo.addItem("")
+        if self._categories:
+            self.category_combo.addItems(self._categories)
 
         # Service Selection (depends on Category)
         self.service_combo = QComboBox()
+        self.service_combo.setPlaceholderText("Select Service...")
+        self.service_combo.setEnabled(False)  # Disabled until category chosen
+
+        # Service Name (Editable, auto-filled)
+        self.name_edit = QLineEdit()
+        self.service_combo.setPlaceholderText("Select Service...")
+        self.service_combo.setEnabled(False)
 
         # Service Name (Editable, auto-filled)
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., Local MySQL")
+        self.name_edit.setEnabled(False)
 
         # Port (Editable, auto-filled)
         self.port_spinbox = QSpinBox()
-        self.port_spinbox.setRange(1025, 65535) # Avoid privileged ports
-        self.port_spinbox.setGroupSeparatorShown(False) # Don't use thousand separators
+        self.port_spinbox.setRange(1025, 65535)
+        self.port_spinbox.setGroupSeparatorShown(False)
+        self.port_spinbox.setEnabled(False)
 
         # Autostart Checkbox
         self.autostart_checkbox = QCheckBox("Start this service automatically when LinuxHerd launches")
-        self.autostart_checkbox.setChecked(False) # Default off
+        self.autostart_checkbox.setChecked(False)
+        self.autostart_checkbox.setEnabled(False)
 
         # --- Add Widgets to Form Layout ---
         form_layout.addRow("Category:", self.category_combo)
         form_layout.addRow("Service:", self.service_combo)
         form_layout.addRow("Display Name:", self.name_edit)
         form_layout.addRow("Port:", self.port_spinbox)
-        # Add checkbox without a label spanning both columns
         form_layout.addRow(self.autostart_checkbox)
 
-        main_layout.addLayout(form_layout)
+        main_layout.addWidget(form_widget)
 
         # --- Standard Dialog Buttons (Save, Cancel) ---
-        button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept) # Connect OK/Save to accept()
-        button_box.rejected.connect(self.reject) # Connect Cancel to reject()
-        main_layout.addWidget(button_box)
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        self.save_button = self.button_box.button(QDialogButtonBox.StandardButton.Save)  # Get reference
+        self.save_button.setEnabled(False)  # Disable Save initially
+        main_layout.addWidget(self.button_box)
 
         # --- Connect Signals ---
-        self.category_combo.currentTextChanged.connect(self._update_service_combo)
-        self.service_combo.currentIndexChanged.connect(self._update_details_from_service) # Use index change
+        self.category_combo.currentTextChanged.connect(self._on_category_changed)
+        self.service_combo.currentIndexChanged.connect(self._on_service_changed)  # Use index change
 
         # --- Initial Population ---
-        self._update_service_combo(self.category_combo.currentText()) # Populate service based on initial category
+        # Trigger initial service combo update based on blank category
+        self._on_category_changed("")
+
+    @Slot(str)
+    def _on_category_changed(self, selected_category):
+        """Updates the Service combo box based on the selected category."""
+        current_service_data = self.service_combo.currentData() # Store current selection if any
+        self.service_combo.clear()
+        self.service_combo.addItem("") # Add blank placeholder first
+        found_service = False
+        first_service_type = None
+
+        if selected_category: # Only populate if a category is chosen
+            # Sort services within the category by display name
+            services_in_category = sorted(
+                [
+                    (details.get('display_name', svc_type), svc_type)
+                    for svc_type, details in self._available_services.items()
+                    if details.get('category') == selected_category
+                ]
+            )
+            for display_name, service_type in services_in_category:
+                self.service_combo.addItem(display_name, userData=service_type)
+                if not first_service_type: first_service_type = service_type # Store first type for potential selection
+                found_service = True
+
+        self.service_combo.setEnabled(found_service)
+
+        # Try to re-select previous service type, otherwise select first, or clear
+        new_index = self.service_combo.findData(current_service_data) if current_service_data else -1
+        if new_index > 0: # Found previous selection
+             self.service_combo.setCurrentIndex(new_index)
+        elif found_service and first_service_type: # Select first available service
+             first_index = self.service_combo.findData(first_service_type)
+             self.service_combo.setCurrentIndex(first_index if first_index > 0 else 0)
+        else: # No services found or blank category selected
+             self.service_combo.setCurrentIndex(0) # Select blank item
+             self._clear_details() # Ensure details are cleared
+
+        # Trigger update based on whatever is now selected (could be blank)
+        self._on_service_changed(self.service_combo.currentIndex())
+
+    @Slot(int)  # Receive index
+    def _on_service_changed(self, index):
+        """Updates Name, Port, Autostart, and Save button based on the selected service."""
+        # Index 0 is the blank placeholder ""
+        if index <= 0:
+            self._clear_details()
+            self.save_button.setEnabled(False)  # Disable Save
+            return
+
+        service_type = self.service_combo.itemData(index)  # Get internal type ('mysql', 'redis')
+        if not service_type:
+            self._clear_details()
+            self.save_button.setEnabled(False)  # Disable Save
+            return
+
+        # --- Valid service selected ---
+        self._selected_service_type = service_type
+        service_details = self._available_services.get(service_type, {})
+
+        # Auto-fill name and port
+        self.name_edit.setText(service_details.get('display_name', service_type))
+        default_port = service_details.get('default_port', 0)
+        self.port_spinbox.setValue(default_port if default_port >= 1025 else 1025)
+
+        # Enable controls <<< ENSURE THIS HAPPENS
+        self.name_edit.setEnabled(True)
+        self.port_spinbox.setEnabled(True)
+        self.autostart_checkbox.setEnabled(True)
+        self.save_button.setEnabled(True)  # Enable Save
 
     @Slot(str)
     def _update_service_combo(self, selected_category):
@@ -125,24 +223,19 @@ class AddServiceDialog(QDialog):
         """Clears details when no valid service is selected."""
         self._selected_service_type = None
         self.name_edit.clear()
+        self.name_edit.setEnabled(False)
         self.port_spinbox.setValue(self.port_spinbox.minimum())
+        self.port_spinbox.setEnabled(False)
+        self.autostart_checkbox.setChecked(False)
+        self.autostart_checkbox.setEnabled(False)
 
-    def get_service_data(self):
+    # --- Public Method for MainWindow ---
+    def get_service_data(self):  # (Unchanged)
         """Returns the configured service details as a dictionary."""
-        if not self._selected_service_type:
-            return None # Return None if no valid service was selected
-
-        # Validate port? Spinbox handles range.
-        # Validate name? Allow empty? Let's allow empty for now.
+        if not self._selected_service_type: return None
         name = self.name_edit.text().strip()
-        if not name: # Use default display name if user cleared it
-            name = self._available_services.get(self._selected_service_type, {}).get('display_name', self._selected_service_type)
-
-        return {
-            "service_type": self._selected_service_type, # e.g., 'mysql'
-            "name": name, # User-defined or default display name
-            "port": self.port_spinbox.value(),
-            "autostart": self.autostart_checkbox.isChecked()
-            # ID will be generated by services_config_manager.add_configured_service
-        }
+        if not name: name = self._available_services.get(self._selected_service_type, {}).get('display_name',
+                                                                                              self._selected_service_type)
+        return {"service_type": self._selected_service_type, "name": name, "port": self.port_spinbox.value(),
+                "autostart": self.autostart_checkbox.isChecked()}
 

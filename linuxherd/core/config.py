@@ -32,6 +32,16 @@ AVAILABLE_BUNDLED_SERVICES = {
         "binary_path_constant": "MYSQLD_BINARY", # Key in config pointing to binary
         "manager_module": "mysql_manager" # For potential future dynamic calls
     },
+    "postgres": {
+        "display_name": "PostgreSQL",
+        "category": "Database",
+        "process_id": "internal-postgres",
+        "default_port": 5432,
+        "version_args": ["--version"], # `postgres --version`
+        "version_regex": r'postgres \(PostgreSQL\)\s+([\d\.]+)', # Regex to extract version
+        "binary_path_constant": "POSTGRES_BINARY", # Key pointing to main server binary
+        "manager_module": "postgres_manager"
+    },
     "redis": {
         "display_name": "Redis",
         "category": "Cache & Queue",
@@ -85,7 +95,7 @@ PHP_FPM_ERROR_LOG_TEMPLATE = LOG_DIR / "php{version}-fpm.log"
 PHP_LIB_SUBDIR = "lib/x86_64-linux-gnu"
 PHP_EXT_SUBDIR = "extensions"
 
-# --- MySQL Specific Paths <<< NEW SECTION ---
+# --- MySQL Specific Paths
 MYSQL_BUNDLES_DIR = BUNDLES_DIR / 'mysql' # Base bundle directory
 MYSQL_BINARY_DIR = MYSQL_BUNDLES_DIR / 'sbin' # Location of mysqld, mysqladmin etc.
 MYSQLD_BINARY = MYSQL_BINARY_DIR / 'mysqld'
@@ -103,7 +113,29 @@ INTERNAL_MYSQL_SOCK_FILE = RUN_DIR / "mysqld.sock" # Runtime Socket
 INTERNAL_MYSQL_ERROR_LOG = LOG_DIR / 'mysql_error.log'
 # --- End MySQL Section ---
 
-# --- Redis Specific Paths <<< NEW SECTION ---
+# --- PostgreSQL Specific Paths
+POSTGRES_BUNDLES_DIR = BUNDLES_DIR / 'postgres'
+POSTGRES_BINARY_DIR = POSTGRES_BUNDLES_DIR / 'bin'
+POSTGRES_BINARY = POSTGRES_BINARY_DIR / 'postgres'
+POSTGRES_INITDB_BINARY = POSTGRES_BINARY_DIR / 'initdb'
+POSTGRES_PGCTL_BINARY = POSTGRES_BINARY_DIR / 'pg_ctl'
+POSTGRES_PSQL_BINARY = POSTGRES_BINARY_DIR / 'psql'
+POSTGRES_LIB_DIR = POSTGRES_BUNDLES_DIR / 'lib'
+POSTGRES_SHARE_DIR = POSTGRES_BUNDLES_DIR / 'share'
+INTERNAL_POSTGRES_CONF_DIR = CONFIG_DIR / 'postgres'
+INTERNAL_POSTGRES_CONF_FILE = INTERNAL_POSTGRES_CONF_DIR / 'postgresql.conf'
+INTERNAL_POSTGRES_HBA_FILE = INTERNAL_POSTGRES_CONF_DIR / 'pg_hba.conf'
+INTERNAL_POSTGRES_DATA_DIR = DATA_DIR / 'postgres_data'
+# Define PID file relative to data dir <<< CHANGED
+INTERNAL_POSTGRES_PID_FILE = INTERNAL_POSTGRES_DATA_DIR / "postmaster.pid"
+INTERNAL_POSTGRES_SOCK_DIR = RUN_DIR # Socket still goes in RUN_DIR
+INTERNAL_POSTGRES_LOG = LOG_DIR / 'postgres.log'
+POSTGRES_DEFAULT_PORT = 5432
+POSTGRES_DEFAULT_USER = "postgres"
+POSTGRES_DEFAULT_DB = "postgres"
+# --- End PostgreSQL Section ---
+
+# --- Redis Specific Paths
 REDIS_BUNDLES_DIR = BUNDLES_DIR / 'redis'
 REDIS_BINARY = REDIS_BUNDLES_DIR / 'bin/redis-server' # Assumed path from redis-server package
 REDIS_CLI_BINARY = REDIS_BUNDLES_DIR / 'bin/redis-cli' # Assumed path from redis-tools package
@@ -114,7 +146,7 @@ INTERNAL_REDIS_PID_FILE = RUN_DIR / "redis.pid"
 INTERNAL_REDIS_LOG = LOG_DIR / 'redis.log'
 # --- End Redis Section ---
 
-# --- MinIO Specific Paths <<< NEW SECTION ---
+# --- MinIO Specific Paths
 MINIO_BUNDLES_DIR = BUNDLES_DIR / 'minio'
 MINIO_BINARY = MINIO_BUNDLES_DIR / 'bin/minio' # Assumed path from bundling step
 INTERNAL_MINIO_DATA_DIR = DATA_DIR / 'minio_data' # Store data buckets here
@@ -146,6 +178,7 @@ PHP_FPM_PROCESS_ID_TEMPLATE = "php-fpm-{version}"
 MYSQL_PROCESS_ID = "internal-mysql"
 REDIS_PROCESS_ID = "internal-redis"
 MINIO_PROCESS_ID = "internal-minio"
+POSTGRES_PROCESS_ID = "internal-postgres"
 
 # --- System Interaction Paths ---
 SYSTEMCTL_PATH = "/usr/bin/systemctl"

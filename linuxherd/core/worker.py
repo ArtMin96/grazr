@@ -19,6 +19,7 @@ try:
     from ..managers.site_manager import update_site_settings, remove_site, get_site_settings
     from ..managers.ssl_manager import generate_certificate, delete_certificate
     from ..managers.mysql_manager import start_mysql, stop_mysql
+    from ..managers.postgres_manager import start_postgres, stop_postgres
     from ..managers.redis_manager import start_redis, stop_redis
     from ..managers.minio_manager import start_minio, stop_minio
     from .system_utils import run_root_helper_action
@@ -43,6 +44,8 @@ except ImportError as e:
     def delete_certificate(*args, **kwargs): return True
     def start_mysql(*args, **kwargs): return False
     def stop_mysql(*args, **kwargs): return True
+    def start_postgres(*args, **kwargs): return False
+    def stop_postgres(*args, **kwargs): return True
     def start_redis(*args, **kwargs): return False
     def stop_redis(*args, **kwargs): return True
     def start_minio(*args, **kwargs): return False
@@ -342,6 +345,18 @@ class Worker(QObject):
                 local_success = stop_mysql()  # Returns bool
                 local_message = "Bundled MySQL stop attempt finished."
                 print(f"WORKER: stop_mysql returned: success={local_success}")
+
+            elif task_name == "start_postgres":
+                print(f"WORKER: Calling start_postgres...")
+                local_success = start_postgres()  # Returns bool
+                local_message = "Bundled PostgreSQL start attempt finished."
+                print(f"WORKER: start_postgres returned: success={local_success}")
+
+            elif task_name == "stop_postgres":
+                print(f"WORKER: Calling stop_postgres...")
+                local_success = stop_postgres()  # Returns bool
+                local_message = "Bundled PostgreSQL stop attempt finished."
+                print(f"WORKER: stop_postgres returned: success={local_success}")
 
             elif task_name == "start_redis":
                 print(f"WORKER: Calling start_redis...")
