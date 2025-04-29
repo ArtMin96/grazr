@@ -6,10 +6,10 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QListWidget, QListWidgetItem,
                                QFrame, QSplitter, QSizePolicy, QStackedWidget,
-                               QTextEdit, QScrollArea, QMessageBox, QGridLayout,
-                               QApplication)
-from PySide6.QtCore import Signal, Slot, Qt, QTimer, QObject
-from PySide6.QtGui import QFont, QPalette, QColor, QTextCursor
+                               QTextEdit, QScrollArea, QMessageBox, QApplication,
+                               QSpacerItem, QGroupBox)
+from PySide6.QtCore import Signal, Slot, Qt, QTimer, QObject, QUrl, QSize
+from PySide6.QtGui import QFont, QPalette, QColor, QTextCursor, QDesktopServices, QClipboard, QIcon
 
 # --- Import Core Config & Custom Widget ---
 try:
@@ -18,6 +18,9 @@ try:
     from ..managers.services_config_manager import load_configured_services
     import html
     import re
+    import shutil
+    import subprocess
+    from pathlib import Path
 except ImportError as e:
     print(f"ERROR in services_page.py: Could not import dependencies: {e}")
     class ServiceItemWidget(QWidget):
@@ -31,6 +34,11 @@ except ImportError as e:
     def load_configured_services(): return [] # Dummy
     class ConfigDummy: NGINX_PROCESS_ID="err-nginx"; AVAILABLE_BUNDLED_SERVICES={}; SYSTEM_DNSMASQ_SERVICE_NAME="dnsmasq.service"
     config = ConfigDummy()
+    import html
+    import re
+    import shutil
+    import subprocess
+    from pathlib import Path
 
 
 class ServicesPage(QWidget):
@@ -229,211 +237,342 @@ class ServicesPage(QWidget):
         # Find service name/type
         name = process_id
         service_type = None
-        for svc_type, details in config.AVAILABLE_BUNDLED_SERVICES.items():
-            if details.get('process_id') == process_id:
-                name = details.get('display_name', process_id)
-                service_type = svc_type
-                break
-        if process_id == config.NGINX_PROCESS_ID: name = "Internal Nginx"; service_type = "nginx"
-        if not service_type: self.log_to_main(f"Error creating details: Unknown process_id {process_id}"); return None
+        service_definition = None
 
-        # Create Base Widget and Layout
+        if process_id == config.NGINX_PROCESS_ID:
+            name = "Internal Nginx"
+            service_type = "nginx"
+            service_definition = config.AVAILABLE_BUNDLED_SERVICES.get("nginx", {})
+        else:  # Check other bundled services
+            for svc_type, details in config.AVAILABLE_BUNDLED_SERVICES.items():
+                if details.get('process_id') == process_id:
+                    name = details.get('display_name', process_id)
+                    service_type = svc_type
+                    service_definition = details
+                    break
+
+        if not service_definition: self.log_to_main(f"Error creating details: Def missing for {process_id}"); return None
+
+        # --- Create Base Widget and Layout ---
         widget = QWidget()
         widget.setObjectName(f"DetailWidget_{process_id}")
         widget.setProperty("process_id", process_id)
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(15)
+        # Use ScrollArea for potentially long content
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(20, 20, 20, 20)
+        scroll_layout.setSpacing(25)  # More spacing
+        scroll_area.setWidget(scroll_content)
+        # Main layout for the detail page now just holds the scroll area
+        page_layout = QVBoxLayout(widget)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(scroll_area)
 
-        title = QLabel(f"{name} Details")
-        title.setFont(QFont("Sans Serif", 16, QFont.Bold))
-        title.setContentsMargins(0, 0, 0, 10)
-        layout.addWidget(title)
+        # --- Top Row: Title + Documentation Button ---
+        top_row_layout = QHBoxLayout();
+        top_row_layout.setContentsMargins(0, 0, 0, 0)
+        title = QLabel(f"{name}")
+        title.setObjectName("DetailTitle")
+        title.setFont(QFont("Sans Serif", 13, QFont.Weight.Bold))
+        top_row_layout.addWidget(title)
+        top_row_layout.addStretch()
+        doc_url = service_definition.get('doc_url')
+        if doc_url:
+            doc_button = QPushButton("Documentation")
+            doc_button.setObjectName("OpenButton")
+            doc_button.setToolTip(f"Open {name} documentation")
+            doc_button.clicked.connect(lambda checked=False, url=doc_url: QDesktopServices.openUrl(QUrl(url)))
+            top_row_layout.addWidget(doc_button)
+        scroll_layout.addLayout(top_row_layout)
 
+        # --- Database Client Buttons ---
+        db_clients = service_definition.get('db_client_tools')
+        if db_clients:
+            db_button_layout = QHBoxLayout()
+            db_button_layout.setContentsMargins(0, 0, 0, 0)
+            db_button_layout.setSpacing(10)
+            db_button_layout.addWidget(QLabel("Open With:"))
+            db_button_layout.addStretch()
+            found_client = False
+            for client_cmd in db_clients:
+                if shutil.which(client_cmd):
+                    btn = QPushButton(client_cmd.replace("-", " ").title())
+                    btn.setObjectName("OpenButton")
+                    btn.clicked.connect(lambda checked=False, cmd=client_cmd: self.on_open_db_gui(cmd))
+                    db_button_layout.addWidget(btn)
+                    found_client = True
+            if found_client:  # Only add layout if buttons were added
+                scroll_layout.addLayout(db_button_layout)
 
+        # --- Environment Variables Section
+        env_section_widget = QWidget();
+        env_section_widget.setObjectName("DetailSectionWidget")
+        env_section_layout = QVBoxLayout(env_section_widget);
+        env_section_layout.setSpacing(8);
+        env_section_layout.setContentsMargins(0, 0, 0, 0)
+        env_title_layout = QHBoxLayout();
+        env_title_layout.setContentsMargins(0, 0, 0, 0)
+        env_label = QLabel("Environment Variables");
+        env_label.setFont(QFont("Sans Serif", 10, QFont.Bold))
 
-        # Container with stacked layout for overlapping widgets
-        env_container = QWidget()
-        # Use QGridLayout for more precise control
-        env_layout = QGridLayout(env_container)
-        env_layout.setContentsMargins(0, 0, 0, 0)
-        env_layout.setSpacing(0)
+        try:
+            copy_icon = QIcon(":/icons/copy.svg")
+            if copy_icon.isNull(): print("Warning: copy.svg icon failed to load from resource.")
+        except NameError:
+            copy_icon = QIcon()
 
-        # Environment Variables Text Edit
-        env_text_edit = QTextEdit()
-        env_text_edit.setReadOnly(True)
-        env_text_edit.setFont(QFont("Monospace", 10))
-        env_text_edit.setFixedHeight(150)
-        env_text_edit.setPlainText("# Env vars...")
+        copy_env_button = QPushButton()
+        copy_env_button.setIcon(copy_icon)
+        copy_env_button.setIconSize(QSize(16, 16))
+        copy_env_button.setFlat(True)
+        copy_env_button.setObjectName("CopyButton");
+        copy_env_button.setToolTip("Copy variables to clipboard");
+        # Store button reference for feedback
+        self._detail_controls[f"{process_id}_copy_env_button"] = copy_env_button
+        copy_env_button.clicked.connect(lambda: self.on_copy_env_vars(process_id))
+        env_title_layout.addWidget(env_label);
+        env_title_layout.addStretch();
+        env_title_layout.addWidget(copy_env_button)
+        env_section_layout.addLayout(env_title_layout)
+        env_text_label = QLabel("# Env vars...");
+        env_text_label.setFont(QFont("Monospace", 9));
+        env_text_label.setStyleSheet(
+            "color: #333; background-color: #F0F0F0; border: 1px solid #E0E0E0; border-radius: 4px; padding: 10px;");
+        env_text_label.setWordWrap(True);
+        env_text_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard);
+        env_text_label.setMinimumHeight(100);
+        env_text_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        env_section_layout.addWidget(env_text_label)
+        scroll_layout.addWidget(env_section_widget)  # Add section widget
+        self._detail_controls[f"{process_id}_env_text_label"] = env_text_label
 
-        # Copy button - add to the grid in the top-right position
-        copy_button = QPushButton("📋")
-        copy_button.setToolTip("Copy to clipboard")
-        copy_button.setFixedWidth(40)
-        copy_button.setFixedHeight(30)
-        copy_button.clicked.connect(lambda: self._copy_env_to_clipboard(process_id))
+        # --- Dashboard Link (Example for MinIO) ---
+        if service_type == "minio":
+            console_port = service_definition.get('console_port', config.MINIO_CONSOLE_PORT)
+            dash_url = f"http://127.0.0.1:{console_port}"
+            dash_button = QPushButton("Open MinIO Console")
+            dash_button.setObjectName("OpenButton")
+            dash_button.clicked.connect(lambda checked=False, url=dash_url: QDesktopServices.openUrl(QUrl(url)))
+            dash_layout = QHBoxLayout()
+            dash_layout.addStretch()
+            dash_layout.addWidget(dash_button)
+            scroll_layout.addLayout(dash_layout)
 
-        # Add text edit to the grid spanning the entire area
-        env_layout.addWidget(env_text_edit, 0, 0, 1, 2)
-        # Add button to the top-right corner of the grid
-        env_layout.addWidget(copy_button, 0, 1, Qt.AlignTop | Qt.AlignRight)
-
-        layout.addWidget(env_container)
-
-        # Store reference using process_id as key part
-        self._detail_controls[f"{process_id}_env_text"] = env_text_edit
-        self._detail_controls[f"{process_id}_copy_button"] = copy_button
-
-        # Log Viewer - Direct QLabel and QTextEdit
-        log_label = QLabel("Service Logs")
+        # --- Log Viewer Section
+        log_section_layout = QVBoxLayout();
+        log_section_layout.setSpacing(5);
+        log_section_layout.setContentsMargins(0, 0, 0, 0)  # No extra margins
+        log_title_layout = QHBoxLayout();
+        log_title_layout.setContentsMargins(0, 0, 0, 0)
+        log_label = QLabel("Logs");
         log_label.setFont(QFont("Sans Serif", 10, QFont.Bold))
-        layout.addWidget(log_label)
-
-        log_text_edit = QTextEdit()
-        log_text_edit.setReadOnly(True)
-        log_text_edit.setFont(QFont("Monospace", 10))
+        open_log_button = QPushButton("Open File");
+        open_log_button.setObjectName("OpenButton");
+        open_log_button.setToolTip("Open log file in default editor");
+        open_log_button.clicked.connect(lambda: self.on_open_log_file(process_id))
+        log_title_layout.addWidget(log_label);
+        log_title_layout.addStretch();
+        log_title_layout.addWidget(open_log_button)
+        log_section_layout.addLayout(log_title_layout)
+        log_text_edit = QTextEdit();
+        log_text_edit.setReadOnly(True);
+        log_text_edit.setFont(QFont("Monospace", 9));
         log_text_edit.setPlainText("Logs loading...")
-        layout.addWidget(log_text_edit, 1)  # Log viewer takes stretch
-
-        # Store reference using process_id as key part
+        log_text_edit.setObjectName("LogViewer");
+        log_text_edit.setFixedHeight(150)
+        log_section_layout.addWidget(log_text_edit)
+        scroll_layout.addLayout(log_section_layout)
         self._detail_controls[f"{process_id}_log_text"] = log_text_edit
 
+        scroll_layout.addStretch(1)
         return widget
 
-    def _copy_env_to_clipboard(self, process_id):
-        """Copy the environment variables to the clipboard."""
-        env_text_widget = self._detail_controls.get(f"{process_id}_env_text")
-        if env_text_widget:
-            # Get text and copy to clipboard
-            text = env_text_widget.toPlainText()
-            clipboard = QApplication.clipboard()
-            clipboard.setText(text)
+    @Slot()
+    def on_copy_env_vars(self, process_id):
+        """Copies the content of the Env Vars LABEL to clipboard and gives feedback."""
+        # Use the CORRECT key to find the QLabel widget
+        env_widget = self._detail_controls.get(f"{process_id}_env_text_label")
+        copy_button = self._detail_controls.get(f"{process_id}_copy_env_button")
 
-            # Provide visual feedback that copy succeeded
-            copy_button = self._detail_controls.get(f"{process_id}_copy_button")
-            if copy_button:
-                original_text = copy_button.text()
-                copy_button.setText("✓ Copied!")
-                # Reset button text after 1.5 seconds
-                QTimer.singleShot(1500, lambda: copy_button.setText(original_text))
+        if env_widget and copy_button:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(env_widget.text())  # Get text from QLabel
+            self.log_to_main(f"Copied env vars for {process_id} to clipboard.")
+            # Provide visual feedback
+            original_text = copy_button.text()
+            copy_button.setText("Copied!")
+            copy_button.setEnabled(False)
+            QTimer.singleShot(1500, lambda: self._revert_copy_button(copy_button, original_text))
+        else:
+            self.log_to_main(
+                f"Error: Could not find Env Var widget/button for {process_id} using key '{process_id}_env_text_label'.")
+
+    # --- Helper to revert copy button text --- <<< NEW
+    def _revert_copy_button(self, button, original_text):
+        """Resets the copy button text and enables it."""
+        if button:  # Check if button still exists
+            button.setText(original_text)
+            button.setEnabled(True)
 
     def _update_detail_content(self, process_id):
-        """Populates the detail widget content (Env Vars, Logs)."""
-        # Use the stored references to update content
-        env_text_widget = self._detail_controls.get(f"{process_id}_env_text")
+        """Populates the detail widget content (Env Vars QLabel, Logs QTextEdit)."""
+        env_text_label = self._detail_controls.get(f"{process_id}_env_text_label")  # Use correct key
         log_text_widget = self._detail_controls.get(f"{process_id}_log_text")
-        if not env_text_widget or not log_text_widget:
-            # This might happen if called before widget is fully created/cached
-            self.log_to_main(f"Warn: Detail widgets not found yet for {process_id} in _update_detail_content.")
+        if not env_text_label or not log_text_widget:
+            self.log_to_main(f"Warn: Detail widgets not found for {process_id} in _update_detail_content.")
             return
 
-        # Populate Env Vars
+        # --- Populate Env Vars Label
         env_vars_text = self._get_env_vars_for_service(process_id)
-        env_text_widget.setPlainText(env_vars_text)
+        env_text_label.setText(env_vars_text)  # Set text on the QLabel
 
-        # Populate Log Viewer
-        log_file_path = self._get_log_path_for_service(process_id)
-        html_content = "<p><i>Log file not found or cannot be read.</i></p>"  # Default message
-        lines_to_show = 100  # Number of lines to show
-        error_keywords = ['error', 'fatal', 'failed', 'denied', 'unable']  # Case-insensitive
-        error_style = "background-color: #FFEBEE; color: #D32F2F"
-
+        # --- Populate Log Viewer with HTML Highlighting ---
+        # ... (Log reading and HTML generation logic unchanged) ...
+        log_file_path = self._get_log_path_for_service(process_id);
+        html_content = "<p><i>Log file not found or cannot be read.</i></p>";
+        lines_to_show = 100;
+        error_keywords = ['error', 'fatal', 'failed', 'denied', 'unable'];
+        error_style = "background-color: #FFEBEE; color: #D32F2F;"
         if log_file_path and log_file_path.is_file():
             try:
                 with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     lines = f.readlines()
-                # Get last N lines
-                log_lines = lines[-lines_to_show:]
+                log_lines = lines[-lines_to_show:];
                 html_lines = []
-                for line in log_lines:
-                    escaped_line = html.escape(line.strip())  # Escape HTML chars in log line
-                    line_lower = line.lower()
-                    is_error = any(keyword in line_lower for keyword in error_keywords)
-                    if is_error:
-                        html_lines.append(f'<span style="{error_style}">{escaped_line}</span>')
-                    else:
-                        html_lines.append(escaped_line)
-                # Join lines with HTML line breaks, wrap in pre for formatting? No, QTextEdit handles newlines.
+                for line in log_lines: escaped_line = html.escape(
+                    line.strip()); line_lower = line.lower(); is_error = any(
+                    keyword in line_lower for keyword in error_keywords)
+                if is_error:
+                    html_lines.append(f'<span style="{error_style}">{escaped_line}</span>')
+                else:
+                    html_lines.append(escaped_line)
                 html_content = "<br>".join(html_lines)
-                # Add basic CSS for pre-wrap and font if needed (QTextEdit might handle this)
-                # html_content = f"<style>body {{ font-family: Monospace; white-space: pre-wrap; }} span {{ display: block; }}</style>{html_content}"
-
             except Exception as e:
-                html_content = f"<p><i>Error reading log file {log_file_path}:</i></p><pre>{html.escape(str(e))}</pre>"
+                html_content = f"<p><i>Error reading log file:</i></p><pre>{html.escape(str(e))}</pre>"
         elif log_file_path:
             html_content = f"<p><i>Log file not found: {html.escape(str(log_file_path))}</i></p>"
-
-        log_text_widget.setHtml(html_content)  # <<< Use setHtml
-        # Scroll to bottom after setting content
-        cursor = log_text_widget.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
+        log_text_widget.setHtml(html_content);
+        cursor = log_text_widget.textCursor();
+        cursor.movePosition(QTextCursor.MoveOperation.End);
         log_text_widget.setTextCursor(cursor)
 
     def _get_env_vars_for_service(self, process_id):
         """Generates example environment variables text for connection."""
         # Find service type and configured port
-        service_type = None
-        configured_port = None
-        service_config = None
-        try:
+        service_type = self._get_service_type(process_id)
+        service_definition = config.AVAILABLE_BUNDLED_SERVICES.get(service_type, {})
+        if not service_definition and process_id != config.NGINX_PROCESS_ID: return "# Unknown Service"
+
+        configured_port = service_definition.get('default_port', 0)  # Start with default
+        try:  # Load configured port from services.json
             services = load_configured_services()
             for svc in services:
                 svc_type_lookup = svc.get('service_type')
                 svc_process_id = config.AVAILABLE_BUNDLED_SERVICES.get(svc_type_lookup, {}).get('process_id')
                 if svc_process_id == process_id:
-                    service_type = svc_type_lookup
-                    configured_port = svc.get('port')
-                    service_config = svc
+                    configured_port = svc.get('port', configured_port)
                     break
         except Exception:
-            pass  # Ignore errors loading config here
+            pass  # Ignore error loading config here
 
-        lines = ["# Example connection variables for .env file"]
+        lines = [f"# Example connection variables for {service_definition.get('display_name', process_id)}"]
         host = "127.0.0.1"
 
         if process_id == config.MYSQL_PROCESS_ID:
-            port = configured_port or config.MYSQL_DEFAULT_PORT
-            lines.append(f"DB_CONNECTION=mysql")
-            lines.append(f"DB_HOST={host}")
-            lines.append(f"DB_PORT={port}")
-            lines.append(f"DB_DATABASE=database")  # Default name
-            lines.append(f"DB_USERNAME=root")  # Default user
-            lines.append(f"DB_PASSWORD=")  # Default empty password after --initialize-insecure
+            lines.append(f"DB_CONNECTION=mysql");
+            lines.append(f"DB_HOST={host}");
+            lines.append(f"DB_PORT={configured_port}");
+            lines.append(f"DB_DATABASE=database");
+            lines.append(f"DB_USERNAME=root");
+            lines.append(f"DB_PASSWORD=")
+        elif process_id == config.POSTGRES_PROCESS_ID:
+            lines.append(f"DB_CONNECTION=pgsql");
+            lines.append(f"DB_HOST={host}");
+            lines.append(f"DB_PORT={configured_port}");
+            lines.append(f"DB_DATABASE={config.POSTGRES_DEFAULT_DB}");
+            lines.append(f"DB_USERNAME={config.POSTGRES_DEFAULT_USER}");
+            lines.append(f"DB_PASSWORD=")  # Default trust auth
         elif process_id == config.REDIS_PROCESS_ID:
-            port = configured_port or getattr(config, 'REDIS_PORT', 6379)
-            lines.append(f"REDIS_HOST={host}")
-            lines.append(f"REDIS_PASSWORD=null")  # Default no password
-            lines.append(f"REDIS_PORT={port}")
+            lines.append(f"REDIS_HOST={host}");
+            lines.append(f"REDIS_PASSWORD=null");
+            lines.append(f"REDIS_PORT={configured_port}")
         elif process_id == config.MINIO_PROCESS_ID:
-            port = configured_port or getattr(config, 'MINIO_API_PORT', 9000)
+            api_port = configured_port  # Assume saved port is API port
+            console_port = service_definition.get('console_port', config.MINIO_CONSOLE_PORT)
             user = getattr(config, 'MINIO_DEFAULT_ROOT_USER', 'linuxherd')
             password = getattr(config, 'MINIO_DEFAULT_ROOT_PASSWORD', 'password')
             bucket_name = "your-bucket-name"  # Placeholder
-            lines.append(
-                f"# Create '{bucket_name}' in the MinIO Console (http://{host}:{getattr(config, 'MINIO_CONSOLE_PORT', 9001)})")
-            lines.append(f"AWS_ACCESS_KEY_ID={user}")
-            lines.append(f"AWS_SECRET_ACCESS_KEY={password}")
-            lines.append(f"AWS_DEFAULT_REGION=us-east-1")
-            lines.append(f"AWS_BUCKET={bucket_name}")
-            lines.append(f"AWS_USE_PATH_STYLE_ENDPOINT=true")
-            lines.append(f"AWS_ENDPOINT=http://{host}:{port}")  # Endpoint URL
-            lines.append(f"AWS_URL=http://{host}:{port}/{bucket_name}")  # URL if needed
+            lines.append(f"# Create '{bucket_name}' in Console (http://{host}:{console_port})")
+            lines.append(f"AWS_ACCESS_KEY_ID={user}");
+            lines.append(f"AWS_SECRET_ACCESS_KEY={password}");
+            lines.append(f"AWS_DEFAULT_REGION=us-east-1");
+            lines.append(f"AWS_BUCKET={bucket_name}");
+            lines.append(f"AWS_USE_PATH_STYLE_ENDPOINT=true");
+            lines.append(f"AWS_ENDPOINT=http://{host}:{api_port}");
+            lines.append(f"AWS_URL=http://{host}:{api_port}/{bucket_name}")
+        else:
+            lines.append("# No standard environment variables defined for this service.")
 
         return "\n".join(lines)
 
     def _get_log_path_for_service(self, process_id):
         """Gets the log file path for a given service process ID."""
-        if process_id == config.NGINX_PROCESS_ID:
-            return config.INTERNAL_NGINX_ERROR_LOG
-        elif process_id == config.MYSQL_PROCESS_ID:
-            return config.INTERNAL_MYSQL_ERROR_LOG
-        elif process_id == config.REDIS_PROCESS_ID:
-            return config.INTERNAL_REDIS_LOG
-        elif process_id == config.MINIO_PROCESS_ID:
-            return config.INTERNAL_MINIO_LOG
-        # Add PHP FPM log paths later if needed
+        service_type = self._get_service_type(process_id)
+        service_def = config.AVAILABLE_BUNDLED_SERVICES.get(service_type)
+        if service_def:
+            log_const_name = service_def.get('log_path_constant')
+            if log_const_name and hasattr(config, log_const_name):
+                return getattr(config, log_const_name)
+        # Special case for Nginx if not in AVAILABLE_BUNDLED_SERVICES map
+        if process_id == config.NGINX_PROCESS_ID: return getattr(config, 'INTERNAL_NGINX_ERROR_LOG', None)
+        return None
+
+    @Slot()
+    def on_copy_env_vars(self, process_id):
+        """Copies the content of the Env Vars text edit to clipboard."""
+        env_widget = self._detail_controls.get(f"{process_id}_env_text")
+        if env_widget:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(env_widget.toPlainText())
+            self.log_to_main(f"Copied environment variables for {process_id} to clipboard.")
         else:
-            return None
+            self.log_to_main(f"Error: Could not find Env Var widget for {process_id}.")
+
+    # Helper to get service type from process ID
+    def _get_service_type(self, process_id):  # (Unchanged)
+        if process_id == config.NGINX_PROCESS_ID: return "nginx"
+        for svc_type, details in config.AVAILABLE_BUNDLED_SERVICES.items():
+            if details.get('process_id') == process_id: return svc_type
+        return None
+
+    @Slot()
+    def on_open_log_file(self, process_id):
+        """Opens the log file for the service in the default application."""
+        log_path = self._get_log_path_for_service(process_id)
+        if log_path and log_path.is_file():
+            url = QUrl.fromLocalFile(str(log_path.resolve()))
+            if not QDesktopServices.openUrl(url): self.log_to_main(
+                f"Error: Failed to open log file {log_path}"); QMessageBox.warning(self, "Cannot Open Log",
+                                                                                   f"Could not open log file:\n{log_path}")
+        elif log_path:
+            self.log_to_main(f"Error: Log file not found: {log_path}"); QMessageBox.warning(self, "Log Not Found",
+                                                                                            f"Log file not found:\n{log_path}")
+        else:
+            self.log_to_main(f"Error: Could not determine log path for {process_id}")
+
+    @Slot(str)  # Receives the command name
+    def on_open_db_gui(self, db_client_command):
+        """Launches the specified database GUI tool."""
+        self.log_to_main(f"Attempting to launch DB GUI: {db_client_command}...")
+        try:
+            subprocess.Popen([db_client_command])
+        except Exception as e:
+            self.log_to_main(f"Error opening DB GUI '{db_client_command}': {e}"); QMessageBox.critical(self, "Error",
+                                                                                                       f"Failed:\n{e}")
 
     # --- Public Slots for MainWindow to Update This Page's UI ---
 

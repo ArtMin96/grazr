@@ -22,25 +22,43 @@ SERVICES_CONFIG_FILE = CONFIG_DIR / 'services.json'
 # Key: Service Type (internal identifier)
 # Value: Dictionary of properties
 AVAILABLE_BUNDLED_SERVICES = {
+    "nginx": {
+        "display_name": "Internal Nginx",
+        "category": "Web Server",
+        "process_id": "internal-nginx",
+        "default_port": 80,
+        "version_args": ["-v"], "version_regex": r'nginx/([\d\.]+)',
+        "binary_path_constant": "NGINX_BINARY",
+        "manager_module": "nginx_manager",
+        "doc_url": "https://nginx.org/en/docs/",
+        "log_path_constant": "INTERNAL_NGINX_ERROR_LOG"
+    },
     "mysql": {
         "display_name": "MySQL / MariaDB",
         "category": "Database",
-        "process_id": "internal-mysql", # Matches Process Management ID below
+        "process_id": "internal-mysql",
         "default_port": 3306,
-        "version_args": ["--version"], # Command args to get version
-        "version_regex": r'Ver\s+([\d\.]+)(?:-MariaDB)?', # Regex to extract version
-        "binary_path_constant": "MYSQLD_BINARY", # Key in config pointing to binary
-        "manager_module": "mysql_manager" # For potential future dynamic calls
+        "version_args": ["--version"],
+        "version_regex": r'Ver\s+([\d\.]+)(?:-MariaDB)?',
+        "binary_path_constant": "MYSQLD_BINARY",
+        "manager_module": "mysql_manager",
+        "doc_url": "https://dev.mysql.com/doc/",
+        "log_path_constant": "INTERNAL_MYSQL_ERROR_LOG",
+        "db_client_tools": ["tableplus", "dbeaver", "mysql-workbench"]
     },
-    "postgres": {
-        "display_name": "PostgreSQL",
+    "postgres16": {
+        "display_name": "PostgreSQL 16",
         "category": "Database",
-        "process_id": "internal-postgres",
+        "process_id_template": "internal-postgres-{version}",
+        "version": "16",
         "default_port": 5432,
-        "version_args": ["--version"], # `postgres --version`
-        "version_regex": r'postgres \(PostgreSQL\)\s+([\d\.]+)', # Regex to extract version
-        "binary_path_constant": "POSTGRES_BINARY", # Key pointing to main server binary
-        "manager_module": "postgres_manager"
+        "version_args": ["--version"],
+        "version_regex": r'postgres \(PostgreSQL\)\s+([\d\.]+)',
+        "binary_path_template": "POSTGRES_BINARY_TEMPLATE",
+        "manager_module": "postgres_manager",
+        "doc_url": "https://www.postgresql.org/docs/16/",
+        "log_path_template": "INTERNAL_POSTGRES_LOG_TEMPLATE",
+        "db_client_tools": ["tableplus", "dbeaver", "pgadmin4"]
     },
     "redis": {
         "display_name": "Redis",
@@ -48,20 +66,25 @@ AVAILABLE_BUNDLED_SERVICES = {
         "process_id": "internal-redis",
         "default_port": 6379,
         "version_args": ["--version"],
-        "version_regex": r'Redis server v=([0-9\.]+)',
+        "version_regex": r'v=([0-9\.]+)',
         "binary_path_constant": "REDIS_BINARY",
-        "manager_module": "redis_manager"
+        "manager_module": "redis_manager",
+        "doc_url": "https://redis.io/docs/",
+        "log_path_constant": "INTERNAL_REDIS_LOG",
+        "db_client_tools": ["tableplus", "another-redis-desktop-manager"]
     },
     "minio": {
         "display_name": "MinIO Storage",
         "category": "Storage",
         "process_id": "internal-minio",
-        "default_port": 9000, # API Port
-        "console_port": 9001, # Default Console Port
+        "default_port": 9000,
+        "console_port": 9001,
         "version_args": ["--version"],
         "version_regex": r'version\s+RELEASE\.([0-9TZ\-]+)',
         "binary_path_constant": "MINIO_BINARY",
-        "manager_module": "minio_manager"
+        "manager_module": "minio_manager",
+        "doc_url": "https://min.io/docs/minio/linux/index.html",
+        "log_path_constant": "INTERNAL_MINIO_LOG"
     }
     # Add other bundled services here later (e.g., mailhog, memcached)
 }

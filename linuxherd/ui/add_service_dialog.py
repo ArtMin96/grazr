@@ -28,7 +28,7 @@ class AddServiceDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Create a New Service")
+        self.setWindowTitle("Add New Service")
         self.setMinimumWidth(400)
         self.setObjectName("AddServiceDialog")
 
@@ -47,9 +47,9 @@ class AddServiceDialog(QDialog):
         form_widget = QWidget();
         form_widget.setObjectName("AddServiceForm")
         form_layout = QFormLayout(form_widget)
-        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)  # Prevent wrapping
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
         form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form_layout.setContentsMargins(10, 10, 10, 10);
+        form_layout.setContentsMargins(10, 10, 10, 10)
         form_layout.setSpacing(10)
 
         # --- Widgets ---
@@ -65,11 +65,6 @@ class AddServiceDialog(QDialog):
         self.service_combo = QComboBox()
         self.service_combo.setPlaceholderText("Select Service...")
         self.service_combo.setEnabled(False)  # Disabled until category chosen
-
-        # Service Name (Editable, auto-filled)
-        self.name_edit = QLineEdit()
-        self.service_combo.setPlaceholderText("Select Service...")
-        self.service_combo.setEnabled(False)
 
         # Service Name (Editable, auto-filled)
         self.name_edit = QLineEdit()
@@ -97,8 +92,7 @@ class AddServiceDialog(QDialog):
         main_layout.addWidget(form_widget)
 
         # --- Standard Dialog Buttons (Save, Cancel) ---
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         self.save_button = self.button_box.button(QDialogButtonBox.StandardButton.Save)  # Get reference
@@ -236,6 +230,10 @@ class AddServiceDialog(QDialog):
         name = self.name_edit.text().strip()
         if not name: name = self._available_services.get(self._selected_service_type, {}).get('display_name',
                                                                                               self._selected_service_type)
-        return {"service_type": self._selected_service_type, "name": name, "port": self.port_spinbox.value(),
-                "autostart": self.autostart_checkbox.isChecked()}
+        return {
+            "service_type": self._selected_service_type,
+            "name": name,
+            "port": self.port_spinbox.value(),
+            "autostart": self.autostart_checkbox.isChecked()
+        }
 

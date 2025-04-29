@@ -60,6 +60,13 @@ class ServiceItemWidget(QWidget):
         self.button_layout.setSpacing(8)
         self.button_layout.addStretch()  # Push buttons right
 
+        # Single Action Button (Start/Stop)
+        self.action_button = QPushButton("Start")  # Default text
+        self.action_button.setMinimumWidth(60)  # Ensure minimum width
+        self.action_button.setObjectName("ActionButton")
+        self.action_button.clicked.connect(self._on_action_button_clicked)  # Connect to internal slot
+        self.button_layout.addWidget(self.action_button)
+
         self.settings_button = QPushButton()
         self.remove_button = QPushButton()
 
@@ -89,13 +96,6 @@ class ServiceItemWidget(QWidget):
         self.settings_button.setFlat(True)
         self.settings_button.clicked.connect(lambda: self.settingsClicked.emit(self.service_id))
         self.button_layout.addWidget(self.settings_button)
-
-        # Single Action Button (Start/Stop)
-        self.action_button = QPushButton("Start")  # Default text
-        self.action_button.setMinimumWidth(60)  # Ensure minimum width
-        self.action_button.setObjectName("ActionButton")
-        self.action_button.clicked.connect(self._on_action_button_clicked)  # Connect to internal slot
-        self.button_layout.addWidget(self.action_button)
 
         # Remove Button
         self.remove_button.setToolTip(f"Remove {self.display_name} configuration")
@@ -130,7 +130,7 @@ class ServiceItemWidget(QWidget):
         """Updates status indicator and action/remove button states."""
         # (Modified to handle remove button disable for Nginx)
         self._current_status = status
-        status_color = Qt.gray; button_text = "Start"; action_enabled = False; remove_enabled = False; tooltip = ""
+        status_color = Qt.GlobalColor.gray; button_text = "Start"; action_enabled = False; remove_enabled = False; tooltip = ""
 
         # Import NGINX_PROCESS_ID here if needed, or pass it in constructor?
         # Assuming config is accessible globally for simplicity here (not ideal)
@@ -141,13 +141,13 @@ class ServiceItemWidget(QWidget):
         is_nginx = (self.service_id == config.NGINX_PROCESS_ID)
 
         if status == "running" or status == "active":
-            status_color = Qt.darkGreen; button_text = "Stop"; action_enabled = True; remove_enabled = False; tooltip = f"Stop {self.display_name}"
+            status_color = Qt.GlobalColor.darkGreen; button_text = "Stop"; action_enabled = True; remove_enabled = False; tooltip = f"Stop {self.display_name}"
         elif status == "stopped" or status == "inactive":
-            status_color = Qt.darkRed; button_text = "Start"; action_enabled = True; remove_enabled = (not is_nginx); tooltip = f"Start {self.display_name}" # Enable remove if stopped (and not nginx)
+            status_color = Qt.GlobalColor.darkRed; button_text = "Start"; action_enabled = True; remove_enabled = (not is_nginx); tooltip = f"Start {self.display_name}" # Enable remove if stopped (and not nginx)
         elif status == "not_found":
-            status_color = Qt.lightGray; button_text = "N/A"; action_enabled = False; remove_enabled = (not is_nginx); tooltip = f"{self.display_name} bundle not found" # Allow removal if bundle missing (except nginx)
+            status_color = Qt.GlobalColor.lightGray; button_text = "N/A"; action_enabled = False; remove_enabled = (not is_nginx); tooltip = f"{self.display_name} bundle not found" # Allow removal if bundle missing (except nginx)
         else: # unknown, error, checking etc.
-             status_color = Qt.darkYellow; button_text = "Status?"; action_enabled = False; remove_enabled = False; tooltip = f"Status unknown or error" # Disable remove on error
+             status_color = Qt.GlobalColor.darkYellow; button_text = "Status?"; action_enabled = False; remove_enabled = False; tooltip = f"Status unknown or error" # Disable remove on error
 
         self.status_indicator.set_color(status_color)
         self.action_button.setText(button_text)
