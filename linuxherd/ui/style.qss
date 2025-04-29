@@ -1,94 +1,188 @@
-/* linuxherd/ui/style.qss - Updated with Sites Page Styling */
+/* linuxherd/ui/style.qss - Herd-inspired Stylesheet - Styled Details */
 
 /* Global Font & Base Styling */
 QWidget {
-    font-family: "Ubuntu", "Cantarell", "Sans Serif";
+    font-family: "Inter", "SF Pro Text", "Cantarell", "Ubuntu", sans-serif;
     font-size: 10pt;
     color: #212529; /* Dark Grey text */
     background-color: #FFFFFF; /* White background */
     outline: none;
+    font-weight: normal;
 }
 
 QMainWindow {
     background-color: #FFFFFF;
 }
 
-/* Sidebar Styling */
-QListWidget#sidebar {
-    background-color: #F7F8FA;
+/* Sidebar */
+QListWidget#sidebar { /* Set objectName in MainWindow */
+    background-color: #F7F8FA; /* Light grey */
     border: none;
-    border-right: 1px solid #E9ECEF;
+    border-right: 1px solid #E9ECEF; /* Light border */
     outline: 0;
+    spacing: 0px;
 }
 QListWidget#sidebar::item {
-    padding: 12px 18px;
-    border-left: 4px solid transparent;
-    border-bottom: none;
-    color: #495057;
-    min-height: 30px;
-    background-color: transparent;
+    padding: 10px 15px; /* Adjust padding */
+    border: none; /* No borders */
+    color: #495057; /* Medium grey text */
+    min-height: 20px;
 }
 QListWidget#sidebar::item:selected {
-    background-color: #E7F3FF;
-    color: #007AFF;
-    border-left: 4px solid #007AFF;
-    font-weight: bold;
+    background-color: #FFFFFF;
+    color: #212529; /* Dark text */
+    font-weight: 600; /* Use keyword */
 }
 QListWidget#sidebar::item:hover:!selected {
-    background-color: #ECEFF1;
-    color: #212529;
+    background-color: #ECEFF1; /* Subtle hover */
 }
 
-/* Content Area Container */
-QWidget#content_container {
-     background-color: #FFFFFF;
-}
+/* --- Services Page Specific --- */
 
-/* Grouping Frames/Boxes */
-QFrame#ServiceGroupFrame,
-QGroupBox {
-    border: 1px solid #E9ECEF;
-    border-radius: 6px;
+/* Left Pane List */
+QListWidget#ServiceList { /* Set objectName in ServicesPage */
     background-color: #FFFFFF;
-    margin-top: 8px;
-    padding: 12px;
+    border: none;
+    outline: none;
+    /* Remove default item selection highlight */
+    /* selection-background-color: transparent; */
+    /* selection-color: inherit; */
 }
-QGroupBox {
-     padding-top: 20px;
+QListWidget#ServiceList::item {
+    background-color: #FFFFFF;
+    border-bottom: 1px solid #E9ECEF;
+    padding: 0px; /* Let internal widget handle padding */
+    margin: 0px;
 }
-QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    padding: 2px 8px;
-    margin-left: 10px;
-    color: #495057;
-    font-weight: bold;
+QListWidget#ServiceList::item:selected {
+    background-color: #F1F3F5; /* Subtle grey selection */
 }
 
-/* Buttons */
+/* Service Item Widget Container */
+QWidget#ServiceItemWidget { /* Set objectName on ServiceItemWidget instances */
+    background-color: transparent; /* Inherit from list item */
+    /* Add padding INSIDE the widget if needed */
+    /* padding: 10px; */
+}
+
+
+/* Right Details Pane */
+QStackedWidget#ServiceDetailsPane { /* Set objectName in ServicesPage */
+    background-color: #F7F8FA; /* Match sidebar */
+    border: none;
+    border-left: 1px solid #E9ECEF; /* Separator */
+}
+QLabel#details_placeholder { /* Set objectName on placeholder */
+    color: #6C757D;
+    padding: 20px;
+}
+
+/* GroupBoxes within Details Pane */
+QStackedWidget#ServiceDetailsPane QGroupBox {
+    border: none;
+    border-bottom: 1px solid #E9ECEF; /* Separator line */
+    border-radius: 0px;
+    background-color: transparent; /* Use details pane background */
+    margin: 0px; /* No margin for groupbox itself */
+    padding: 15px 20px; /* Add padding inside groupbox */
+}
+QStackedWidget#ServiceDetailsPane QGroupBox::title {
+    subcontrol-origin: padding; /* Position relative to padding */
+    subcontrol-position: top left;
+    padding: 0 0 10px 0; /* Space below title */
+    margin-left: 0px; /* Align with padding */
+    color: #212529; /* Dark text */
+    font-weight: bold;
+    font-size: 10pt; /* Normal size title */
+}
+
+/* TextEdit within Details Pane (Env Vars, Logs) */
+QStackedWidget#ServiceDetailsPane QTextEdit {
+    background-color: #FFFFFF; /* White background */
+    border: 1px solid #DEE2E6; /* Medium border */
+    border-radius: 4px;
+    color: #495057; /* Medium text */
+    font-family: "Monospace", Courier; /* Monospace font */
+    font-size: 9pt;
+    padding: 8px;
+}
+/* Specific style for log viewer with error highlighting */
+QTextEdit#LogViewer { /* Set objectName in _create_detail_widget */
+    /* Styles above apply, add specific overrides if needed */
+}
+
+/* Buttons (General) */
 QPushButton {
     background-color: #FFFFFF;
-    color: #212529;
-    border: 1px solid #CED4DA;
-    padding: 6px 16px;
+    color: #495057;
+    border: 1px solid #DEE2E6;
+    padding: 5px 12px;
     border-radius: 5px;
-    font-weight: 500;
-    min-width: 60px;
+    font-weight: 500; /* Use medium weight */
+    min-width: 50px;
     outline: none;
 }
 QPushButton:hover { background-color: #F8F9FA; }
-QPushButton:pressed { background-color: #F1F3F5; }
+QPushButton:pressed { background-color: #F1F3F5; border-color: #CED4DA; }
 QPushButton:disabled { background-color: #F8F9FA; color: #ADB5BD; border-color: #E9ECEF; }
-QPushButton[primary="true"] { background-color: #007AFF; color: #FFFFFF; border-color: #007AFF; font-weight: bold; }
-QPushButton[primary="true"]:hover { background-color: #0069D9; border-color: #0056B3; }
-QPushButton[primary="true"]:pressed { background-color: #0056B3; }
-QPushButton[primary="true"]:disabled { background-color: #A8D3FF; color: #E7F3FF; border-color: #A8D3FF;}
+
+/* Add Service Button */
+/* Add Service Button */
+QPushButton#AddServiceButton { background-color: #000000; color: #FFFFFF; border: none; font-weight: bold; padding: 8px 20px; }
+QPushButton#AddServiceButton:hover { background-color: #333333; }
+QPushButton#AddServiceButton:pressed { background-color: #555555; }
+
+/* Service Item Icon Buttons (Settings/Remove) */
+QPushButton#SettingsButton, QPushButton#RemoveButton { /* Set objectNames in ServiceItemWidget */
+    background-color: transparent;
+    border: 1px solid transparent; /* Make border transparent */
+    padding: 4px;
+    min-width: 20px;
+    max-width: 20px;
+    min-height: 20px;
+    max-height: 20px; /* Slightly larger */
+    color: #6C757D; /* Color for emoji/text fallback */
+    font-size: 14pt; /* Make emoji/symbol bigger */
+    border-radius: 4px; /* Slight rounding */
+    /* qproperty-iconSize: 16px 16px; */ /* Use if using QIcon */
+}
+QPushButton#SettingsButton:hover, QPushButton#RemoveButton:hover {
+    background-color: #E9ECEF; /* Subtle hover */
+    color: #212529;
+    border-color: #DEE2E6; /* Show border on hover */
+}
+QPushButton#SettingsButton:pressed, QPushButton#RemoveButton:pressed {
+    background-color: #DEE2E6;
+}
+
+QPushButton#SettingsButton[selected="true"] {
+    background-color: #E9ECEF;
+    color: #212529;
+}
+
+/* Service Item Action Button (Start/Stop) */
+QPushButton#ActionButton {
+    font-weight: bold;
+    min-width: 70px;
+    padding: 6px 12px;
+}
+
+/* Detail Pane "Open" Buttons (Doc, Dashboard, Logs) */
+QPushButton#OpenButton { /* Set objectName in _create_detail_widget */
+    background-color: #E9ECEF; /* Light grey background */
+    border-color: #DEE2E6;
+    color: #495057;
+    font-weight: 500; /* Medium weight */
+    min-width: 80px;
+    padding: 6px 12px;
+}
+QPushButton#OpenButton:hover { background-color: #DEE2E6; border-color: #CED4DA; }
+QPushButton#OpenButton:pressed { background-color: #CED4DA; }
+
 
 /* Inputs */
-QLineEdit, QSpinBox, QComboBox {
-     padding: 6px 8px; border: 1px solid #CED4DA; border-radius: 4px; background-color: #FFFFFF; min-height: 1.8em; color: #212529;
-}
-QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 1px solid #80BDFF; }
+QLineEdit, QSpinBox, QComboBox { padding: 6px 8px; border: 1px solid #CED4DA; border-radius: 4px; background-color: #FFFFFF; min-height: 1.8em; color: #212529; }
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 1px solid #007AFF; }
 QSpinBox::up-button, QSpinBox::down-button { width: 0px; border: none; }
 QSpinBox { padding-right: 1px; }
 QComboBox::drop-down { border: none; padding-right: 5px;}
@@ -100,136 +194,20 @@ QCheckBox::indicator:checked { background-color: #007AFF; border-color: #007AFF;
 QCheckBox::indicator:disabled { background-color: #E9ECEF; border-color: #DEE2E6; }
 
 /* Table (PHP Page) */
-QTableWidget {
-    gridline-color: #E9ECEF;
-    border: 1px solid #DEE2E6;
-    border-radius: 6px;
-    background-color: white;
-    selection-background-color: #E7F3FF;
-    selection-color: #212529;
-    alternate-background-color: #F8FAFC;
-}
+QTableWidget { gridline-color: #E9ECEF; border: 1px solid #E9ECEF; background-color: white; alternate-background-color: #FDFDFD; selection-background-color: #E7F3FF; selection-color: #212529; }
+QHeaderView::section { background-color: #F8F9FA; padding: 8px 8px; border: none; border-bottom: 1px solid #DEE2E6; font-weight: bold; color: #495057; text-align: left; }
+QTableWidget::item { padding: 8px 8px; border: none; border-bottom: 1px solid #E9ECEF; }
+QTableWidget::item:selected { background-color: #E7F3FF; color: #212529; }
 
-QHeaderView::section {
-    background-color: #F8F9FA;
-    padding: 12px 16px;
-    border: none;
-    border-bottom: 2px solid #DEE2E6;
-    font-weight: bold;
-    color: #495057;
-    text-align: center;
-    font-size: 10.5pt;
-}
+/* Specific style for buttons inside table cells */
+QTableWidget QPushButton { padding: 4px 10px; min-width: 45px; font-size: 9pt; font-weight: normal; background-color: #FFFFFF; border: 1px solid #CED4DA; border-radius: 4px; }
+QTableWidget QPushButton:hover { background-color: #F1F3F5; }
+QTableWidget QPushButton:pressed { background-color: #E9ECEF; }
+QTableWidget QPushButton:disabled { background-color: #F8F9FA; color: #CED4DA; border-color: #F1F3F5; }
 
-/* First header section with left rounded corner */
-QHeaderView::section:first {
-    border-top-left-radius: 6px;
-}
-
-/* Last header section with right rounded corner */
-QHeaderView::section:last {
-    border-top-right-radius: 6px;
-}
-
-/* Header hover effect */
-QHeaderView::section:hover {
-    background-color: #EFF2F5;
-}
-
-/* Remove the highlight/focus rectangle */
-QTableWidget:focus {
-    outline: none;
-}
-
-QTableWidget::item {
-    padding: 8px;
-    border-bottom: 1px solid #E9ECEF;
-}
-
-QTableWidget::item:alternate {
-    background-color: #F8FAFC;
-}
-
-QTableWidget QHeaderView::section {
-    background-color: #F8F9FA;
-    padding: 10px 15px;
-    border: none;
-    border-bottom: 2px solid #DEE2E6;
-    font-weight: bold;
-    color: #495057;
-}
-
-/* Improved scrollbar for the table */
-QTableWidget QScrollBar:vertical {
-    border: none;
-    background: #F7F8FA;
-    width: 8px;
-    margin: 0;
-}
-
-QTableWidget QScrollBar::handle:vertical {
-    background: #CED4DA;
-    min-height: 30px;
-    border-radius: 4px;
-}
-
-QTableWidget QScrollBar::handle:vertical:hover {
-    background: #ADB5BD;
-}
-
-/* Ensure consistent cell heights */
-QTableWidget::item, QTableWidget QWidget {
-    min-height: 38px;
-}
-
-/* Improved Button Styling within Tables */
-QTableWidget QPushButton {
-    padding: 3px 12px;
-    min-width: 80px;
-    min-height: 20px;
-    font-size: 9pt;
-    font-weight: normal;
-    background-color: #F8F9FA;
-    border: 1px solid #CED4DA;
-    border-radius: 4px;
-    margin: 2px 5px;
-}
-
-QTableWidget QPushButton:hover {
-    background-color: #E9ECEF;
-    border-color: #ADB5BD;
-}
-
-QTableWidget QPushButton:pressed {
-    background-color: #DEE2E6;
-}
-
-/* Action Button Colors */
-QTableWidget QPushButton[action="start"] {
-    background-color: #D4EDDA;
-    color: #28A745;
-    border-color: #C3E6CB;
-}
-
-QTableWidget QPushButton[action="start"]:hover {
-    background-color: #C3E6CB;
-    border-color: #28A745;
-}
-
-QTableWidget QPushButton[action="stop"] {
-    background-color: #F8D7DA;
-    color: #DC3545;
-    border-color: #F5C6CB;
-}
-
-QTableWidget QPushButton[action="stop"]:hover {
-    background-color: #F5C6CB;
-    border-color: #DC3545;
-}
-
-/* Log Area */
+/* Log Area (Main Window) */
 QFrame#log_frame { border: 1px solid #E9ECEF; border-radius: 4px; background-color: #FAFAFA; margin-top: 10px; }
-QLabel#log_label { font-weight: bold; color: #6C757D; padding: 0 0 0 5px; background-color: transparent; border:none; margin: 0; }
+QLabel#log_label { font-weight: bold; color: #6C757D; padding: 0 0 5px 5px; background-color: transparent; border:none; margin: 0; }
 QTextEdit#log_area { background-color: transparent; border: none; color: #6C757D; font-family: "Monospace", Courier; font-size: 9pt; padding: 5px; }
 
 /* Scrollbars */
@@ -239,294 +217,5 @@ QScrollBar::handle:vertical:hover { background: #ADB5BD; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; border: none; background: none; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
 
-/* Status Labels */
-QLabel#StatusLabel { padding: 5px; border-radius: 3px; font-weight: bold; }
-/* Status colors */
-QTableWidget QTableWidgetItem[status="running"], QTableWidget QTableWidgetItem[status="active"] {
-    color: #2E7D32;
-    font-weight: bold;
-}
+/* Remove Status Label Styling - Handle color in Python */
 
-QTableWidget QTableWidgetItem[status="stopped"], QTableWidget QTableWidgetItem[status="inactive"] {
-    color: #DC3545;
-    font-weight: bold;
-}
-QLabel#StatusLabel[status="error"], QLabel#StatusLabel[status="unknown"], QLabel#StatusLabel[status="not_found"] { background-color: #FFEBEE; color: #D32F2F; }
-
-/* --- New Styles for Sites Page --- */
-
-/* Site List Widget Styling */
-QListWidget#site_list_widget {
-    background-color: #FFFFFF;
-    border: 1px solid #E9ECEF;
-    border-radius: 4px;
-}
-
-QListWidget#site_list_widget::item {
-    padding: 8px 12px;
-    border-bottom: 1px solid #F1F3F5;
-    min-height: 24px;
-}
-
-QListWidget#site_list_widget::item:selected {
-    background-color: #E7F3FF;
-    color: #007AFF;
-    font-weight: bold;
-}
-
-QListWidget#site_list_widget::item:hover:!selected {
-    background-color: #F8F9FA;
-}
-
-QListWidget#site_list_widget::item:alternate {
-    background-color: #F8F9FA;
-}
-
-/* Sites Page Details Area */
-QWidget#details_area QLabel[title="true"] {
-    font-weight: bold;
-    color: #495057;
-    margin-bottom: 2px;
-}
-
-QWidget#details_area QLineEdit {
-    padding: 8px;
-    border: 1px solid #CED4DA;
-    border-radius: 4px;
-}
-
-QWidget#details_area QLineEdit:focus {
-    border: 1px solid #80BDFF;
-}
-
-QWidget#details_area QComboBox {
-    padding: 8px;
-    border: 1px solid #CED4DA;
-    border-radius: 4px;
-}
-
-QWidget#details_area QComboBox:focus {
-    border: 1px solid #80BDFF;
-}
-
-QWidget#details_area QComboBox::drop-down {
-    subcontrol-origin: padding;
-    subcontrol-position: center right;
-    width: 20px;
-    border-left: none;
-}
-
-/* Section Separator */
-QFrame.section-separator {
-    background-color: #E9ECEF;
-    max-height: 1px;
-    margin-top: 10px;
-    margin-bottom: 10px;
-}
-
-/* Help Text and Secondary Labels */
-QLabel.help-text {
-    color: #6C757D;
-    font-size: 9pt;
-    margin-top: 2px;
-}
-
-/* Path Display */
-QLabel#path_value {
-    background-color: #F8F9FA;
-    padding: 8px;
-    border-radius: 4px;
-    border: 1px solid #E9ECEF;
-}
-
-/* PHP Version Display Label */
-QLabel#php_version_display {
-    color: #6C757D;
-    font-style: italic;
-    padding-left: 8px;
-}
-
-
-/* Dropdown Menu Button Styling */
-QTableWidget QPushButton::menu-indicator {
-    image: url(":/icons/dropdown.png");  /* You may need to add this icon to your resources */
-    subcontrol-position: right center;
-    subcontrol-origin: padding;
-    right: 5px;
-}
-
-/* Style the dropdown menu */
-QMenu {
-    background-color: #FFFFFF;
-    border: 1px solid #CED4DA;
-    border-radius: 4px;
-    padding: 5px 0;
-}
-
-QMenu::item {
-    padding: 5px 20px;
-    min-width: 150px;
-}
-
-QMenu::item:selected {
-    background-color: #E7F3FF;
-    color: #007AFF;
-}
-
-QMenu::separator {
-    height: 1px;
-    background-color: #E9ECEF;
-    margin: 5px 0;
-}
-
-/* Make config button slightly different to indicate it's a dropdown */
-QTableWidget QPushButton[dropdown="true"] {
-    padding-right: 20px;  /* Extra space for the dropdown indicator */
-    background-color: #F0F4F8;
-    border-color: #BFDEFF;
-}
-/* END Dropdown Menu Button Styling */
-
-/* PHP INI Settings specific styling - specifically targeted */
-QGroupBox[title^="Common PHP INI Settings"] QSpinBox,
-QGroupBox[title^="Common PHP INI Settings"] QLineEdit {
-    min-width: 120px;
-    max-width: 120px;
-    padding-right: 5px;
-    text-align: right;
-}
-
-/* Target save button to maintain consistency */
-QPushButton#save_ini_button {
-    min-width: 120px;
-}
-
-/* Fix layout spacing only in PHP settings sections */
-QGroupBox[title^="Common PHP INI Settings"] QHBoxLayout {
-    spacing: 10px;
-}
-
-/* Service List Styling */
-#ServiceListPane {
-    background-color: #F9FAFC;
-    border-right: 1px solid #E9ECEF;
-    padding: 12px;
-}
-
-#ServiceList {
-    background-color: transparent;
-    border: none;
-}
-
-#ServiceList::item {
-    padding: 0;
-    margin-bottom: 8px;
-}
-
-/* ServiceItemWidget consistent styling */
-ServiceItemWidget {
-    background-color: white;
-    border: 1px solid #E9ECEF;
-    border-radius: 6px;
-    padding: 12px 15px;
-}
-
-ServiceItemWidget QLabel[name="true"] {
-    font-weight: bold;
-    font-size: 11pt;
-    color: #212529;
-}
-
-ServiceItemWidget QLabel[version="true"] {
-    color: #6C757D;
-    font-size: 9pt;
-}
-
-/* Status indicators - consistent circles */
-ServiceItemWidget QLabel[statusIndicator="true"] {
-    min-width: 12px;
-    max-width: 12px;
-    min-height: 12px;
-    max-height: 12px;
-    border-radius: 6px;
-}
-
-ServiceItemWidget QLabel[statusIndicator="true"][status="running"] {
-    background-color: #28A745;
-    border: 1px solid #20c997;
-}
-
-ServiceItemWidget QLabel[statusIndicator="true"][status="stopped"] {
-    background-color: #DC3545;
-    border: 1px solid #c82333;
-}
-
-ServiceItemWidget QLabel[statusIndicator="true"][status="unknown"] {
-    background-color: #6C757D;
-    border: 1px solid #5a6268;
-}
-
-/* Button layout and spacing */
-ServiceItemWidget QPushButton {
-    min-width: 80px;
-}
-
-ServiceItemWidget QPushButton[settings="true"] {
-    border-radius: 3px;
-    padding: 4px;
-    min-width: 30px;
-    max-width: 30px;
-    background-color: #F8F9FA;
-}
-
-/* Details panel styling */
-#ServiceDetailsPane {
-    background-color: #FFFFFF;
-    padding: 15px;
-}
-
-#ServiceDetailsPane QLabel {
-    font-size: 16px;
-    font-weight: bold;
-    margin-bottom: 10px;
-    color: #212529;
-}
-
-#ServiceDetailsPane QGroupBox {
-    margin-top: 15px;
-    border-radius: 6px;
-    border: 1px solid #E9ECEF;
-    background-color: #FFFFFF;
-}
-
-#ServiceDetailsPane QGroupBox::title {
-    subcontrol-origin: margin;
-    padding: 0 8px;
-    color: #495057;
-    font-weight: bold;
-}
-
-#ServiceDetailsPane QTextEdit {
-    border: 1px solid #E9ECEF;
-    border-radius: 4px;
-    background-color: #F8F9FA;
-    font-family: "Monospace", "Courier New";
-    font-size: 9pt;
-    padding: 10px;
-    line-height: 1.4;
-}
-
-/* Add Service button styling */
-#AddServiceButton {
-    background-color: #007AFF;
-    color: #FFFFFF;
-    border: none;
-    border-radius: 4px;
-    padding: 8px 16px;
-    font-weight: bold;
-    margin: 0 0 15px 0;
-}
-
-#AddServiceButton:hover {
-    background-color: #0069D9;
-}

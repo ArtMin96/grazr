@@ -1,0 +1,12 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/icons">
+        <file alias="services.svg">assets/icons/server.svg</file>
+        <file alias="php.svg">assets/icons/code.svg</file>
+        <file alias="sites.svg">assets/icons/globe.svg</file>
+
+        <file alias="settings.svg">assets/icons/gear.svg</file>
+        <file alias="remove.svg">assets/icons/trash.svg</file>
+        <file alias="copy.svg">assets/icons/copy.svg</file>
+    </qresource>
+</RCC>

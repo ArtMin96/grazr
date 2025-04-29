@@ -7,6 +7,13 @@ from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
 from PySide6.QtCore import Signal, Slot, Qt, QSize
 from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QIcon
 
+try:
+    from ..core import config
+except ImportError:
+    print(f"ERROR in service_item_widget.py: Could not import core.config")
+    class ConfigDummy: NGINX_PROCESS_ID="internal-nginx" # Dummy
+    config = ConfigDummy()
+
 # --- StatusIndicator Class (Unchanged) ---
 class StatusIndicator(QWidget):
     def __init__(self, color=Qt.gray, parent=None): super().__init__(parent); self.setFixedSize(12, 12); self._color = QColor(color)
@@ -27,18 +34,20 @@ class ServiceItemWidget(QWidget):
         self.service_id = service_id # e.g., "internal-nginx", "dnsmasq.service"
         self.display_name = display_name
         self._current_status = initial_status
+        self.setObjectName("ServiceItemWidget")
+        self._is_selected_for_settings = False
 
         main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(5, 8, 5, 8)
+        main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(10)
 
         # Status Indicator
         self.status_indicator = StatusIndicator(Qt.gray)
-        main_layout.addWidget(self.status_indicator, 0, Qt.AlignTop | Qt.AlignLeft)
+        main_layout.addWidget(self.status_indicator, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Service Info
         info_layout = QVBoxLayout();
-        info_layout.setSpacing(2)
+        info_layout.setSpacing(1)
         self.name_label = QLabel(f"<b>{self.display_name}</b>")
         self.detail_label = QLabel("Version/Port: Checking...")
         self.detail_label.setStyleSheet("color: #6C757D; font-size: 9pt;")
@@ -48,34 +57,61 @@ class ServiceItemWidget(QWidget):
 
         # --- Action Buttons Area ---
         self.button_layout = QHBoxLayout()
-        self.button_layout.setSpacing(5)
+        self.button_layout.setSpacing(8)
         self.button_layout.addStretch()  # Push buttons right
 
-        # Settings Button
-        self.settings_button = QPushButton("...")  # Placeholder text, use icon later
-        self.settings_button.setToolTip(f"Configure {self.display_name} settings and view logs")
-        self.settings_button.setObjectName("SettingsButton")  # For specific styling
-        self.settings_button.setFixedSize(QSize(28, 28))  # Make it small and square-ish for icon
+        self.settings_button = QPushButton()
+        self.remove_button = QPushButton()
+
+        try:
+            settings_icon = QIcon(":/icons/settings.svg")
+            remove_icon = QIcon(":/icons/remove.svg")
+
+            if not settings_icon.isNull():
+                self.settings_button.setIcon(settings_icon)
+            else:
+                print("Warning: Could not load settings.svg icon, using text fallback.")
+                self.settings_button.setText("...")
+
+            if not remove_icon.isNull():
+                self.remove_button.setIcon(remove_icon)
+            else:
+                print("Warning: Could not load remove.svg icon, using text fallback.")
+                self.remove_button.setText("X")
+        except NameError:
+            settings_icon = QIcon()
+            remove_icon = QIcon()
+
+        self.settings_button.setToolTip(f"Configure {self.display_name}")
+        self.settings_button.setObjectName("SettingsButton")
+        # self.settings_button.setFixedSize(QSize(28, 28))
+        self.settings_button.setIconSize(QSize(16, 16))
+        self.settings_button.setFlat(True)
         self.settings_button.clicked.connect(lambda: self.settingsClicked.emit(self.service_id))
         self.button_layout.addWidget(self.settings_button)
 
         # Single Action Button (Start/Stop)
         self.action_button = QPushButton("Start")  # Default text
         self.action_button.setMinimumWidth(60)  # Ensure minimum width
+        self.action_button.setObjectName("ActionButton")
         self.action_button.clicked.connect(self._on_action_button_clicked)  # Connect to internal slot
         self.button_layout.addWidget(self.action_button)
 
         # Remove Button
-        self.remove_button = QPushButton("X")  # Use X for remove? Icon better
         self.remove_button.setToolTip(f"Remove {self.display_name} configuration")
         self.remove_button.setObjectName("RemoveButton")
-        self.remove_button.setFixedSize(QSize(28, 28))  # Small square button
+        # self.remove_button.setFixedSize(QSize(28, 28))
+        self.remove_button.setIconSize(QSize(16, 16))
+        self.remove_button.setFlat(True)
         self.remove_button.clicked.connect(lambda: self.removeClicked.emit(self.service_id))
         self.button_layout.addWidget(self.remove_button)
 
+        # --- Hide Remove button for Nginx ---
+        if self.service_id == config.NGINX_PROCESS_ID:
+            self.remove_button.setVisible(False)
+
         main_layout.addLayout(self.button_layout)
 
-        # Set initial state
         self.update_status(initial_status)
 
     @Slot()
@@ -140,3 +176,14 @@ class ServiceItemWidget(QWidget):
             self.action_button.update()
             self.remove_button.update()
             self.settings_button.update()
+
+    # --- Set Selected State for Settings Button ---
+    def set_selected(self, selected):
+        """Sets the visual state of the settings button."""
+        self._is_selected_for_settings = selected
+        # Use a dynamic property for QSS selector [selected="true"]
+        self.settings_button.setProperty("selected", selected)
+        # Re-polish to apply style changes based on property
+        self.settings_button.style().unpolish(self.settings_button)
+        self.settings_button.style().polish(self.settings_button)
+        self.settings_button.update()  # Ensure repaint

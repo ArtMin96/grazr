@@ -12,10 +12,10 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QTextEdit, QFrame, QListWidget, QListWidgetItem, QStackedWidget,
-    QSizePolicy, QFileDialog, QMessageBox, QDialog
+    QSizePolicy, QFileDialog, QMessageBox, QDialog, QPushButton
 )
 from PySide6.QtCore import Qt, QTimer, QObject, QThread, Signal, Slot, QSize
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon, QTextCursor
 
 # --- Import Core & Manager Modules (Refactored Paths) ---
 try:
@@ -23,7 +23,6 @@ try:
     from ..core import process_manager
     from ..core.worker import Worker
     from ..core.system_utils import check_service_status
-    from ..core.config import SYSTEM_DNSMASQ_SERVICE_NAME
 
     # Managers
     from ..managers.php_manager import detect_bundled_php_versions
@@ -61,6 +60,13 @@ except ImportError as e:
      class AddServiceDialog(QWidget): pass
      sys.exit(1)
 
+try:
+    # This import assumes resources_rc.py is in the same 'ui' directory
+    from . import resources_rc
+except ImportError:
+    print("WARNING: Could not import resources_rc.py. Icons will be missing.")
+    print("Ensure resources.qrc has been compiled using 'pyside6-rcc resources.qrc -o linuxherd/ui/resources_rc.py'")
+
 class MainWindow(QMainWindow):
     triggerWorker = Signal(str, dict)
 
@@ -68,23 +74,49 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle(f"{config.APP_NAME} (Alpha)");
-        self.setGeometry(100, 100, 850, 650);
+        self.setGeometry(100, 100, 1000, 750);
         main_widget = QWidget();
         main_h_layout = QHBoxLayout(main_widget);
         main_h_layout.setContentsMargins(0, 0, 0, 0);
         main_h_layout.setSpacing(0);
-        self.sidebar = QListWidget();
-        self.sidebar.setObjectName("sidebar");
-        self.sidebar.setFixedWidth(180);
-        self.sidebar.setViewMode(QListWidget.ListMode);
-        self.sidebar.setSpacing(5);
-        self.sidebar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding);
-        self.sidebar.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded);
-        self.sidebar.setStyleSheet("...");
-        self.sidebar.addItem(QListWidgetItem("Services"));
-        self.sidebar.addItem(QListWidgetItem("PHP"));
-        self.sidebar.addItem(QListWidgetItem("Sites"));
-        main_h_layout.addWidget(self.sidebar);
+
+        self.sidebar = QListWidget()
+        self.sidebar.setObjectName("sidebar")
+        self.sidebar.setFixedWidth(180)
+        self.sidebar.setViewMode(QListWidget.ViewMode.ListMode)
+        self.sidebar.setSpacing(0)
+        self.sidebar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self.sidebar.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        try:
+            # Attempt to load icons from resources
+            services_icon = QIcon(":/icons/services.svg")
+            php_icon = QIcon(":/icons/php.svg")
+            sites_icon = QIcon(":/icons/sites.svg")
+            # Add fallback text or default icon if loading fails?
+            if services_icon.isNull(): print("Warning: services.svg icon failed to load from resource.")
+            if php_icon.isNull(): print("Warning: php.svg icon failed to load from resource.")
+            if sites_icon.isNull(): print("Warning: sites.svg icon failed to load from resource.")
+        except NameError:  # Handle case where resources_rc failed to import
+            print("Warning: resources_rc not imported, using text-only sidebar items.")
+            services_icon = QIcon()  # Empty icon
+            php_icon = QIcon()
+            sites_icon = QIcon()
+
+        # Create items with icons and text (add space for visual separation)
+        item_services = QListWidgetItem(services_icon, " Services")
+        item_php = QListWidgetItem(php_icon, " PHP")
+        item_sites = QListWidgetItem(sites_icon, " Sites")
+
+        # Set icon size for the list widget items (optional, controls display size)
+        self.sidebar.setIconSize(QSize(18, 18))  # Adjust size as needed
+
+        self.sidebar.addItem(item_services)
+        self.sidebar.addItem(item_php)
+        self.sidebar.addItem(item_sites)
+
+        main_h_layout.addWidget(self.sidebar)
+
         content_container = QWidget();
         content_container.setObjectName("content_container");
         content_v_layout = QVBoxLayout(content_container);
@@ -98,12 +130,13 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.services_page);
         self.stacked_widget.addWidget(self.php_page);
         self.stacked_widget.addWidget(self.sites_page);
-        log_frame = QFrame();
-        log_frame.setObjectName("log_frame");
-        log_frame.setFrameShape(QFrame.StyledPanel);
-        log_frame.setFrameShadow(QFrame.Sunken);
-        log_layout = QVBoxLayout(log_frame);
-        log_layout.setContentsMargins(5, 5, 5, 5);
+
+        self.log_frame = QFrame();
+        self.log_frame.setObjectName("log_frame");
+        self.log_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        self.log_frame.setFrameShadow(QFrame.Shadow.Sunken)
+        log_layout = QVBoxLayout(self.log_frame)
+        log_layout.setContentsMargins(5, 5, 5, 5)
         log_label = QLabel("Log / Output:");
         log_label.setObjectName("log_label");
         log_layout.addWidget(log_label);
@@ -112,8 +145,25 @@ class MainWindow(QMainWindow):
         self.log_text_area.setReadOnly(True);
         self.log_text_area.setFixedHeight(100);
         log_layout.addWidget(self.log_text_area);
-        content_v_layout.addWidget(log_frame);
+        self.log_frame.setVisible(False)
+        content_v_layout.addWidget(self.log_frame);
+
+        # --- Log Toggle Bar ---
+        log_toggle_bar = QWidget()
+        log_toggle_layout = QHBoxLayout(log_toggle_bar)
+        log_toggle_layout.setContentsMargins(0, 5, 0, 0)  # Add some top margin
+        self.toggle_log_button = QPushButton("Show Logs ▼")  # Initial text
+        self.toggle_log_button.setObjectName("ToggleLogButton")  # For styling
+        self.toggle_log_button.setCheckable(False)  # Not checkable, just a trigger
+        self.toggle_log_button.setStyleSheet(
+            "text-align: left; border: none; font-weight: bold; color: #6C757D;")  # Simple style
+        self.toggle_log_button.clicked.connect(self.toggle_log_area)  # Connect signal
+        log_toggle_layout.addWidget(self.toggle_log_button)
+        log_toggle_layout.addStretch()
+        content_v_layout.addWidget(log_toggle_bar)  # Add toggle bar at the bottom
+
         main_h_layout.addWidget(content_container, 1);
+
         self.setCentralWidget(main_widget)
         self.current_extension_dialog = None
         self.thread = QThread(self);
@@ -261,6 +311,31 @@ class MainWindow(QMainWindow):
             print(f"DEBUG handleWorkerResult: NOT scheduling re-enable (target_page is None or no method).")
 
         self.log_message("-" * 30)
+
+    @Slot()
+    def toggle_log_area(self):
+        """Shows or hides the log output area."""
+        if not hasattr(self, 'log_frame'): return  # Safety check
+
+        is_visible = self.log_frame.isVisible()
+        if is_visible:
+            self.log_frame.setVisible(False)
+            self.toggle_log_button.setText("Show Logs ▼")
+            # Optionally resize window smaller
+            # self.resize(self.width(), self.height() - self.log_frame.height() - self.toggle_log_button.height()) # Approximate
+        else:
+            self.log_frame.setVisible(True)
+            self.toggle_log_button.setText("Hide Logs ▲")
+            # Scroll log to bottom when shown
+            cursor = self.log_text_area.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)  # Need QtGui import
+            self.log_text_area.setTextCursor(cursor)
+            # Optionally resize window bigger
+            # self.resize(self.width(), self.height() + self.log_frame.height() + self.toggle_log_button.height()) # Approximate
+
+        # Hint that the layout might need adjusting (might help resizing)
+        self.layout().activate()
+        # self.adjustSize() # This can sometimes be too aggressive
 
     # --- Methods that Trigger Worker Tasks ---
     @Slot()

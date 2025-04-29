@@ -45,38 +45,41 @@ class ServicesPage(QWidget):
         super().__init__(parent)
 
         self._main_window = parent
-        self.service_widgets = {}
-        # Track which service detail is currently shown (process_id or None)
-        self.current_selected_service_id = None
-        # Key: process_id, Value: QWidget (the dynamically created detail page)
-        self.service_detail_widgets = {}
-        # Store references to specific controls inside detail pages if needed for updates
-        self._detail_controls = {}
+        self.service_widgets = {}  # Key: process_id, Value: ServiceItemWidget instance
+        self.service_detail_widgets = {}  # Key: process_id, Value: QWidget (detail page)
+        self._detail_controls = {}  # Cache for controls inside detail pages
+        self.current_selected_service_id = None  # Track which service detail is SHOWN
+        self._last_selected_widget = None  # Track last selected item widget
 
         # --- Main Layout (Splitter) ---
-        main_layout = QHBoxLayout(self);
+        main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        self.splitter = QSplitter(Qt.Horizontal);
+        self.splitter = QSplitter(Qt.Horizontal)
         main_layout.addWidget(self.splitter)
-        # Prevent splitter children from expanding beyond their size hint initially
-        self.splitter.setChildrenCollapsible(True)  # Allow collapsing fully
+        self.splitter.setChildrenCollapsible(True)
 
         # --- Left Pane: Service List & Controls ---
         self.left_pane_widget = QWidget();
         self.left_pane_widget.setObjectName("ServiceListPane")
-        # Set a size policy that prefers its hint but can shrink/expand somewhat
         self.left_pane_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_layout = QVBoxLayout(self.left_pane_widget);
         left_layout.setContentsMargins(0, 5, 0, 5);
         left_layout.setSpacing(8)
-        self.add_service_button = QPushButton(" Add Service...");
-        self.add_service_button.setObjectName("AddServiceButton");
-        self.add_service_button.clicked.connect(self.addServiceClicked.emit);
-        button_layout = QHBoxLayout();
-        button_layout.addStretch();
-        button_layout.addWidget(self.add_service_button);
-        button_layout.addStretch();
-        left_layout.addLayout(button_layout)
+
+        # --- Top Bar: Title and Add Button ---
+        top_bar_layout = QHBoxLayout()
+        top_bar_layout.setContentsMargins(10, 0, 10, 0)
+        title = QLabel("Managed Services")
+        title.setFont(QFont("Sans Serif", 18, QFont.Weight.Bold))
+        self.add_service_button = QPushButton("Add Service")
+        self.add_service_button.setObjectName("AddServiceButton")
+        self.add_service_button.clicked.connect(self.addServiceClicked.emit)
+        top_bar_layout.addWidget(title)
+        top_bar_layout.addStretch()
+        top_bar_layout.addWidget(self.add_service_button)
+        left_layout.addLayout(top_bar_layout)
+        # --- End Top Bar ---
+
         self.service_list_widget = QListWidget();
         self.service_list_widget.setObjectName("ServiceList");
         self.service_list_widget.setSpacing(0);
@@ -88,15 +91,19 @@ class ServicesPage(QWidget):
         self.splitter.addWidget(self.left_pane_widget)
 
         # --- Right Pane: Details Area using QStackedWidget ---
-        self.details_stack = QStackedWidget();
+        self.details_stack = QStackedWidget()
         self.details_stack.setObjectName("ServiceDetailsPane")
         # Set size policy to expand horizontally
         self.details_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.placeholder_widget = QLabel("Click the '...' settings button on a service to view details.");
-        self.placeholder_widget.setAlignment(Qt.AlignCenter);
+        self.placeholder_widget = QLabel("Click the '...' settings button on a service to view details.")
+        self.placeholder_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder_widget.setStyleSheet("color: grey;")
         self.details_stack.addWidget(self.placeholder_widget)  # Index 0
         self.splitter.addWidget(self.details_stack)
+        self.details_stack.setVisible(False)
+        self.splitter.setSizes([250, 0])
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
 
         # --- Hide Details Pane Initially ---
         self.details_stack.setVisible(False)
@@ -156,29 +163,37 @@ class ServicesPage(QWidget):
         is_currently_visible = self.details_stack.isVisible()
         is_showing_this_one = (self.current_selected_service_id == process_id)
 
+        if self._last_selected_widget and self._last_selected_widget.service_id != process_id:
+            if hasattr(self._last_selected_widget, 'set_selected'):
+                self._last_selected_widget.set_selected(False)
+
         if is_currently_visible and is_showing_this_one:
             # --- Hide Logic ---
             self.log_to_main(f"Hiding details for {process_id}")
             self.details_stack.setVisible(False)
             self.current_selected_service_id = None
-            # Restore splitter sizes to collapse right pane
-            # Get current total width, give it all to left? Or use fixed sizes?
-            # Let's try setting sizes explicitly to avoid weird intermediate states
-            self.splitter.setSizes([self.splitter.width(), 0])  # Give all space to left temporarily
-            # Maybe call adjustSize on the parent window?
-            if self._main_window: self._main_window.adjustSize()  # Ask main window to resize
+            # Deselect the current button
+            current_widget = self.service_widgets.get(process_id)
+            if current_widget and hasattr(current_widget, 'set_selected'):
+                current_widget.set_selected(False)
+            self._last_selected_widget = None
+            self.splitter.setSizes([self.splitter.width(), 0])
         else:
             # --- Show Logic ---
             self.log_to_main(f"Showing details for {process_id}")
             self.current_selected_service_id = process_id
             self._update_details_view(process_id)  # Ensure widget exists and is current
+
+            current_widget = self.service_widgets.get(process_id)
+            if current_widget and hasattr(current_widget, 'set_selected'):
+                current_widget.set_selected(True)
+                self._last_selected_widget = current_widget  # Track current selection
+
             if not self.details_stack.isVisible():
-                self.details_stack.setVisible(True)  # Make sure pane is visible
-                # Restore splitter state to desired ratio
-                # Calculate desired sizes based on total width
+                self.details_stack.setVisible(True)
                 total_width = self.splitter.width()
-                left_width = 250  # Desired left width
-                right_width = max(300, total_width - left_width)  # Give rest to right, min 300
+                left_width = 250
+                right_width = max(300, total_width - left_width)
                 self.splitter.setSizes([left_width, right_width])
 
     # --- Detail View Handling ---
