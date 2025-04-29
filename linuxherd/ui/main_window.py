@@ -68,7 +68,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle(f"{config.APP_NAME} (Alpha)");
-        self.setGeometry(100, 100, 1000, 650);
+        self.setGeometry(100, 100, 850, 650);
         main_widget = QWidget();
         main_h_layout = QHBoxLayout(main_widget);
         main_h_layout.setContentsMargins(0, 0, 0, 0);

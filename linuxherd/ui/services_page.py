@@ -6,16 +6,18 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QListWidget, QListWidgetItem,
                                QFrame, QSplitter, QSizePolicy, QStackedWidget,
-                               QTextEdit, QScrollArea, QMessageBox, QGroupBox,
-                               QApplication, QGridLayout)
+                               QTextEdit, QScrollArea, QMessageBox, QGridLayout,
+                               QApplication)
 from PySide6.QtCore import Signal, Slot, Qt, QTimer, QObject
-from PySide6.QtGui import QFont, QPalette, QColor
+from PySide6.QtGui import QFont, QPalette, QColor, QTextCursor
 
 # --- Import Core Config & Custom Widget ---
 try:
     from ..core import config
     from .service_item_widget import ServiceItemWidget
     from ..managers.services_config_manager import load_configured_services
+    import html
+    import re
 except ImportError as e:
     print(f"ERROR in services_page.py: Could not import dependencies: {e}")
     class ServiceItemWidget(QWidget):
@@ -44,19 +46,27 @@ class ServicesPage(QWidget):
 
         self._main_window = parent
         self.service_widgets = {}
+        # Track which service detail is currently shown (process_id or None)
         self.current_selected_service_id = None
+        # Key: process_id, Value: QWidget (the dynamically created detail page)
         self.service_detail_widgets = {}
+        # Store references to specific controls inside detail pages if needed for updates
+        self._detail_controls = {}
 
         # --- Main Layout (Splitter) ---
         main_layout = QHBoxLayout(self);
         main_layout.setContentsMargins(0, 0, 0, 0)
-        splitter = QSplitter(Qt.Horizontal);
-        main_layout.addWidget(splitter)
+        self.splitter = QSplitter(Qt.Horizontal);
+        main_layout.addWidget(self.splitter)
+        # Prevent splitter children from expanding beyond their size hint initially
+        self.splitter.setChildrenCollapsible(True)  # Allow collapsing fully
 
         # --- Left Pane: Service List & Controls ---
-        left_pane_widget = QWidget();
-        left_pane_widget.setObjectName("ServiceListPane")
-        left_layout = QVBoxLayout(left_pane_widget);
+        self.left_pane_widget = QWidget();
+        self.left_pane_widget.setObjectName("ServiceListPane")
+        # Set a size policy that prefers its hint but can shrink/expand somewhat
+        self.left_pane_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        left_layout = QVBoxLayout(self.left_pane_widget);
         left_layout.setContentsMargins(0, 5, 0, 5);
         left_layout.setSpacing(8)
         self.add_service_button = QPushButton(" Add Service...");
@@ -73,19 +83,27 @@ class ServicesPage(QWidget):
         self.service_list_widget.setStyleSheet(
             "QListWidget { border: none; } QListWidget::item { border-bottom: 1px solid #E9ECEF; padding: 0; margin: 0; }")
         left_layout.addWidget(self.service_list_widget)
-        left_pane_widget.setMinimumWidth(300);
-        left_pane_widget.setMaximumWidth(450);
-        splitter.addWidget(left_pane_widget)
+        self.left_pane_widget.setMinimumWidth(600);
+        self.left_pane_widget.setMaximumWidth(600);
+        self.splitter.addWidget(self.left_pane_widget)
 
         # --- Right Pane: Details Area using QStackedWidget ---
         self.details_stack = QStackedWidget();
         self.details_stack.setObjectName("ServiceDetailsPane")
+        # Set size policy to expand horizontally
+        self.details_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.placeholder_widget = QLabel("Click the '...' settings button on a service to view details.");
         self.placeholder_widget.setAlignment(Qt.AlignCenter);
         self.placeholder_widget.setStyleSheet("color: grey;")
         self.details_stack.addWidget(self.placeholder_widget)  # Index 0
-        splitter.addWidget(self.details_stack)
-        splitter.setSizes([250, 600])
+        self.splitter.addWidget(self.details_stack)
+
+        # --- Hide Details Pane Initially ---
+        self.details_stack.setVisible(False)
+        # Set initial sizes AFTER adding widgets
+        self.splitter.setSizes([250, 0])  # Start with right pane collapsed
+        self.splitter.setStretchFactor(0, 0)  # Left pane doesn't stretch initially
+        self.splitter.setStretchFactor(1, 1)  # Right pane takes available space when shown
 
     @Slot(str, str)
     def on_service_action(self, service_id, action):
@@ -129,13 +147,39 @@ class ServicesPage(QWidget):
         else:
             self.log_to_main("Removal cancelled.")
 
-    # --- Slot for Settings button clicks <<< NEW ---
-    @Slot(str)
-    def on_show_service_details(self, process_id): # Handles Settings click
-        """Creates (if needed) and shows the detail widget for the service."""
-        self.log_to_main(f"ServicesPage: Show details requested for {process_id}")
-        self.current_selected_service_id = process_id # Track selected service
-        self._update_details_view(process_id)
+    # --- Slot for Settings button clicks
+    @Slot(str)  # Receives process_id from ServiceItemWidget's settingsClicked signal
+    def on_show_service_details(self, process_id):
+        """Shows/Hides the detail widget for the service when Settings button clicked."""
+        self.log_to_main(f"ServicesPage: Settings clicked for {process_id}")
+
+        is_currently_visible = self.details_stack.isVisible()
+        is_showing_this_one = (self.current_selected_service_id == process_id)
+
+        if is_currently_visible and is_showing_this_one:
+            # --- Hide Logic ---
+            self.log_to_main(f"Hiding details for {process_id}")
+            self.details_stack.setVisible(False)
+            self.current_selected_service_id = None
+            # Restore splitter sizes to collapse right pane
+            # Get current total width, give it all to left? Or use fixed sizes?
+            # Let's try setting sizes explicitly to avoid weird intermediate states
+            self.splitter.setSizes([self.splitter.width(), 0])  # Give all space to left temporarily
+            # Maybe call adjustSize on the parent window?
+            if self._main_window: self._main_window.adjustSize()  # Ask main window to resize
+        else:
+            # --- Show Logic ---
+            self.log_to_main(f"Showing details for {process_id}")
+            self.current_selected_service_id = process_id
+            self._update_details_view(process_id)  # Ensure widget exists and is current
+            if not self.details_stack.isVisible():
+                self.details_stack.setVisible(True)  # Make sure pane is visible
+                # Restore splitter state to desired ratio
+                # Calculate desired sizes based on total width
+                total_width = self.splitter.width()
+                left_width = 250  # Desired left width
+                right_width = max(300, total_width - left_width)  # Give rest to right, min 300
+                self.splitter.setSizes([left_width, right_width])
 
     # --- Detail View Handling ---
     def _update_details_view(self, process_id):
@@ -181,6 +225,7 @@ class ServicesPage(QWidget):
         # Create Base Widget and Layout
         widget = QWidget()
         widget.setObjectName(f"DetailWidget_{process_id}")
+        widget.setProperty("process_id", process_id)
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(15)
@@ -221,8 +266,8 @@ class ServicesPage(QWidget):
         layout.addWidget(env_container)
 
         # Store reference using process_id as key part
-        self.service_detail_widgets[f"{process_id}_env_text"] = env_text_edit
-        self.service_detail_widgets[f"{process_id}_copy_button"] = copy_button
+        self._detail_controls[f"{process_id}_env_text"] = env_text_edit
+        self._detail_controls[f"{process_id}_copy_button"] = copy_button
 
         # Log Viewer - Direct QLabel and QTextEdit
         log_label = QLabel("Service Logs")
@@ -236,13 +281,13 @@ class ServicesPage(QWidget):
         layout.addWidget(log_text_edit, 1)  # Log viewer takes stretch
 
         # Store reference using process_id as key part
-        self.service_detail_widgets[f"{process_id}_log_text"] = log_text_edit
+        self._detail_controls[f"{process_id}_log_text"] = log_text_edit
 
         return widget
 
     def _copy_env_to_clipboard(self, process_id):
         """Copy the environment variables to the clipboard."""
-        env_text_widget = self.service_detail_widgets.get(f"{process_id}_env_text")
+        env_text_widget = self._detail_controls.get(f"{process_id}_env_text")
         if env_text_widget:
             # Get text and copy to clipboard
             text = env_text_widget.toPlainText()
@@ -250,7 +295,7 @@ class ServicesPage(QWidget):
             clipboard.setText(text)
 
             # Provide visual feedback that copy succeeded
-            copy_button = self.service_detail_widgets.get(f"{process_id}_copy_button")
+            copy_button = self._detail_controls.get(f"{process_id}_copy_button")
             if copy_button:
                 original_text = copy_button.text()
                 copy_button.setText("✓ Copied!")
@@ -260,8 +305,8 @@ class ServicesPage(QWidget):
     def _update_detail_content(self, process_id):
         """Populates the detail widget content (Env Vars, Logs)."""
         # Use the stored references to update content
-        env_text_widget = self.service_detail_widgets.get(f"{process_id}_env_text")
-        log_text_widget = self.service_detail_widgets.get(f"{process_id}_log_text")
+        env_text_widget = self._detail_controls.get(f"{process_id}_env_text")
+        log_text_widget = self._detail_controls.get(f"{process_id}_log_text")
         if not env_text_widget or not log_text_widget:
             # This might happen if called before widget is fully created/cached
             self.log_to_main(f"Warn: Detail widgets not found yet for {process_id} in _update_detail_content.")
@@ -273,17 +318,41 @@ class ServicesPage(QWidget):
 
         # Populate Log Viewer
         log_file_path = self._get_log_path_for_service(process_id)
-        log_content = "Log file not found or cannot be read.";
+        html_content = "<p><i>Log file not found or cannot be read.</i></p>"  # Default message
+        lines_to_show = 100  # Number of lines to show
+        error_keywords = ['error', 'fatal', 'failed', 'denied', 'unable']  # Case-insensitive
+        error_style = "background-color: #FFEBEE; color: #D32F2F"
+
         if log_file_path and log_file_path.is_file():
             try:
                 with open(log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    lines = f.readlines(); log_content = "".join(lines[-100:])  # Last 100 lines
+                    lines = f.readlines()
+                # Get last N lines
+                log_lines = lines[-lines_to_show:]
+                html_lines = []
+                for line in log_lines:
+                    escaped_line = html.escape(line.strip())  # Escape HTML chars in log line
+                    line_lower = line.lower()
+                    is_error = any(keyword in line_lower for keyword in error_keywords)
+                    if is_error:
+                        html_lines.append(f'<span style="{error_style}">{escaped_line}</span>')
+                    else:
+                        html_lines.append(escaped_line)
+                # Join lines with HTML line breaks, wrap in pre for formatting? No, QTextEdit handles newlines.
+                html_content = "<br>".join(html_lines)
+                # Add basic CSS for pre-wrap and font if needed (QTextEdit might handle this)
+                # html_content = f"<style>body {{ font-family: Monospace; white-space: pre-wrap; }} span {{ display: block; }}</style>{html_content}"
+
             except Exception as e:
-                log_content = f"Error reading log file:\n{e}"
+                html_content = f"<p><i>Error reading log file {log_file_path}:</i></p><pre>{html.escape(str(e))}</pre>"
         elif log_file_path:
-            log_content = f"Log file not found: {log_file_path}"
-        log_text_widget.setPlainText(log_content);
-        log_text_widget.verticalScrollBar().setValue(log_text_widget.verticalScrollBar().maximum())  # Scroll bottom
+            html_content = f"<p><i>Log file not found: {html.escape(str(log_file_path))}</i></p>"
+
+        log_text_widget.setHtml(html_content)  # <<< Use setHtml
+        # Scroll to bottom after setting content
+        cursor = log_text_widget.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        log_text_widget.setTextCursor(cursor)
 
     def _get_env_vars_for_service(self, process_id):
         """Generates example environment variables text for connection."""
@@ -443,6 +512,11 @@ class ServicesPage(QWidget):
                 widget.deleteLater()
             detail_widget = self.service_detail_widgets.pop(process_id, None)
             if detail_widget: self.details_stack.removeWidget(detail_widget); detail_widget.deleteLater()
+            # If the removed service was the selected one, hide details pane
+            if process_id == self.current_selected_service_id:
+                self.current_selected_service_id = None
+                self.details_stack.setVisible(False)
+                self.splitter.setSizes([1, 0])  # Collapse splitter
 
         # Add/Update Required Widgets in the list
         # Nginx
@@ -483,11 +557,16 @@ class ServicesPage(QWidget):
             for service_id in self.service_widgets.keys(): self._trigger_single_refresh(service_id)
             if hasattr(self._main_window, 'refresh_dnsmasq_status_on_page'): QTimer.singleShot(0, self._main_window.refresh_dnsmasq_status_on_page)
 
-        # Update Details Pane
+        # --- Update Details Pane Visibility/Content ---
+        # If no service is selected, ensure placeholder is shown and pane is hidden
         if not self.current_selected_service_id or self.current_selected_service_id not in self.service_widgets:
-            self.current_selected_service_id = None;
+            self.current_selected_service_id = None
             self.details_stack.setCurrentWidget(self.placeholder_widget)
+            if self.details_stack.isVisible():  # Hide only if currently visible
+                self.details_stack.setVisible(False)
+                self.splitter.setSizes([1, 0])  # Collapse splitter
         elif self.current_selected_service_id:
+            # Ensure the correct widget is current and update content
             self._update_details_view(self.current_selected_service_id)
 
     def _trigger_single_refresh(self, service_id):  # (Unchanged)
