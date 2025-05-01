@@ -6,8 +6,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QTableWidget, QTableWidgetItem, QPushButton,
                                QHeaderView, QApplication, QAbstractItemView,
                                QGroupBox, QSpinBox, QSpacerItem, QSizePolicy,
-                               QMenu, QAbstractButton)
-from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QPoint # Keep QRegularExpression if used here
+                               QMenu, QAbstractButton, QListWidget, QFormLayout, QListWidgetItem)
+from PySide6.QtCore import Signal, Slot, Qt, QTimer, QRegularExpression, QPoint # Keep QRegularExpression if used here
 from PySide6.QtGui import QFont, QRegularExpressionValidator, QScreen # Keep QRegularExpressionValidator if used here
 
 import re
@@ -22,9 +22,11 @@ try:
     # Import from the managers directory
     from ..managers.php_manager import (detect_bundled_php_versions,
                                         get_php_fpm_status,
+                                        get_default_php_version,
                                         get_ini_value,
                                         _get_php_ini_path
                                         )
+    from .widgets.php_version_item_widget import PhpVersionItemWidget
 except ImportError as e:
     print(f"ERROR in php_page.py: Could not import from core/managers: {e}")
     # Define dummy functions/constants
@@ -32,356 +34,258 @@ except ImportError as e:
     def get_php_fpm_status(v): return "unknown"
     def get_ini_value(v, k, s='PHP'): return None
     def _get_php_ini_path(v): return Path(f"/tmp/error_php_{v}.ini")
+
+
+    class PhpVersionItemWidget(QWidget):
+        actionClicked = Signal(str, str); configureClicked = Signal(str)
+        def update_status(s): pass;
+    pass
     # Dummy config needed if direct constants are used (currently only DEFAULT_PHP)
     # class ConfigDummy: DEFAULT_PHP="default"; config = ConfigDummy()
 # --- End Imports ---
 
 
 class PhpPage(QWidget):
-    # Signals: version_string, action_string ('start' or 'stop')
-    managePhpFpmClicked = Signal(str, str)
-    # Signal: version_string, settings_dict ({key: value_str})
-    saveIniSettingsClicked = Signal(str, dict)
-    showExtensionsDialog = Signal(str)
+    managePhpFpmClicked = Signal(str, str)  # For Start/Stop FPM button
+    configurePhpVersionClicked = Signal(str)  # For Configure button (opens detailed dialog)
+    saveIniSettingsClicked = Signal(str, dict)  # For common INI settings Save button
 
     def __init__(self, parent=None):
         """Initializes the PHP management page UI."""
         super().__init__(parent)
         self._main_window = parent
-        self._current_ini_version = None
+        # Key: version string, Value: PhpVersionItemWidget instance
+        self.version_widgets = {}
+        # Store INI values for change detection
+        self._current_ini_version = None  # Track which version INI settings are for
         self._initial_ini_values = {}
-        self._available_php_versions = []
 
-        layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0)
-        title_layout = QHBoxLayout(); title_layout.setContentsMargins(0, 0, 0, 5)
-        title = QLabel("Manage Bundled PHP Versions"); title.setFont(QFont("Sans Serif", 12, QFont.Bold))
-        title_layout.addWidget(title); title_layout.addStretch(); layout.addLayout(title_layout)
+        # --- Main Layout ---
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)  # Use MainWindow padding
+        main_layout.setSpacing(15)  # Space between list and INI box
 
-        # --- PHP Version Table ---
-        self.php_table = QTableWidget()
-        self.php_table.setColumnCount(4)
-        self.php_table.setHorizontalHeaderLabels(["Version", "FPM Status", "FPM Actions", "Config"])
+        # --- Top Bar: Install Button ---
+        top_bar_layout = QHBoxLayout()
+        top_bar_layout.setContentsMargins(0, 0, 0, 5)  # Only bottom margin
+        top_bar_layout.addStretch()
+        self.install_button = QPushButton("Install PHP Version...")  # Placeholder
+        self.install_button.setObjectName("InstallPhpButton")
+        self.install_button.setEnabled(False)  # Disabled for now
+        self.install_button.setToolTip("Feature coming soon!")
+        top_bar_layout.addWidget(self.install_button)
+        main_layout.addLayout(top_bar_layout)
 
-        # Enhanced table styling
-        self.php_table.setSelectionMode(QAbstractItemView.NoSelection)
-        self.php_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.php_table.verticalHeader().setVisible(False)
-        self.php_table.setShowGrid(True)
-        self.php_table.setAlternatingRowColors(True)  # Enable alternating row colors
-        self.php_table.setStyleSheet("gridline-color: #E9ECEF;")
+        # --- PHP Version List --- <<< Use QListWidget
+        self.version_list_widget = QListWidget()
+        self.version_list_widget.setObjectName("PhpVersionList")  # For styling
+        self.version_list_widget.setSpacing(0)  # No extra space between items
+        self.version_list_widget.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.version_list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # Apply basic style, can be overridden by global QSS
+        self.version_list_widget.setStyleSheet(
+            "QListWidget { border: none; border-top: 1px solid #E9ECEF; } QListWidget::item { border-bottom: 1px solid #E9ECEF; padding: 0; margin: 0; }")
+        main_layout.addWidget(self.version_list_widget)  # Let list take default space
 
-        # Set corner button style
-        self.php_table.findChild(QAbstractButton).setStyleSheet(
-            "background-color: #F8F9FA; border: none; border-top-left-radius: 6px;"
-        )
+        # --- Common PHP INI Settings Section --- (Keep as before)
+        self.ini_group_box = QGroupBox("Common PHP INI Settings")  # Title set later
+        self.ini_group_box.setObjectName("PhpIniGroup")
+        self.ini_group_box.setFont(QFont("Sans Serif", 10, QFont.Bold))  # Set font if needed
+        ini_layout = QFormLayout(self.ini_group_box)
+        ini_layout.setContentsMargins(15, 20, 15, 15)  # Padding inside box
+        ini_layout.setSpacing(10)
+        ini_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
-        # Header configuration
-        header = self.php_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-
-        # Set section alignment to center
-        for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.Stretch)
-
-        # Set fixed column widths for better control
-        self.php_table.setColumnWidth(0, 100)  # Version column
-        self.php_table.setColumnWidth(1, 120)  # Status column
-        # Let columns 2 and 3 adjust to content
-
-        # Add the table to the layout
-        layout.addWidget(self.php_table)
-
-        # --- PHP INI Settings Section ---
-        self.ini_group_box = QGroupBox("Common PHP INI Settings"); self.ini_group_box.setFont(QFont("Sans Serif", 10, QFont.Bold))
-        ini_layout = QVBoxLayout(self.ini_group_box); ini_layout.setSpacing(10)
-        upload_layout = QHBoxLayout(); upload_label = QLabel("Max File Upload Size (MB):"); self.upload_spinbox = QSpinBox()
-        self.upload_spinbox.setRange(2, 2048); self.upload_spinbox.setSuffix(" MB"); self.upload_spinbox.setToolTip("Sets 'upload_max_filesize' and 'post_max_size'")
-        upload_layout.addWidget(upload_label); upload_layout.addStretch(); upload_layout.addWidget(self.upload_spinbox); ini_layout.addLayout(upload_layout)
-        memory_layout = QHBoxLayout(); memory_label = QLabel("Memory Limit (MB):"); self.memory_spinbox = QSpinBox()
-        self.memory_spinbox.setRange(-1, 4096); self.memory_spinbox.setSpecialValueText("Unlimited (-1)"); self.memory_spinbox.setSuffix(" MB"); self.memory_spinbox.setToolTip("Sets 'memory_limit'")
-        memory_layout.addWidget(memory_label); memory_layout.addStretch(); memory_layout.addWidget(self.memory_spinbox); ini_layout.addLayout(memory_layout)
-        self.save_ini_button = QPushButton("Save INI Settings"); self.save_ini_button.setEnabled(False); self.save_ini_button.setToolTip("Save changes to selected PHP version's ini")
-        ini_save_layout = QHBoxLayout(); ini_save_layout.addStretch(); ini_save_layout.addWidget(self.save_ini_button); ini_layout.addLayout(ini_save_layout)
-        layout.addWidget(self.ini_group_box)
-        layout.addStretch(1)
-
-        # --- Connect Signals ---
+        # Upload Max Filesize
+        self.upload_spinbox = QSpinBox()
+        self.upload_spinbox.setRange(2, 2048);
+        self.upload_spinbox.setSuffix(" MB");
+        self.upload_spinbox.setToolTip("Sets 'upload_max_filesize' and 'post_max_size'")
         self.upload_spinbox.valueChanged.connect(self.on_ini_value_changed)
+        ini_layout.addRow("Max File Upload Size:", self.upload_spinbox)
+
+        # Memory Limit
+        self.memory_spinbox = QSpinBox()
+        self.memory_spinbox.setRange(-1, 4096);
+        self.memory_spinbox.setSpecialValueText("Unlimited (-1)");
+        self.memory_spinbox.setSuffix(" MB");
+        self.memory_spinbox.setToolTip("Sets 'memory_limit'")
         self.memory_spinbox.valueChanged.connect(self.on_ini_value_changed)
+        ini_layout.addRow("Memory Limit:", self.memory_spinbox)
+
+        # Save Button
+        self.save_ini_button = QPushButton("Save INI Settings")
+        self.save_ini_button.setObjectName("SaveIniButton")
+        self.save_ini_button.setEnabled(False)
+        self.save_ini_button.setToolTip("Save common INI changes for the displayed PHP version")
         self.save_ini_button.clicked.connect(self.on_save_ini_internal_click)
+        button_hbox = QHBoxLayout();
+        button_hbox.addStretch();
+        button_hbox.addWidget(self.save_ini_button)
+        ini_layout.addRow(button_hbox)
 
-    def _add_version_to_table(self, version, status):
-        """Helper method to add a row to the PHP table for a specific version."""
-        row_position = self.php_table.rowCount()
-        self.php_table.insertRow(row_position)
+        main_layout.addWidget(self.ini_group_box)  # Add group box below list
+        # --- End INI Settings Section ---
 
-        # Column 0: Version Item
-        version_item = QTableWidgetItem(version)
-        version_item.setTextAlignment(Qt.AlignCenter)
-        self.php_table.setItem(row_position, 0, version_item)
-
-        # Column 1: Status Item
-        status_text = status.capitalize()
-        status_item = QTableWidgetItem(status_text)
-        status_item.setTextAlignment(Qt.AlignCenter)
-
-        # Set color based on status
-        if status == "running" or status == "active": # Check both just in case
-            status_item.setForeground(Qt.darkGreen)
-        elif status == "stopped" or status == "inactive":
-             status_item.setForeground(Qt.darkRed)
-        else: # unknown, error, etc.
-            status_item.setForeground(Qt.darkGray)
-        self.php_table.setItem(row_position, 1, status_item)
-
-        # Column 2: FPM Actions (Buttons in a Widget/Layout)
-        fpm_action_widget = QWidget()
-        action_layout = QHBoxLayout(fpm_action_widget)
-        action_layout.setContentsMargins(5, 2, 5, 2) # Minimal margins
-        action_layout.setSpacing(5)
-
-        start_button = QPushButton("Start")
-        stop_button = QPushButton("Stop")
-
-        # Apply action property for styling
-        start_button.setProperty("action", "start")
-        stop_button.setProperty("action", "stop")
-
-        start_button.setToolTip(f"Start PHP-FPM {version}")
-        stop_button.setToolTip(f"Stop PHP-FPM {version}")
-
-        # Connect buttons to the internal slot that emits the page signal
-        start_button.clicked.connect(lambda checked=False, v=version: self.emit_manage_fpm_signal(v, "start"))
-        stop_button.clicked.connect(lambda checked=False, v=version: self.emit_manage_fpm_signal(v, "stop"))
-
-        # Only show the appropriate button based on status
-        is_running = status == "running" or status == "active"
-        is_stopped = status == "stopped" or status == "inactive"
-
-        action_layout.addStretch(1)
-
-        # Show Start only if stopped/inactive
-        if is_stopped:
-            action_layout.addWidget(start_button)
-            # Don't even add the stop button to layout
-        # Show Stop only if running/active
-        elif is_running:
-            action_layout.addWidget(stop_button)
-            # Don't even add the start button to layout
-        # For unknown status, show both buttons but disable them
-        else:
-            action_layout.addWidget(start_button)
-            action_layout.addWidget(stop_button)
-            start_button.setEnabled(False)
-            stop_button.setEnabled(False)
-
-        action_layout.addStretch(1)
-
-        self.php_table.setCellWidget(row_position, 2, fpm_action_widget) # Column index 2
-
-        # Column 3: Config Actions (Edit INI)
-        config_widget = QWidget()
-        config_layout = QHBoxLayout(config_widget)
-        config_layout.setContentsMargins(5, 2, 5, 2)
-        config_layout.setSpacing(5)
-
-        # Create a config button (no dropdown)
-        config_button = QPushButton("Configure")
-        config_button.setProperty("type", "configure")
-        config_button.setToolTip(f"Options for PHP {version}")
-
-        # Use this method to show a context menu on button click
-        def show_config_menu():
-            menu = QMenu(config_button)
-            menu.setStyleSheet("""
-                    QMenu {
-                        background-color: #FFFFFF;
-                        border: 1px solid #E9ECEF;
-                        border-radius: 4px;
-                        padding: 5px 0;
-                        min-width: 150px;
-                    }
-                    QMenu::item {
-                        padding: 8px 20px;
-                        color: #495057;
-                    }
-                    QMenu::item:selected {
-                        background-color: #E7F3FF;
-                        color: #007AFF;
-                    }
-                    QMenu::icon {
-                        padding-left: 15px;
-                    }
-                """)
-
-            # Add actions with icons (optional - use your own icons or skip icons)
-            edit_action = menu.addAction("Edit php.ini")
-            ext_action = menu.addAction("Extensions...")
-
-            # Connect actions
-            edit_action.triggered.connect(lambda: self.on_edit_ini_clicked(version))
-            ext_action.triggered.connect(lambda: self.showExtensionsDialog.emit(version))
-
-            # Calculate position to prevent menu from going off-screen
-            global_pos = config_button.mapToGlobal(config_button.rect().bottomLeft())
-
-            # Calculate available space
-            screen = QApplication.primaryScreen().availableGeometry()
-            menu_width = menu.sizeHint().width()
-            menu_height = menu.sizeHint().height()
-
-            # Adjust position if menu would go off-screen
-            if global_pos.x() + menu_width > screen.right():
-                global_pos.setX(screen.right() - menu_width)
-            if global_pos.y() + menu_height > screen.bottom():
-                global_pos.setY(global_pos.y() - menu_height - config_button.height())
-
-            # Show menu at adjusted position
-            menu.exec_(global_pos)
-
-        # Connect button click to show menu
-        config_button.clicked.connect(show_config_menu)
-
-        # Add button to layout with proper centering
-        config_layout.addStretch(1)
-        config_layout.addWidget(config_button)
-        config_layout.addStretch(1)
-
-        self.php_table.setCellWidget(row_position, 3, config_widget)  # Column index 3
-
-        # Adjust row height to ensure buttons fit nicely
-        self.php_table.resizeRowToContents(row_position)
+        main_layout.addStretch(1)
 
     @Slot(str, str)
-    def emit_manage_fpm_signal(self, version, action): # (Unchanged)
-        print(f"PhpPage: FPM Action Triggered - Action: {action}, Version: {version}")
-        self.set_controls_enabled(False); self.managePhpFpmClicked.emit(version, action)
+    def on_fpm_action_clicked(self, version, action):
+        """Handles Start/Stop signal from item widget and emits to MainWindow."""
+        self.log_to_main(f"PhpPage: FPM Action '{action}' requested for '{version}'")
+        self.set_controls_enabled(False)
+        self.managePhpFpmClicked.emit(version, action)
 
-    @Slot()
-    def refresh_data(self): # (Unchanged - calls imported functions)
-        """Called by MainWindow to reload PHP version data and status."""
-        print("PhpPage: Refreshing PHP data...")
-        self.php_table.setRowCount(0); available_versions = []; status = "error" # Defaults
-        try: available_versions = detect_bundled_php_versions()
-        except Exception as e: print(f"Error detecting versions: {e}")
-        if not available_versions:
-            self.php_table.setRowCount(1); item=QTableWidgetItem("No bundled PHP versions detected."); item.setTextAlignment(Qt.AlignCenter)
-            self.php_table.setItem(0,0,item); self.php_table.setSpan(0,0,1,self.php_table.columnCount()); self.ini_group_box.setEnabled(False); self._current_ini_version=None; return
-        else: self.ini_group_box.setEnabled(True)
-        for version in available_versions:
-            try: status = get_php_fpm_status(version)
-            except Exception as e: print(f"Error status PHP {version}: {e}"); status = "error"
-            self._add_version_to_table(version, status)
-        self._current_ini_version = available_versions[0] # Settings for first version
-        self.ini_group_box.setTitle(f"Common PHP INI Settings (for PHP {self._current_ini_version})")
-        self._load_ini_values_for_display(self._current_ini_version)
-
-    def _load_ini_values_for_display(self, version): # (Unchanged - calls imported functions)
-        if not version: return; print(f"PhpPage: Loading INI for {version}"); self._initial_ini_values = {}
-        upload_str = get_ini_value(version, 'upload_max_filesize'); upload_mb = self._parse_mb_value(upload_str)
-        self.upload_spinbox.setValue(upload_mb if upload_mb is not None else self.upload_spinbox.minimum())
-        self._initial_ini_values['upload_max_filesize'] = self.upload_spinbox.value()
-        mem_str = get_ini_value(version, 'memory_limit'); mem_mb = self._parse_mb_value(mem_str, allow_unlimited=-1)
-        self.memory_spinbox.setValue(mem_mb if mem_mb is not None else -1)
-        self._initial_ini_values['memory_limit'] = self.memory_spinbox.value()
-        self.save_ini_button.setEnabled(False)
-
-    def _parse_mb_value(self, value_str, allow_unlimited=None): # (Unchanged)
-        if value_str is None: return None; value_str = str(value_str).strip().upper()
-        if allow_unlimited is not None and value_str == str(allow_unlimited): return allow_unlimited
-        m = re.match(r'^(\d+)\s*M$', value_str);
-        if m: return int(m.group(1))
-        try: return int(value_str)
-        except ValueError: return None
+    @Slot(str)
+    def on_configure_clicked(self, version):
+        """Handles Configure signal from item widget and emits to MainWindow."""
+        self.log_to_main(f"PhpPage: Configure requested for '{version}'")
+        # Emit signal for MainWindow to open the specific config dialog/view
+        # This dialog will contain INI details AND extension management
+        self.configurePhpVersionClicked.emit(version)
 
     @Slot()
     def on_ini_value_changed(self):
         """Enables Save button if current values differ from initial."""
-        if not self._current_ini_version:
-            # Disable save button if no INI context loaded
-            if hasattr(self, 'save_ini_button'): self.save_ini_button.setEnabled(False)
-            return
-
-        # Ensure button exists before trying to use it
-        save_btn = self.save_ini_button # Assume button was created in __init__
-        if not hasattr(self, 'save_ini_button'): # Check if attribute exists
-             print("PhpPage Debug: Save INI button reference missing")
-             return
-
+        if not self._current_ini_version: return
         changed = False
-        # Compare current widget values to stored initial values
-        if hasattr(self, 'upload_spinbox') and self.upload_spinbox.value() != self._initial_ini_values.get('upload_max_filesize'):
-            changed = True
-        if hasattr(self, 'memory_spinbox') and self.memory_spinbox.value() != self._initial_ini_values.get('memory_limit'):
-            changed = True
-        # Add checks for other INI controls here if added later
-
-        # Set button state based on whether anything changed
-        save_btn.setEnabled(changed)
+        try:  # Add checks for widget existence
+            if hasattr(self, 'upload_spinbox') and self.upload_spinbox.value() != self._initial_ini_values.get(
+                    'upload_max_filesize'):
+                changed = True
+            if hasattr(self, 'memory_spinbox') and self.memory_spinbox.value() != self._initial_ini_values.get(
+                    'memory_limit'):
+                changed = True
+        except Exception as e:
+            self.log_to_main(f"Error checking INI value change: {e}"); changed = False
+        if hasattr(self, 'save_ini_button'): self.save_ini_button.setEnabled(changed)
 
     @Slot()
     def on_save_ini_internal_click(self):
         """Reads UI values, formats them, and emits signal to MainWindow."""
-        if not self._current_ini_version:
-            self.log_to_main("PhpPage Error: Cannot save INI, no current version selected.")
-            return
+        if not self._current_ini_version: self.log_to_main(
+            "PhpPage Error: Cannot save INI, no current version context."); return
+        if not hasattr(self, 'upload_spinbox') or not hasattr(self, 'memory_spinbox'): self.log_to_main(
+            "PhpPage Error: INI input widgets not found."); return
 
-        # Check if the widgets exist before accessing their values
-        if not hasattr(self, 'upload_spinbox') or not hasattr(self, 'memory_spinbox'):
-            self.log_to_main("PhpPage Error: INI input widgets not found.")
-            return
-
-        # --- ADD THESE LINES TO GET VALUES --- vvv
         upload_mb = self.upload_spinbox.value()
         memory_mb = self.memory_spinbox.value()
-        # --- END ADDED LINES ---
-
-        # Now create the dictionary using the retrieved values
         settings_to_save = {
             'upload_max_filesize': f"{upload_mb}M",
-            # Set post_max_size same as upload for simplicity
-            'post_max_size': f"{upload_mb}M",
+            'post_max_size': f"{upload_mb}M",  # Set post_max same as upload
             'memory_limit': "-1" if memory_mb == -1 else f"{memory_mb}M"
         }
-
         self.log_to_main(f"PhpPage: Requesting INI update for PHP {self._current_ini_version}: {settings_to_save}")
         self.set_controls_enabled(False)  # Disable controls while saving
-        # self.save_ini_button should already be disabled by set_controls_enabled
-        # but we can ensure it here too if needed:
-        # if hasattr(self, 'save_ini_button'): self.save_ini_button.setEnabled(False)
-
-        # Emit signal with the version and the dictionary of settings
+        if hasattr(self, 'save_ini_button'): self.save_ini_button.setEnabled(False)
         self.saveIniSettingsClicked.emit(self._current_ini_version, settings_to_save)
 
-    @Slot(str)
-    def on_edit_ini_clicked(self, version): # (Unchanged)
-        self.log_to_main(f"PhpPage: Edit INI requested for PHP {version}")
-        try:
-            ini_path = _get_php_ini_path(version) # Use imported helper
-            if ini_path.is_file():
-                xdg_open = shutil.which('xdg-open')
-                if xdg_open: print(f"Opening {ini_path}"); subprocess.Popen([xdg_open, str(ini_path)])
-                else: self.log_to_main("Error: 'xdg-open' not found.")
-            else: self.log_to_main(f"Error: php.ini not found for {version} at {ini_path}")
-        except Exception as e: self.log_to_main(f"Error opening php.ini for {version}: {e}")
+    def refresh_data(self):
+        """Called by MainWindow to reload PHP version data and status."""
+        # Check if self is still valid before proceeding
+        try: _ = self.objectName()
+        except RuntimeError: print("DEBUG PhpPage: refresh_data called on deleted widget."); return
+
+        self.log_to_main("PhpPage: Refreshing PHP data (List View - Rebuild All)...")
+        try: available_versions = detect_bundled_php_versions()
+        except Exception as e: self.log_to_main(f"Error detecting PHP: {e}"); available_versions = []
+
+        # --- Clear List and Widget Tracker ---
+        # Disconnect signals first? Maybe not necessary if clearing removes items/widgets
+        self.version_list_widget.clear()
+        # Explicitly delete old widgets that were being tracked
+        for version, widget in self.version_widgets.items():
+            widget.deleteLater() # Schedule for deletion
+        self.version_widgets.clear() # Clear the tracker
+        default_version_for_ini = None
+
+        # --- Repopulate List ---
+        if not available_versions:
+            self.version_list_widget.addItem(QListWidgetItem("No bundled PHP versions found."))
+            if hasattr(self, 'ini_group_box'): self.ini_group_box.setEnabled(False)
+            self._current_ini_version = None;
+        else:
+            if hasattr(self, 'ini_group_box'): self.ini_group_box.setEnabled(True)
+            # Populate list with NEW widgets
+            for version in available_versions:
+                if default_version_for_ini is None: default_version_for_ini = version
+                status = "unknown";
+                try: status = get_php_fpm_status(version);
+                except Exception as e: self.log_to_main(f"Error status PHP {version}: {e}")
+
+                # Create a NEW widget every time
+                widget = PhpVersionItemWidget(version, status)
+                # Connect signals from the new widget
+                widget.actionClicked.connect(self.on_fpm_action_clicked)
+                widget.configureClicked.connect(self.on_configure_clicked)
+
+                self.version_widgets[version] = widget # Add to tracker
+
+                # Create QListWidgetItem and set the widget for it
+                item = QListWidgetItem()
+                item.setSizeHint(widget.sizeHint()) # Important for layout
+                self.version_list_widget.addItem(item)
+                self.version_list_widget.setItemWidget(item, widget)
+
+            # Load INI values for the default/first version
+            if default_version_for_ini: self._load_ini_values_for_display(default_version_for_ini)
+            else:
+                if hasattr(self, 'ini_group_box'): self.ini_group_box.setEnabled(False)
+                self._current_ini_version = None;
+
+    def _load_ini_values_for_display(self, version):
+        """Loads common INI values for the given version into the UI."""
+        if not version:
+             if hasattr(self, 'ini_group_box'): self.ini_group_box.setTitle("Common PHP INI Settings"); self.ini_group_box.setEnabled(False);
+             return
+
+        self.log_to_main(f"PhpPage: Loading INI values for PHP {version}")
+        self._current_ini_version = version
+        if hasattr(self, 'ini_group_box'):
+             self.ini_group_box.setTitle(f"Common PHP INI Settings (PHP {version})")
+             self.ini_group_box.setEnabled(True)
+        self._initial_ini_values = {}
+
+        upload_str = get_ini_value(version, 'upload_max_filesize'); upload_mb = self._parse_mb_value(upload_str)
+        mem_str = get_ini_value(version, 'memory_limit'); mem_mb = self._parse_mb_value(mem_str, allow_unlimited=-1)
+
+        if hasattr(self, 'upload_spinbox'): self.upload_spinbox.setValue(upload_mb if upload_mb is not None else 2); self._initial_ini_values['upload_max_filesize'] = self.upload_spinbox.value()
+        if hasattr(self, 'memory_spinbox'): self.memory_spinbox.setValue(mem_mb if mem_mb is not None else 128); self._initial_ini_values['memory_limit'] = self.memory_spinbox.value()
+        if hasattr(self, 'save_ini_button'): self.save_ini_button.setEnabled(False)
+
+    def _parse_mb_value(self, value_str, allow_unlimited=None):
+        """Parses strings like '128M' or '-1' into integer MB."""
+        if value_str is None: return None
+        value_str = str(value_str).strip().upper()
+        if allow_unlimited is not None and value_str == str(allow_unlimited): return allow_unlimited
+        m = re.match(r'^(\d+)\s*M$', value_str)
+        if m: return int(m.group(1))
+        try: return int(value_str)
+        except ValueError: return None
 
     @Slot(bool)
-    def set_controls_enabled(self, enabled): # (Unchanged)
-         print(f"PhpPage: Setting controls enabled: {enabled}");
-         for row in range(self.php_table.rowCount()):
-             fpm_widget = self.php_table.cellWidget(row, 2); conf_widget = self.php_table.cellWidget(row, 3)
-             if fpm_widget:
-                  for btn in fpm_widget.findChildren(QPushButton):
-                       if enabled: status=(self.php_table.item(row,1).text().lower() if self.php_table.item(row,1) else "unk"); txt=btn.text().lower(); btn.setEnabled( (txt=="start" and status=="stopped") or (txt=="stop" and status=="running") )
-                       else: btn.setEnabled(False)
-             if conf_widget:
-                  for btn in conf_widget.findChildren(QPushButton): btn.setEnabled(enabled)
-         self.ini_group_box.setEnabled(enabled)
-         if enabled: self.on_ini_value_changed()
-         else: self.save_ini_button.setEnabled(False)
+    def set_controls_enabled(self, enabled):
+        """Enable/disable controls on all version items and INI section."""
+        self.log_to_main(f"PhpPage: Setting controls enabled state: {enabled}")
+        is_enabling = enabled
+        # Iterate through tracked widgets
+        for version, widget in self.version_widgets.items():
+            if hasattr(widget, 'set_controls_enabled'):
+                widget.set_controls_enabled(enabled)
+            else:
+                widget.setEnabled(enabled)  # Fallback
+
+        # INI Section
+        if hasattr(self, 'ini_group_box'): self.ini_group_box.setEnabled(enabled)
+        # Install button
+        # self.install_button.setEnabled(enabled) # Keep install disabled
+
+        if is_enabling:
+            self.on_ini_value_changed()  # Re-check save button state
+            # Refresh data might cause loop if called directly? Use timer.
+            QTimer.singleShot(10, self.refresh_data)  # Refresh list states after enable
+        else:
+            if hasattr(self, 'save_ini_button'): self.save_ini_button.setEnabled(False)
 
     # Helper to log messages via MainWindow
     def log_to_main(self, message): # (Unchanged)

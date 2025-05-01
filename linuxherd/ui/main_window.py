@@ -52,8 +52,8 @@ try:
     from .php_page import PhpPage
     from .sites_page import SitesPage
 
-    from .php_extensions_dialog import PhpExtensionsDialog
     from .add_service_dialog import AddServiceDialog
+    from .php_config_dialog import PhpConfigurationDialog
 except ImportError as e:
      print(f"ERROR in main_window.py: Could not import page widgets - {e}")
 
@@ -243,19 +243,23 @@ class MainWindow(QMainWindow):
         self.thread.start()
         # --- Connect Signals
         self.sidebar.currentRowChanged.connect(self.change_page)
+        # Services Page Signals
         self.services_page.serviceActionTriggered.connect(self.on_service_action_triggered);
         self.services_page.addServiceClicked.connect(self.on_add_service_button_clicked);
         self.services_page.removeServiceRequested.connect(self.on_remove_service_config);
         self.services_page.stopAllServicesClicked.connect(self.on_stop_all_services_clicked)
+        # Sites Page Signals
         self.sites_page.linkDirectoryClicked.connect(self.add_site_dialog);
         self.sites_page.unlinkSiteClicked.connect(self.remove_selected_site);
         self.sites_page.saveSiteDomainClicked.connect(self.on_save_site_domain);
         self.sites_page.setSitePhpVersionClicked.connect(self.on_set_site_php_version);
         self.sites_page.enableSiteSslClicked.connect(self.on_enable_site_ssl);
         self.sites_page.disableSiteSslClicked.connect(self.on_disable_site_ssl);
+        # PHP Page Signals
         self.php_page.managePhpFpmClicked.connect(self.on_manage_php_fpm_triggered);
         self.php_page.saveIniSettingsClicked.connect(self.on_save_php_ini_settings);
-        self.php_page.showExtensionsDialog.connect(self.on_show_extensions_dialog)
+        self.php_page.configurePhpVersionClicked.connect(self.on_configure_php_version_clicked)
+        # self.php_page.showExtensionsDialog.connect(self.on_show_extensions_dialog)
         # --- Initial State Setup --- (Unchanged)
         self.log_message("Application starting...");
         self.sidebar.setCurrentRow(0);
@@ -467,54 +471,82 @@ class MainWindow(QMainWindow):
             self.triggerWorker.emit("install_nginx", task_data)
             print("DEBUG: triggerWorker emitted.")
 
-    # Slot connected to php_page.showExtensionsDialog
     @Slot(str)
-    def on_show_extensions_dialog(self, version):
-        """Creates and shows the dialog to manage extensions for a PHP version."""
-        self.log_message(f"Opening extensions dialog for PHP {version}...")
+    def on_configure_php_version_clicked(self, version):
+        """Handles request to open the NEW configuration dialog for a PHP version."""
+        self.log_message(f"MAIN_WINDOW: Configure PHP {version} requested...")
         try:
-            # Create the dialog instance, passing the version and parent
-            # Store a reference to it while it's open
-            self.current_extension_dialog = PhpExtensionsDialog(version, self)
-            # Connect the dialog's signal to trigger the worker <<< CONNECT HERE
-            self.current_extension_dialog.toggleExtensionRequested.connect(self.on_toggle_php_extension)
-            # Connect the dialog's finished signal to clear the reference
-            self.current_extension_dialog.finished.connect(self.on_extensions_dialog_closed)
+            # Create the new dialog instance
+            dialog = PhpConfigurationDialog(version, self)
+            # Connect signals from the dialog to trigger worker tasks
+            dialog.saveIniSettingsRequested.connect(self.on_save_php_config_ini)
+            dialog.toggleExtensionRequested.connect(self.on_toggle_php_extension)
+            dialog.finished.connect(self.on_php_config_dialog_closed)  # Use generic finished handler
 
-            self.current_extension_dialog.exec()  # Show dialog modally
+            dialog.exec()  # Show dialog modally
 
         except Exception as e:
-            self.log_message(f"Error opening extensions dialog for PHP {version}: {e}")
-            import traceback;
-            traceback.print_exc()
-            self.current_extension_dialog = None  # Ensure reset on error
+            self.log_message(f"Error opening PHP config dialog for {version}: {e}")
+            traceback.print_exc();
+            QMessageBox.critical(self, "Dialog Error", f"Could not open PHP config dialog:\n{e}")
 
-    # NEW Slot connected to dialog's finished signal
+    # Slot connected to dialog's finished signal
     @Slot(int)
-    def on_extensions_dialog_closed(self, result):
-        """Clears the reference when the dialog closes."""
-        self.log_message(f"Extensions dialog closed with result: {result}")
-        self.current_extension_dialog = None
-        # Optionally refresh main PHP page now
-        # if isinstance(self.stacked_widget.currentWidget(), PhpPage):
-        #      self.php_page.refresh_data()
+    def on_php_config_dialog_closed(self, result):
+        """Handles dialog closure and triggers saves if accepted."""
+        self.log_message(f"PHP Config dialog closed with result: {result}")
+        dialog = self.sender()  # Get the dialog that emitted the signal
+        if result == QDialog.Accepted and dialog:
+            self.log_message("PHP Config dialog was accepted (Save clicked).")
+            pending_changes = dialog.get_pending_changes()
+            version = dialog.php_version  # Get version from dialog attribute
 
-    # NEW Slot connected to dialog's toggleExtensionRequested <<< ADDED THIS
-    @Slot(str, str, bool)  # Receives version, ext_name, enable_state
+            # Trigger INI save task if needed
+            if pending_changes.get("ini"):
+                self.log_message(f"Triggering INI save for PHP {version}...")
+                self.on_save_php_config_ini(version, pending_changes["ini"])
+            else:
+                self.log_message("No pending INI changes to save.")
+
+            # Trigger extension toggle tasks if needed
+            if pending_changes.get("extensions"):
+                self.log_message(f"Triggering extension toggles for PHP {version}...")
+                for ext_name, enable_state in pending_changes["extensions"].items():
+                    self.on_toggle_php_extension(version, ext_name, enable_state)
+            else:
+                self.log_message("No pending extension changes to save.")
+
+        elif dialog:
+            self.log_message("PHP Config dialog was cancelled.")
+        # Clean up reference (optional, depends if stored elsewhere)
+        # self.current_php_config_dialog = None
+        # Refresh main PHP page after closing dialog to reflect any changes
+        if isinstance(self.stacked_widget.currentWidget(), PhpPage):
+            self.php_page.refresh_data()
+
+    # Slot connected to dialog's saveIniSettingsRequested
+    @Slot(str, dict)
+    def on_save_php_config_ini(self, version, settings_dict):
+        """Handles saving INI settings requested from the config dialog."""
+        self.log_message(
+            f"MAIN_WINDOW DEBUG: on_save_php_config_ini called for v{version}, settings: {settings_dict}")  # <<< DEBUG
+        if not version or not settings_dict: self.log_message("Error: Missing data for INI save from dialog."); return
+        # Disable controls on the PhpPage while saving? Or dialog handles its own state?
+        # if isinstance(self.php_page, PhpPage): self.php_page.set_controls_enabled(False)
+        task_data = {"version": version, "settings_dict": settings_dict}
+        print(f"MAIN_WINDOW DEBUG: Emitting worker task 'save_php_ini' with data: {task_data}")  # <<< DEBUG
+        self.triggerWorker.emit("save_php_ini", task_data)
+
+    # NEW Slot connected to dialog's toggleExtensionRequested
+    @Slot(str, str, bool)
     def on_toggle_php_extension(self, version, ext_name, enable_state):
-        """Handles signal from PhpExtensionsDialog to enable/disable an extension."""
+        """Handles signal from PhpConfigDialog to enable/disable an extension."""
+        self.log_message(
+            f"MAIN_WINDOW DEBUG: on_toggle_php_extension called for v{version}, ext: {ext_name}, enable: {enable_state}")  # <<< DEBUG
         action_word = "enable" if enable_state else "disable"
-        self.log_message(f"Requesting background {action_word} for extension '{ext_name}' (PHP {version})...")
-
-        # Controls are disabled within the dialog by its on_extension_toggled slot
-
         # Prepare data for worker
-        task_data = {
-            "version": version,
-            "extension_name": ext_name,
-            "enable_state": enable_state
-        }
-        # Trigger the new worker task
+        task_data = {"version": version, "extension_name": ext_name, "enable_state": enable_state}
+        print(f"MAIN_WINDOW DEBUG: Emitting worker task 'toggle_php_extension' with data: {task_data}")  # <<< DEBUG
         self.triggerWorker.emit("toggle_php_extension", task_data)
 
     @Slot()
