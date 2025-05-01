@@ -9,18 +9,20 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QTextEdit, QScrollArea, QMessageBox, QApplication,
                                QSpacerItem, QGroupBox)
 from PySide6.QtCore import Signal, Slot, Qt, QTimer, QObject, QUrl, QSize
-from PySide6.QtGui import QFont, QPalette, QColor, QTextCursor, QDesktopServices, QClipboard, QIcon
+from PySide6.QtGui import QFont, QPalette, QColor, QTextCursor, QDesktopServices, QClipboard, QIcon, QBrush
 
 # --- Import Core Config & Custom Widget ---
 try:
     from ..core import config
     from .service_item_widget import ServiceItemWidget
     from ..managers.services_config_manager import load_configured_services
+    import traceback
     import html
     import re
     import shutil
     import subprocess
     from pathlib import Path
+    from collections import defaultdict
 except ImportError as e:
     print(f"ERROR in services_page.py: Could not import dependencies: {e}")
     class ServiceItemWidget(QWidget):
@@ -47,6 +49,7 @@ class ServicesPage(QWidget):
     serviceActionTriggered = Signal(str, str)
     addServiceClicked = Signal()
     removeServiceRequested = Signal(str)
+    stopAllServicesClicked = Signal()
 
     def __init__(self, parent=None):
         """Initializes the Services page UI - dynamically loads services."""
@@ -62,63 +65,90 @@ class ServicesPage(QWidget):
         # --- Main Layout (Splitter) ---
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.splitter)
         self.splitter.setChildrenCollapsible(True)
 
         # --- Left Pane: Service List & Controls ---
-        self.left_pane_widget = QWidget();
-        self.left_pane_widget.setObjectName("ServiceListPane")
-        self.left_pane_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        left_layout = QVBoxLayout(self.left_pane_widget);
-        left_layout.setContentsMargins(0, 5, 0, 5);
-        left_layout.setSpacing(8)
+        left_pane_widget = QWidget()
+        left_pane_widget.setObjectName("ServiceListPane")
+        left_layout = QVBoxLayout(left_pane_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(0)
 
         # --- Top Bar: Title and Add Button ---
         top_bar_layout = QHBoxLayout()
-        top_bar_layout.setContentsMargins(10, 0, 10, 0)
+        top_bar_layout.setContentsMargins(10, 10, 10, 10)
+        top_bar_layout.setSpacing(10)
         title = QLabel("Managed Services")
-        title.setFont(QFont("Sans Serif", 18, QFont.Weight.Bold))
+        title.setFont(QFont("Sans Serif", 11, QFont.Weight.Bold))
+
+        self.stop_all_button = QPushButton("Stop All")
+        try:
+            stop_icon = QIcon(":/icons/stop.svg")
+
+            if not stop_icon.isNull():
+                self.stop_all_button.setIcon(stop_icon)
+            else:
+                print("Warning: Could not load stop.svg icon, using text fallback.")
+                self.stop_all_button.setText("...")
+        except NameError:
+            stop_icon = QIcon()
+
+        self.stop_all_button.setObjectName("StopAllButton")
+        self.stop_all_button.setToolTip("Stop all running managed services (Nginx, MySQL, Redis etc.)")
+        self.stop_all_button.setIconSize(QSize(16, 16))
+        self.stop_all_button.setFlat(True)
+        self.stop_all_button.clicked.connect(self.stopAllServicesClicked.emit)
+
         self.add_service_button = QPushButton("Add Service")
         self.add_service_button.setObjectName("AddServiceButton")
         self.add_service_button.clicked.connect(self.addServiceClicked.emit)
+
         top_bar_layout.addWidget(title)
         top_bar_layout.addStretch()
-        top_bar_layout.addWidget(self.add_service_button)
+        top_bar_layout.addWidget(self.add_service_button)  # Add Service button
+        top_bar_layout.addWidget(self.stop_all_button)  # Add Stop All button
         left_layout.addLayout(top_bar_layout)
         # --- End Top Bar ---
 
-        self.service_list_widget = QListWidget();
-        self.service_list_widget.setObjectName("ServiceList");
-        self.service_list_widget.setSpacing(0);
+        self.service_list_widget = QListWidget()
+        self.service_list_widget.setObjectName("ServiceList")
+        self.service_list_widget.setSpacing(0)
         self.service_list_widget.setStyleSheet(
             "QListWidget { border: none; } QListWidget::item { border-bottom: 1px solid #E9ECEF; padding: 0; margin: 0; }")
-        left_layout.addWidget(self.service_list_widget)
-        self.left_pane_widget.setMinimumWidth(600);
-        self.left_pane_widget.setMaximumWidth(600);
-        self.splitter.addWidget(self.left_pane_widget)
+        left_layout.addWidget(self.service_list_widget, 1)
+
+        # System Services Status Group (Keep at bottom of left pane)
+        system_group = QFrame()
+        system_group.setObjectName("ServiceGroupFrame")
+        system_layout = QVBoxLayout(system_group)
+        system_layout.setContentsMargins(10, 10, 10, 10)
+        system_title = QLabel("System Services (Info):")
+        system_title.setFont(QFont("Sans Serif", 9, QFont.Weight.Bold))
+        system_layout.addWidget(system_title)
+        self.system_dnsmasq_status_label = QLabel("System Dnsmasq: Unknown")
+        self.system_dnsmasq_status_label.setObjectName("StatusLabel")
+        self.system_dnsmasq_status_label.setFont(QFont("Sans Serif", 9))
+        self.system_dnsmasq_status_label.setStyleSheet("...")
+        self.system_dnsmasq_status_label.setToolTip("Status of system dnsmasq.service.")
+        system_layout.addWidget(self.system_dnsmasq_status_label)
+        left_layout.addWidget(system_group)
+
+        self.splitter.addWidget(left_pane_widget)
 
         # --- Right Pane: Details Area using QStackedWidget ---
         self.details_stack = QStackedWidget()
         self.details_stack.setObjectName("ServiceDetailsPane")
-        # Set size policy to expand horizontally
-        self.details_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.placeholder_widget = QLabel("Click the '...' settings button on a service to view details.")
+        self.placeholder_widget = QLabel("Click the Settings button ('⚙️') on a service...")
         self.placeholder_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder_widget.setStyleSheet("color: grey;")
-        self.details_stack.addWidget(self.placeholder_widget)  # Index 0
+        self.details_stack.addWidget(self.placeholder_widget)
         self.splitter.addWidget(self.details_stack)
         self.details_stack.setVisible(False)
         self.splitter.setSizes([250, 0])
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-
-        # --- Hide Details Pane Initially ---
-        self.details_stack.setVisible(False)
-        # Set initial sizes AFTER adding widgets
-        self.splitter.setSizes([250, 0])  # Start with right pane collapsed
-        self.splitter.setStretchFactor(0, 0)  # Left pane doesn't stretch initially
-        self.splitter.setStretchFactor(1, 1)  # Right pane takes available space when shown
 
     @Slot(str, str)
     def on_service_action(self, service_id, action):
@@ -165,44 +195,52 @@ class ServicesPage(QWidget):
     # --- Slot for Settings button clicks
     @Slot(str)  # Receives process_id from ServiceItemWidget's settingsClicked signal
     def on_show_service_details(self, process_id):
-        """Shows/Hides the detail widget for the service when Settings button clicked."""
+        """Shows/Hides the detail widget and updates button selected state."""
         self.log_to_main(f"ServicesPage: Settings clicked for {process_id}")
 
         is_currently_visible = self.details_stack.isVisible()
         is_showing_this_one = (self.current_selected_service_id == process_id)
 
+        # Deselect previous button if needed
         if self._last_selected_widget and self._last_selected_widget.service_id != process_id:
-            if hasattr(self._last_selected_widget, 'set_selected'):
-                self._last_selected_widget.set_selected(False)
+             if hasattr(self._last_selected_widget, 'set_selected'):
+                  self._last_selected_widget.set_selected(False)
 
         if is_currently_visible and is_showing_this_one:
             # --- Hide Logic ---
             self.log_to_main(f"Hiding details for {process_id}")
             self.details_stack.setVisible(False)
             self.current_selected_service_id = None
-            # Deselect the current button
             current_widget = self.service_widgets.get(process_id)
-            if current_widget and hasattr(current_widget, 'set_selected'):
-                current_widget.set_selected(False)
+            if current_widget and hasattr(current_widget, 'set_selected'): current_widget.set_selected(False)
             self._last_selected_widget = None
+            # Collapse right pane completely
             self.splitter.setSizes([self.splitter.width(), 0])
+            # Removed adjustSize call
+
         else:
             # --- Show Logic ---
             self.log_to_main(f"Showing details for {process_id}")
             self.current_selected_service_id = process_id
-            self._update_details_view(process_id)  # Ensure widget exists and is current
+            self._update_details_view(process_id) # Ensure widget exists/is current
 
+            # Select current button
             current_widget = self.service_widgets.get(process_id)
             if current_widget and hasattr(current_widget, 'set_selected'):
-                current_widget.set_selected(True)
-                self._last_selected_widget = current_widget  # Track current selection
+                 current_widget.set_selected(True)
+                 self._last_selected_widget = current_widget
 
             if not self.details_stack.isVisible():
-                self.details_stack.setVisible(True)
-                total_width = self.splitter.width()
-                left_width = 250
-                right_width = max(300, total_width - left_width)
-                self.splitter.setSizes([left_width, right_width])
+                 self.details_stack.setVisible(True)
+                 # Restore splitter state using a ratio <<< MODIFIED
+                 total_width = self.splitter.width()
+                 # Adjust ratio as needed (e.g., 35% left, 65% right)
+                 left_width = int(total_width * 0.54)
+                 right_width = total_width - left_width
+                 # Ensure minimum sizes if desired
+                 # left_width = max(200, left_width)
+                 # right_width = max(300, right_width)
+                 self.splitter.setSizes([left_width, right_width])
 
     # --- Detail View Handling ---
     def _update_details_view(self, process_id):
@@ -263,8 +301,8 @@ class ServicesPage(QWidget):
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setContentsMargins(20, 20, 20, 20)
-        scroll_layout.setSpacing(25)  # More spacing
+        scroll_layout.setContentsMargins(20, 20, 10, 20)
+        scroll_layout.setSpacing(20)  # More spacing
         scroll_area.setWidget(scroll_content)
         # Main layout for the detail page now just holds the scroll area
         page_layout = QVBoxLayout(widget)
@@ -611,117 +649,83 @@ class ServicesPage(QWidget):
 
     @Slot(bool)
     def set_controls_enabled(self, enabled):
-        """Enable/disable controls on all managed service items (currently just Nginx)."""
+        """Enable/disable controls on all service items AND global buttons."""
         self.log_to_main(f"ServicesPage: Setting controls enabled state: {enabled}")
-        for service_id, widget in self.service_widgets.items():
+        is_enabling = enabled
+        # Enable/disable individual service controls
+        for sid, widget in self.service_widgets.items():
             if hasattr(widget, 'set_controls_enabled'):
                 widget.set_controls_enabled(enabled)
             else:
                 widget.setEnabled(enabled)
-            # If we are RE-ENABLING controls, schedule a refresh AFTER a tiny delay.
-            # This ensures that the refresh_data call (which checks the actual
-            # service status) runs AFTER the worker task has fully completed
-            # and sets the correct Start/Stop button states based on the NEW status.
-            if enabled:
-                # Schedule a single refresh_data call for the whole page
-                # Use a timer to avoid potential issues with immediate refresh
-                # within the slot handling the worker result.
-                QTimer.singleShot(100, self.refresh_data)  # Short delay
+        # Enable/disable global buttons on this page
+        self.add_service_button.setEnabled(enabled)
+        if hasattr(self, 'stop_all_button'):  # Check if button exists
+            self.stop_all_button.setEnabled(enabled)
+
+        # Schedule refresh if re-enabling to update individual button states
+        if is_enabling: QTimer.singleShot(10, self.refresh_data)
 
     # --- Refresh Data Method ---
-    def refresh_data(self):  # <<< MODIFIED signal connection logic
-        """Loads configured services and updates/creates the list items and triggers refreshes."""
-        self.log_to_main("ServicesPage: Refreshing data (rebuilding list)...")
-        try:
-            configured_services = load_configured_services()
-        except Exception as e:
-            self.log_to_main(f"Error loading services: {e}"); configured_services = []
+    def refresh_data(self):
+        """Loads configured services, groups them by category, updates list items."""
+        self.log_to_main("ServicesPage: Refreshing data (grouping by category)...")
+        try: configured_services = load_configured_services()
+        except Exception as e: self.log_to_main(f"Error loading services: {e}"); configured_services = []
 
-        # Map process IDs to their config ID and data for efficient lookup
-        current_process_ids_in_ui = set(self.service_widgets.keys())
-        required_process_ids = {config.NGINX_PROCESS_ID}
-        process_to_config_id_map = {config.NGINX_PROCESS_ID: None}  # Nginx has no config ID
-        config_id_data_map = {}
-
+        # Group services by category
+        services_by_category = defaultdict(list)
+        nginx_def = config.AVAILABLE_BUNDLED_SERVICES.get("nginx", {})
+        nginx_category = nginx_def.get("category", "Web Server")
+        services_by_category[nginx_category].append({"config_id": config.NGINX_PROCESS_ID, "process_id": config.NGINX_PROCESS_ID, "display_name": nginx_def.get("display_name", "Internal Nginx"), "service_type": "nginx"})
         for service_config in configured_services:
-            config_id = service_config.get('id');
-            service_type = service_config.get('service_type')
-            process_id = config.AVAILABLE_BUNDLED_SERVICES.get(service_type, {}).get('process_id')
-            if config_id and process_id:
-                required_process_ids.add(process_id);
-                process_to_config_id_map[process_id] = config_id;
-                config_id_data_map[config_id] = service_config
+            config_id = service_config.get('id'); service_type = service_config.get('service_type'); service_def = config.AVAILABLE_BUNDLED_SERVICES.get(service_type, {}); process_id = service_def.get('process_id'); category = service_def.get('category', 'Other'); display_name = service_config.get('name', service_def.get('display_name', process_id))
+            if config_id and process_id: services_by_category[category].append({"config_id": config_id, "process_id": process_id, "display_name": display_name, "service_type": service_type})
 
-        # Remove Obsolete Widgets
-        ids_to_remove_ui = current_process_ids_in_ui - required_process_ids
-        for process_id in ids_to_remove_ui:
-            widget = self.service_widgets.pop(process_id, None)
-            if widget:  # Find corresponding list item to remove
-                for i in range(self.service_list_widget.count()):
-                    item = self.service_list_widget.item(i)
-                    # Check if item exists and its stored data matches the process_id
-                    if item and item.data(Qt.UserRole) == process_id:
-                        self.service_list_widget.takeItem(i)
-                        break
-                widget.deleteLater()
-            detail_widget = self.service_detail_widgets.pop(process_id, None)
-            if detail_widget: self.details_stack.removeWidget(detail_widget); detail_widget.deleteLater()
-            # If the removed service was the selected one, hide details pane
-            if process_id == self.current_selected_service_id:
-                self.current_selected_service_id = None
-                self.details_stack.setVisible(False)
-                self.splitter.setSizes([1, 0])  # Collapse splitter
+        category_order = ["Web Server", "Database", "Cache & Queue", "Storage", "Search"]
+        sorted_categories = sorted(services_by_category.keys(), key=lambda x: category_order.index(x) if x in category_order else len(category_order))
 
-        # Add/Update Required Widgets in the list
-        # Nginx
-        if config.NGINX_PROCESS_ID not in self.service_widgets:
-            nginx_item = QListWidgetItem();
-            nginx_item.setData(Qt.UserRole, config.NGINX_PROCESS_ID);
-            self.service_list_widget.addItem(nginx_item)
-            nginx_widget = ServiceItemWidget(config.NGINX_PROCESS_ID, "Internal Nginx", "unknown")
-            nginx_widget.actionClicked.connect(self.on_service_action)
-            nginx_widget.settingsClicked.connect(self.on_show_service_details)
-            nginx_item.setSizeHint(nginx_widget.sizeHint());
-            self.service_list_widget.setItemWidget(nginx_item, nginx_widget);
-            self.service_widgets[config.NGINX_PROCESS_ID] = nginx_widget
+        # Clear and Rebuild List Widget
+        self.service_list_widget.clear(); self.service_widgets.clear(); # Clear trackers
+        # Also clear detail widgets cache? Yes, safer.
+        # self.service_detail_widgets.clear() # Let's not clear details cache on list rebuild
 
-        # Other configured services
-        for process_id in required_process_ids:
-            if process_id == config.NGINX_PROCESS_ID: continue
-            if process_id not in self.service_widgets:
-                config_id = process_to_config_id_map.get(process_id)
-                service_config = config_id_data_map.get(config_id)
-                if service_config and config_id:
-                    display_name = service_config.get('name', process_id)
-                    item = QListWidgetItem();
-                    item.setData(Qt.UserRole, process_id);
-                    self.service_list_widget.addItem(item)
-                    widget = ServiceItemWidget(process_id, display_name, "unknown")
-                    widget.setProperty("config_id", config_id)  # Store config ID
-                    widget.actionClicked.connect(self.on_service_action)
-                    # Connect removeClicked directly to the slot <<< CORRECTED CONNECTION
-                    widget.removeClicked.connect(self.on_remove_service_requested)
-                    widget.settingsClicked.connect(self.on_show_service_details)
-                    item.setSizeHint(widget.sizeHint());
-                    self.service_list_widget.setItemWidget(item, widget);
-                    self.service_widgets[process_id] = widget
+        # Add Items Grouped by Category
+        for category in sorted_categories:
+            # --- Add Category Header Item using a QLabel
+            header_item = QListWidgetItem()
+            header_item.setFlags(Qt.ItemFlag.NoItemFlags) # Make it non-selectable
+            header_label = QLabel(category.upper()) # Create a QLabel
+            header_label.setObjectName("CategoryHeaderLabel") # Set name for QSS
+            header_item.setSizeHint(header_label.sizeHint()) # Set size hint based on label
+            self.service_list_widget.addItem(header_item)
+            self.service_list_widget.setItemWidget(header_item, header_label) # Set label as widget
+            # --- End Category Header ---
+
+            # Add Service Items for this category
+            for service_info in sorted(services_by_category[category], key=lambda x: x['display_name']):
+                process_id = service_info['process_id']; config_id = service_info['config_id']; display_name = service_info['display_name']
+                if process_id not in self.service_widgets: # Should always be true after clear()
+                     widget = ServiceItemWidget(process_id, display_name, "unknown")
+                     widget.setProperty("config_id", config_id)
+                     widget.actionClicked.connect(self.on_service_action)
+                     widget.settingsClicked.connect(self.on_show_service_details)
+                     if process_id != config.NGINX_PROCESS_ID: widget.removeClicked.connect(self.on_remove_service_requested)
+                     self.service_widgets[process_id] = widget
+                else: widget = self.service_widgets[process_id] # Reuse if needed (unlikely now)
+
+                item = QListWidgetItem(); item.setData(Qt.UserRole, process_id); item.setSizeHint(widget.sizeHint()); self.service_list_widget.addItem(item); self.service_list_widget.setItemWidget(item, widget)
 
         # Trigger Status Updates via MainWindow
         if self._main_window:
             for service_id in self.service_widgets.keys(): self._trigger_single_refresh(service_id)
-            if hasattr(self._main_window, 'refresh_dnsmasq_status_on_page'): QTimer.singleShot(0, self._main_window.refresh_dnsmasq_status_on_page)
+            if hasattr(self._main_window,'refresh_dnsmasq_status_on_page'): QTimer.singleShot(0, self._main_window.refresh_dnsmasq_status_on_page)
 
-        # --- Update Details Pane Visibility/Content ---
-        # If no service is selected, ensure placeholder is shown and pane is hidden
+        # Update Details Pane
         if not self.current_selected_service_id or self.current_selected_service_id not in self.service_widgets:
-            self.current_selected_service_id = None
-            self.details_stack.setCurrentWidget(self.placeholder_widget)
-            if self.details_stack.isVisible():  # Hide only if currently visible
-                self.details_stack.setVisible(False)
-                self.splitter.setSizes([1, 0])  # Collapse splitter
-        elif self.current_selected_service_id:
-            # Ensure the correct widget is current and update content
-            self._update_details_view(self.current_selected_service_id)
+             self.current_selected_service_id = None; self.details_stack.setCurrentWidget(self.placeholder_widget);
+             if self.details_stack.isVisible(): self.details_stack.setVisible(False); self.splitter.setSizes([1, 0])
+        elif self.current_selected_service_id: self._update_details_view(self.current_selected_service_id)
 
     def _trigger_single_refresh(self, service_id):  # (Unchanged)
         if not self._main_window: return

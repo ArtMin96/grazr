@@ -49,6 +49,88 @@ except ImportError as e:
      class ConfigDummy: CONFIG_DIR=Path.home()/'error'; BUNDLES_DIR=Path.home()/'error'; NGINX_PROCESS_ID="error"; SITE_TLD="err"; DEFAULT_PHP="err"; INTERNAL_NGINX_PID_FILE=Path("/tmp/err.pid"); NGINX_BINARY=Path("/err"); INTERNAL_NGINX_CONF_FILE=Path("/err"); INTERNAL_LOG_DIR=CONFIG_DIR/'logs'; INTERNAL_NGINX_ERROR_LOG=INTERNAL_LOG_DIR/'err.log'; INTERNAL_NGINX_ACCESS_LOG=INTERNAL_LOG_DIR/'err.log'; BUNDLED_NGINX_CONF_DIR=BUNDLES_DIR/'err'; INTERNAL_SITES_ENABLED=CONFIG_DIR/'err'; INTERNAL_NGINX_TEMP_DIR=CONFIG_DIR/'err'; INTERNAL_CLIENT_BODY_TEMP=INTERNAL_NGINX_TEMP_DIR/'err'; INTERNAL_PROXY_TEMP=INTERNAL_NGINX_TEMP_DIR/'err'; INTERNAL_FASTCGI_TEMP=INTERNAL_NGINX_TEMP_DIR/'err'; INTERNAL_UWSGI_TEMP=INTERNAL_NGINX_TEMP_DIR/'err'; INTERNAL_SCGI_TEMP=INTERNAL_NGINX_TEMP_DIR/'err'; INTERNAL_SITES_AVAILABLE=CONFIG_DIR/'err';
      config = ConfigDummy()
 
+def _get_default_nginx_config_content():
+    """Generates the content for the main internal nginx.conf file."""
+    # Ensure directories exist using helper from config
+    config.ensure_dir(config.LOG_DIR)
+    config.ensure_dir(config.RUN_DIR) # Ensure run dir exists for PID file
+    config.ensure_dir(config.INTERNAL_NGINX_TEMP_DIR)
+    config.ensure_dir(config.INTERNAL_CLIENT_BODY_TEMP)
+    config.ensure_dir(config.INTERNAL_PROXY_TEMP)
+    config.ensure_dir(config.INTERNAL_FASTCGI_TEMP)
+    config.ensure_dir(config.INTERNAL_UWSGI_TEMP)
+    config.ensure_dir(config.INTERNAL_SCGI_TEMP)
+    config.ensure_dir(config.INTERNAL_SITES_ENABLED) # Ensure sites-enabled exists
+
+    # Use paths from config
+    user = "user nobody nogroup;" # Default, Nginx worker runs as nobody
+    try: # Try to get current user for worker process (better permissions for logs/cache?)
+        current_user = os.getlogin(); user = f"user {current_user};"
+    except OSError: pass # Stick with default if login name unavailable
+    pid_path = str(config.INTERNAL_NGINX_PID_FILE.resolve()) # <<< Use updated config path
+    error_log_path = str(config.INTERNAL_NGINX_ERROR_LOG.resolve())
+    access_log_path = str(config.INTERNAL_NGINX_ACCESS_LOG.resolve())
+    sites_enabled_path = str(config.INTERNAL_SITES_ENABLED.resolve())
+    mime_types_path = str((config.BUNDLED_NGINX_CONF_SUBDIR / 'mime.types').resolve())
+    client_body_path = str(config.INTERNAL_CLIENT_BODY_TEMP.resolve())
+    proxy_temp_path = str(config.INTERNAL_PROXY_TEMP.resolve())
+    fastcgi_temp_path = str(config.INTERNAL_FASTCGI_TEMP.resolve())
+    uwsgi_temp_path = str(config.INTERNAL_UWSGI_TEMP.resolve())
+    scgi_temp_path = str(config.INTERNAL_SCGI_TEMP.resolve())
+
+    # Basic Nginx configuration
+    content = f"""
+{user}
+worker_processes auto;
+pid {pid_path}; # <<< Use path from config
+error_log {error_log_path} warn;
+
+events {{
+    worker_connections 1024;
+}}
+
+http {{
+    include       "{mime_types_path}";
+    default_type  application/octet-stream;
+
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log {access_log_path} main;
+
+    sendfile        on;
+    tcp_nopush      on;
+    tcp_nodelay     on;
+    keepalive_timeout  65;
+    types_hash_max_size 2048;
+
+    # Specify temp paths
+    client_body_temp_path {client_body_path};
+    proxy_temp_path {proxy_temp_path};
+    fastcgi_temp_path {fastcgi_temp_path};
+    uwsgi_temp_path {uwsgi_temp_path};
+    scgi_temp_path {scgi_temp_path};
+
+    gzip  on;
+    gzip_disable "msie6"; # Disable gzip for old IE6
+
+    # Include enabled site configurations
+    include {sites_enabled_path}/*.conf;
+
+    # Default server (optional - catches requests to unknown hosts)
+    server {{
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        server_name _;
+        # return 444; # Or return a default page/message
+        root /var/www/html; # Standard default root
+        index index.html index.htm;
+        location / {{ }} # Empty location block
+    }}
+}}
+"""
+    return content
 
 def get_nginx_version():
     """Gets the installed Nginx version by running the binary."""
@@ -100,42 +182,69 @@ def get_nginx_version():
 
 def ensure_internal_nginx_structure():
     """
-    Ensures internal directories and default nginx.conf exist.
-    Uses paths from config module.
+    Ensures that the necessary directories and the main nginx.conf file exist.
+    Calls _get_default_nginx_config_content to generate the main config.
+
+    Returns:
+        bool: True if structure is okay or created successfully, False otherwise.
     """
-    # Use constants from config module
-    dirs_to_create = [
-        config.INTERNAL_NGINX_CONF_DIR, config.INTERNAL_SITES_AVAILABLE,
-        config.INTERNAL_SITES_ENABLED, config.LOG_DIR,  # Ensure this is config.LOG_DIR
-        config.RUN_DIR, config.INTERNAL_NGINX_TEMP_DIR
-    ]
+    print("Nginx Manager: Ensuring internal Nginx directory structure...")
     try:
-        for dir_path in dirs_to_create: dir_path.mkdir(parents=True, exist_ok=True)
-    except OSError as e: print(f"FATAL: Could not create config dirs: {e}"); return False
+        # Define directories to create using config constants
+        dirs_to_create = [
+            config.INTERNAL_NGINX_CONF_DIR,
+            config.INTERNAL_SITES_AVAILABLE,
+            config.INTERNAL_SITES_ENABLED,
+            config.LOG_DIR, # Use the correct LOG_DIR constant
+            config.RUN_DIR, # For PID file defined in config
+            config.INTERNAL_NGINX_TEMP_DIR,
+            config.INTERNAL_CLIENT_BODY_TEMP,
+            config.INTERNAL_PROXY_TEMP,
+            config.INTERNAL_FASTCGI_TEMP,
+            config.INTERNAL_UWSGI_TEMP,
+            config.INTERNAL_SCGI_TEMP
+        ]
+        # Create all directories using the helper from config
+        for dir_path in dirs_to_create:
+            if not config.ensure_dir(dir_path):
+                 print(f"Nginx Manager FATAL: Failed to create required directory: {dir_path}")
+                 return False
 
-    bundled_mime_types = config.BUNDLED_NGINX_CONF_SUBDIR / 'mime.types'
-    bundled_fastcgi_params = config.BUNDLED_NGINX_CONF_SUBDIR / 'fastcgi_params'
-    if not bundled_mime_types.is_file(): print(f"FATAL: Bundled mime.types not found: {bundled_mime_types}"); return False
-    if not bundled_fastcgi_params.is_file(): print(f"FATAL: Bundled fastcgi_params not found: {bundled_fastcgi_params}"); return False
+        # Ensure main nginx.conf exists
+        conf_file = config.INTERNAL_NGINX_CONF_FILE
+        if not conf_file.is_file():
+            print(f"Nginx Manager: Creating default config file: {conf_file}")
+            # Get content from helper function
+            default_config_content = _get_default_nginx_config_content()
+            if not default_config_content:
+                 print("Nginx Manager FATAL: Failed to generate default nginx config content.")
+                 return False
+            try:
+                conf_file.write_text(default_config_content, encoding='utf-8')
+                os.chmod(conf_file, 0o644) # Set standard permissions
+            except Exception as e:
+                 print(f"Nginx Manager FATAL: Failed writing default config {conf_file}: {e}")
+                 return False
 
-    if not config.INTERNAL_NGINX_CONF_FILE.is_file():
-        print(f"Creating default internal nginx config: {config.INTERNAL_NGINX_CONF_FILE}")
-        try:
-            nginx_user = os.getlogin(); nginx_pid_path_str = str(config.INTERNAL_NGINX_PID_FILE)
-            mime_types_path_str = str(bundled_mime_types.resolve())
-            sites_enabled_path_str = str(config.INTERNAL_SITES_ENABLED.resolve())
-            client_body_temp_str = str(config.INTERNAL_CLIENT_BODY_TEMP.resolve()); proxy_temp_str = str(config.INTERNAL_PROXY_TEMP.resolve())
-            fastcgi_temp_str = str(config.INTERNAL_FASTCGI_TEMP.resolve()); uwsgi_temp_str = str(config.INTERNAL_UWSGI_TEMP.resolve())
-            scgi_temp_str = str(config.INTERNAL_SCGI_TEMP.resolve())
+        # Check if bundled mime.types and fastcgi_params exist (needed by conf)
+        mime_types_path = config.BUNDLED_NGINX_CONF_SUBDIR / 'mime.types'
+        fastcgi_params_path = config.BUNDLED_NGINX_CONF_SUBDIR / 'fastcgi_params'
+        if not mime_types_path.is_file():
+             print(f"Nginx Manager FATAL: Bundled mime.types not found at {mime_types_path}")
+             return False
+        if not fastcgi_params_path.is_file():
+             print(f"Nginx Manager FATAL: Bundled fastcgi_params not found at {fastcgi_params_path}")
+             return False
 
-            default_config = f"""user {nginx_user}; worker_processes auto; pid "{nginx_pid_path_str}"; error_log "{config.INTERNAL_NGINX_ERROR_LOG}" warn; daemon off;
-events {{ worker_connections 768; }}
-http {{ include "{mime_types_path_str}"; default_type application/octet-stream; log_format main '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"'; access_log "{config.INTERNAL_NGINX_ACCESS_LOG}" main; sendfile on; tcp_nodelay on; keepalive_timeout 65;
-client_body_temp_path "{client_body_temp_str}" 1 2; proxy_temp_path "{proxy_temp_str}" 1 2; fastcgi_temp_path "{fastcgi_temp_str}" 1 2; uwsgi_temp_path "{uwsgi_temp_str}" 1 2; scgi_temp_path "{scgi_temp_str}" 1 2;
-include "{sites_enabled_path_str}/*.conf"; }}"""
-            with open(config.INTERNAL_NGINX_CONF_FILE, 'w', encoding='utf-8') as f: f.write(default_config)
-        except Exception as e: print(f"FATAL: Could not write default nginx config: {e}"); return False
-    return True
+        print("Nginx Manager: Internal structure verified.")
+        return True
+
+    except AttributeError as e:
+         print(f"Nginx Manager FATAL: Missing required constant in config module: {e}")
+         return False
+    except Exception as e:
+        print(f"Nginx Manager FATAL: Error ensuring Nginx structure: {e}")
+        return False
 
 def generate_site_config(site_info, php_socket_path):
     """

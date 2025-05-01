@@ -6,6 +6,7 @@
 
 import sys
 import os
+import traceback
 from pathlib import Path
 
 # --- Qt Imports ---
@@ -73,16 +74,46 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle(f"{config.APP_NAME} (Alpha)");
-        self.setGeometry(100, 100, 1000, 750);
-        main_widget = QWidget();
-        main_h_layout = QHBoxLayout(main_widget);
-        main_h_layout.setContentsMargins(0, 0, 0, 0);
-        main_h_layout.setSpacing(0);
+        self.setWindowTitle(f"{config.APP_NAME} (Alpha)")
+        self.setGeometry(100, 100, 1000, 750)
+
+        # --- Main Layout (Horizontal: Sidebar Area | Content Area) ---
+        main_widget = QWidget()
+        main_widget.setObjectName("main_widget")
+        main_h_layout = QHBoxLayout(main_widget)
+        main_h_layout.setContentsMargins(0, 0, 0, 0)
+        main_h_layout.setSpacing(0)
+        self.setCentralWidget(main_widget)
+
+        # --- Left Pane: Sidebar Area (Vertical: Branding + List) --- <<< MODIFIED
+        sidebar_area_widget = QWidget()
+        sidebar_area_widget.setObjectName("SidebarArea")
+        sidebar_area_widget.setFixedWidth(250)
+        sidebar_layout = QVBoxLayout(sidebar_area_widget)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+
+        # Branding Section (Placeholder)
+        branding_widget = QWidget()
+        branding_widget.setObjectName("BrandingWidget")
+        branding_layout = QHBoxLayout(branding_widget)
+        branding_layout.setContentsMargins(15, 15, 15, 15)
+        brand_label = QLabel(f"<b>{config.APP_NAME}</b>")
+        brand_label.setFont(QFont("Inter", 12, QFont.Weight.Bold))
+        branding_layout.addWidget(brand_label)
+        branding_layout.addStretch()
+        branding_widget.setFixedHeight(60)
+        sidebar_layout.addWidget(branding_widget)
+
+        # Separator Line (Optional)
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        line.setObjectName("SidebarSeparator")
+        sidebar_layout.addWidget(line)
 
         self.sidebar = QListWidget()
         self.sidebar.setObjectName("sidebar")
-        self.sidebar.setFixedWidth(180)
         self.sidebar.setViewMode(QListWidget.ViewMode.ListMode)
         self.sidebar.setSpacing(0)
         self.sidebar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
@@ -115,24 +146,60 @@ class MainWindow(QMainWindow):
         self.sidebar.addItem(item_php)
         self.sidebar.addItem(item_sites)
 
-        main_h_layout.addWidget(self.sidebar)
+        sidebar_layout.addWidget(self.sidebar, 1)
 
-        content_container = QWidget();
-        content_container.setObjectName("content_container");
-        content_v_layout = QVBoxLayout(content_container);
-        content_v_layout.setContentsMargins(20, 15, 15, 10);
-        content_v_layout.setSpacing(15);
-        self.stacked_widget = QStackedWidget();
-        content_v_layout.addWidget(self.stacked_widget, 1);
-        self.services_page = ServicesPage(self);
-        self.php_page = PhpPage(self);
-        self.sites_page = SitesPage(self);
-        self.stacked_widget.addWidget(self.services_page);
-        self.stacked_widget.addWidget(self.php_page);
-        self.stacked_widget.addWidget(self.sites_page);
+        main_h_layout.addWidget(sidebar_area_widget)
+        # --- End Left Pane ---
 
-        self.log_frame = QFrame();
-        self.log_frame.setObjectName("log_frame");
+        # --- Right Pane: Content Area (Vertical: Title Header + Stack) ---
+        content_area_widget = QWidget()
+        content_area_widget.setObjectName("ContentArea")
+        content_layout = QVBoxLayout(content_area_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+
+        # Content Title Header
+        title_header_widget = QWidget()
+        title_header_widget.setObjectName("TitleHeader")
+        title_header_layout = QHBoxLayout(title_header_widget)
+        title_header_layout.setContentsMargins(25, 15, 25, 15)
+        self.page_title_label = QLabel("Services")
+        self.page_title_label.setObjectName("PageTitleLabel")
+        self.page_title_label.setFont(QFont("Inter", 14, QFont.Weight.Bold))
+        title_header_layout.addWidget(self.page_title_label)
+        title_header_layout.addStretch()
+
+        # Placeholder for potential header buttons later
+        title_header_widget.setFixedHeight(60)
+        content_layout.addWidget(title_header_widget)
+
+        # Separator Line (Optional)
+        content_line = QFrame()
+        content_line.setFrameShape(QFrame.Shape.HLine)
+        content_line.setFrameShadow(QFrame.Shadow.Sunken)
+        content_line.setObjectName("ContentSeparator")
+        content_layout.addWidget(content_line)
+
+        # Stacked Widget for Pages (add padding around this)
+        stack_container = QWidget()
+        stack_container.setObjectName("StackContainer")
+        stack_layout = QVBoxLayout(stack_container)
+        stack_layout.setContentsMargins(10, 20, 10, 20)
+        self.stacked_widget = QStackedWidget()
+        stack_layout.addWidget(self.stacked_widget)
+        content_layout.addWidget(stack_container, 1)
+
+        # --- Create Page Instances (Remove titles from them later) ---
+        self.services_page = ServicesPage(self)
+        self.php_page = PhpPage(self)
+        self.sites_page = SitesPage(self)
+        self.stacked_widget.addWidget(self.services_page)
+        self.stacked_widget.addWidget(self.php_page)
+        self.stacked_widget.addWidget(self.sites_page)
+
+        # Log Area (Keep hidden at bottom for now)
+        self.log_frame = QFrame()
+        self.log_frame.setObjectName("log_frame")
         self.log_frame.setFrameShape(QFrame.Shape.StyledPanel)
         self.log_frame.setFrameShadow(QFrame.Shadow.Sunken)
         log_layout = QVBoxLayout(self.log_frame)
@@ -146,9 +213,7 @@ class MainWindow(QMainWindow):
         self.log_text_area.setFixedHeight(100);
         log_layout.addWidget(self.log_text_area);
         self.log_frame.setVisible(False)
-        content_v_layout.addWidget(self.log_frame);
-
-        # --- Log Toggle Bar ---
+        content_layout.addWidget(self.log_frame)
         log_toggle_bar = QWidget()
         log_toggle_layout = QHBoxLayout(log_toggle_bar)
         log_toggle_layout.setContentsMargins(0, 5, 0, 0)  # Add some top margin
@@ -160,12 +225,14 @@ class MainWindow(QMainWindow):
         self.toggle_log_button.clicked.connect(self.toggle_log_area)  # Connect signal
         log_toggle_layout.addWidget(self.toggle_log_button)
         log_toggle_layout.addStretch()
-        content_v_layout.addWidget(log_toggle_bar)  # Add toggle bar at the bottom
+        content_layout.addWidget(log_toggle_bar)
 
-        main_h_layout.addWidget(content_container, 1);
+        main_h_layout.addWidget(content_area_widget, 1)
+        # --- End Right Pane ---
 
-        self.setCentralWidget(main_widget)
         self.current_extension_dialog = None
+
+        # --- Setup Worker Thread ---
         self.thread = QThread(self);
         self.worker = Worker();
         self.worker.moveToThread(self.thread);
@@ -174,10 +241,12 @@ class MainWindow(QMainWindow):
         self.thread.finished.connect(self.worker.deleteLater);
         self.thread.finished.connect(self.thread.deleteLater);
         self.thread.start()
-        self.sidebar.currentRowChanged.connect(self.change_page);
+        # --- Connect Signals
+        self.sidebar.currentRowChanged.connect(self.change_page)
         self.services_page.serviceActionTriggered.connect(self.on_service_action_triggered);
         self.services_page.addServiceClicked.connect(self.on_add_service_button_clicked);
-        self.services_page.removeServiceRequested.connect(self.on_remove_service_config)
+        self.services_page.removeServiceRequested.connect(self.on_remove_service_config);
+        self.services_page.stopAllServicesClicked.connect(self.on_stop_all_services_clicked)
         self.sites_page.linkDirectoryClicked.connect(self.add_site_dialog);
         self.sites_page.unlinkSiteClicked.connect(self.remove_selected_site);
         self.sites_page.saveSiteDomainClicked.connect(self.on_save_site_domain);
@@ -187,26 +256,41 @@ class MainWindow(QMainWindow):
         self.php_page.managePhpFpmClicked.connect(self.on_manage_php_fpm_triggered);
         self.php_page.saveIniSettingsClicked.connect(self.on_save_php_ini_settings);
         self.php_page.showExtensionsDialog.connect(self.on_show_extensions_dialog)
+        # --- Initial State Setup --- (Unchanged)
         self.log_message("Application starting...");
-        self.log_message("UI Structure Initialized.");
-        self.sidebar.setCurrentRow(0)
+        self.sidebar.setCurrentRow(0);
         self.log_message("Attempting to start bundled Nginx...");
-
         QTimer.singleShot(100, lambda: self.triggerWorker.emit("start_internal_nginx", {}))
         self.start_configured_autostart_services()
 
     # --- Navigation Slot ---
     @Slot(int)
-    def change_page(self, row): # (Unchanged)
-        if 0<=row<self.stacked_widget.count(): self.stacked_widget.setCurrentIndex(row); self.refresh_current_page()
+    def change_page(self, row):
+        """Changes the visible page and updates the title header."""
+        if 0 <= row < self.stacked_widget.count():
+            # Update Title Label <<< ADDED
+            item = self.sidebar.item(row)
+            title_text = item.text().strip() if item else "Unknown Page"
+            if hasattr(self, 'page_title_label'):  # Check if label exists
+                self.page_title_label.setText(title_text)
+            # --- End Title Update ---
+            self.log_message(f"Changing page to: {title_text} (Index: {row})")
+            self.stacked_widget.setCurrentIndex(row)
+            self.refresh_current_page()
+        else:
+            self.log_message(f"Warning: Invalid page index {row} requested.")
 
     def refresh_current_page(self): # (Unchanged)
         widget = self.stacked_widget.currentWidget()
         if isinstance(widget,(ServicesPage,PhpPage,SitesPage)) and hasattr(widget,'refresh_data'): widget.refresh_data()
 
     # --- Logging ---
-    def log_message(self, message): # (Unchanged)
-        if hasattr(self,'log_text_area'): self.log_text_area.append(message); print(message)
+    def log_message(self, message):
+        """Appends a message to the log text area."""
+        print(message)  # Always print to console
+        # Simple version without try/except
+        if hasattr(self, 'log_text_area'):
+            self.log_text_area.append(message)
 
     # --- Slot to Handle Worker Results ---
     @Slot(str, dict, bool, str)
@@ -575,7 +659,50 @@ class MainWindow(QMainWindow):
         if isinstance(self.sites_page, SitesPage): self.sites_page.set_controls_enabled(False)
         QApplication.processEvents(); task_data = {"site_info": site_info}; self.triggerWorker.emit("disable_ssl", task_data)
 
-    # Slot connected to services_page.removeServiceRequested <<< NEW
+    @Slot()
+    def on_stop_all_services_clicked(self):
+        """Stops all managed services directly via process_manager."""
+        self.log_message("Stop All Services button clicked...")
+        # Optional: Confirmation dialog
+        reply = QMessageBox.question(self, 'Confirm Stop All',
+                                     "Stop all running managed services (Nginx, MySQL, Redis, MinIO, PostgreSQL, PHP-FPMs)?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.No:
+            self.log_message("Stop All cancelled by user.")
+            return
+
+        # Disable UI temporarily while stopping
+        if isinstance(self.services_page, ServicesPage):
+            self.services_page.set_controls_enabled(False)
+        # Disable other pages too? Maybe not necessary if user stays on Services page.
+        QApplication.processEvents()  # Allow UI to update (show disabled state)
+
+        self.log_message("Stopping all managed background processes...")
+        all_stopped = False
+        if process_manager and hasattr(process_manager, 'stop_all_processes'):
+            try:
+                all_stopped = process_manager.stop_all_processes()  # Call the manager function
+                if not all_stopped:
+                    self.log_message("Warn: Some managed processes may not have stopped cleanly.")
+                else:
+                    self.log_message("All managed services stop commands issued successfully.")
+            except Exception as e:
+                self.log_message(f"Error calling process_manager.stop_all_processes: {e}")
+                traceback.print_exc()
+                all_stopped = False  # Mark as failed on exception
+        else:
+            self.log_message("Error: Process manager not available or missing stop_all_processes.")
+            all_stopped = False  # Cannot stop
+
+        # Refresh the services page after attempting stop, regardless of success
+        # The refresh will show the actual final state of each service.
+        if isinstance(self.services_page, ServicesPage):
+            self.log_message("Scheduling Services page refresh after Stop All attempt.")
+            # Use a timer to ensure stop commands have time to process before refresh
+            QTimer.singleShot(1000, self.services_page.refresh_data)
+
+    # Slot connected to services_page.removeServiceRequested
     @Slot(str)  # Receives service_id (the unique ID from services.json)
     def on_remove_service_config(self, service_id):
         """Handles signal from ServicesPage to remove a service configuration."""

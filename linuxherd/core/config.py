@@ -31,7 +31,8 @@ AVAILABLE_BUNDLED_SERVICES = {
         "binary_path_constant": "NGINX_BINARY",
         "manager_module": "nginx_manager",
         "doc_url": "https://nginx.org/en/docs/",
-        "log_path_constant": "INTERNAL_NGINX_ERROR_LOG"
+        "log_path_constant": "INTERNAL_NGINX_ERROR_LOG",
+        "pid_file_constant": "INTERNAL_NGINX_PID_FILE"
     },
     "mysql": {
         "display_name": "MySQL / MariaDB",
@@ -44,6 +45,7 @@ AVAILABLE_BUNDLED_SERVICES = {
         "manager_module": "mysql_manager",
         "doc_url": "https://dev.mysql.com/doc/",
         "log_path_constant": "INTERNAL_MYSQL_ERROR_LOG",
+        "pid_file_constant": "INTERNAL_MYSQL_PID_FILE",
         "db_client_tools": ["tableplus", "dbeaver", "mysql-workbench"]
     },
     "postgres16": {
@@ -58,6 +60,7 @@ AVAILABLE_BUNDLED_SERVICES = {
         "manager_module": "postgres_manager",
         "doc_url": "https://www.postgresql.org/docs/16/",
         "log_path_template": "INTERNAL_POSTGRES_LOG_TEMPLATE",
+        "pid_file_constant": "INTERNAL_POSTGRES_PID_FILE",
         "db_client_tools": ["tableplus", "dbeaver", "pgadmin4"]
     },
     "redis": {
@@ -71,6 +74,7 @@ AVAILABLE_BUNDLED_SERVICES = {
         "manager_module": "redis_manager",
         "doc_url": "https://redis.io/docs/",
         "log_path_constant": "INTERNAL_REDIS_LOG",
+        "pid_file_constant": "INTERNAL_REDIS_PID_FILE",
         "db_client_tools": ["tableplus", "another-redis-desktop-manager"]
     },
     "minio": {
@@ -84,7 +88,8 @@ AVAILABLE_BUNDLED_SERVICES = {
         "binary_path_constant": "MINIO_BINARY",
         "manager_module": "minio_manager",
         "doc_url": "https://min.io/docs/minio/linux/index.html",
-        "log_path_constant": "INTERNAL_MINIO_LOG"
+        "log_path_constant": "INTERNAL_MINIO_LOG",
+        "pid_file_constant": None
     }
     # Add other bundled services here later (e.g., mailhog, memcached)
 }
@@ -96,7 +101,7 @@ NGINX_BINARY = NGINX_BUNDLES_DIR / 'sbin/nginx'
 BUNDLED_NGINX_CONF_SUBDIR = NGINX_BUNDLES_DIR / 'conf'
 INTERNAL_NGINX_CONF_DIR = CONFIG_DIR / 'nginx'
 INTERNAL_NGINX_CONF_FILE = INTERNAL_NGINX_CONF_DIR / 'nginx.conf'
-INTERNAL_NGINX_PID_FILE = Path("/tmp/linuxherd-nginx.pid") # Using /tmp
+INTERNAL_NGINX_PID_FILE = RUN_DIR / "nginx.pid"
 INTERNAL_NGINX_ERROR_LOG = LOG_DIR / 'nginx-error.log'
 INTERNAL_NGINX_ACCESS_LOG = LOG_DIR / 'nginx-access.log'
 INTERNAL_SITES_AVAILABLE = INTERNAL_NGINX_CONF_DIR / 'sites-available'
