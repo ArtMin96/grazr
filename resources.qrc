@@ -9,5 +9,6 @@
         <file alias="remove.svg">assets/icons/trash.svg</file>
         <file alias="copy.svg">assets/icons/copy.svg</file>
         <file alias="stop.svg">assets/icons/stop.svg</file>
+        <file alias="plus.svg">assets/icons/plus.svg</file>
     </qresource>
 </RCC>

@@ -159,15 +159,26 @@ class MainWindow(QMainWindow):
         content_layout.setSpacing(0)
 
         # Content Title Header
-        title_header_widget = QWidget()
+        title_header_widget = QWidget();
         title_header_widget.setObjectName("TitleHeader")
-        title_header_layout = QHBoxLayout(title_header_widget)
-        title_header_layout.setContentsMargins(25, 15, 25, 15)
-        self.page_title_label = QLabel("Services")
-        self.page_title_label.setObjectName("PageTitleLabel")
-        self.page_title_label.setFont(QFont("Inter", 14, QFont.Weight.Bold))
-        title_header_layout.addWidget(self.page_title_label)
+        title_header_layout = QHBoxLayout(title_header_widget);
+        title_header_layout.setContentsMargins(25, 15, 25, 15);
+        title_header_layout.setSpacing(15)
+        self.page_title_label = QLabel("Services");
+        self.page_title_label.setObjectName("PageTitleLabel");
+        self.page_title_label.setFont(QFont("Inter", 14, QFont.Bold));
+        title_header_layout.addWidget(self.page_title_label);
         title_header_layout.addStretch()
+
+        # --- Header Action "Slot" Layout ---
+        self.header_actions_layout = QHBoxLayout()
+        self.header_actions_layout.setContentsMargins(0, 0, 0, 0)
+        self.header_actions_layout.setSpacing(10)
+        title_header_layout.addLayout(self.header_actions_layout)
+        # --- End Header Action Slot ---
+
+        # Create a dictionary to store page-specific header widgets
+        self.page_header_widgets = {}
 
         # Placeholder for potential header buttons later
         title_header_widget.setFixedHeight(60)
@@ -267,17 +278,59 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(100, lambda: self.triggerWorker.emit("start_internal_nginx", {}))
         self.start_configured_autostart_services()
 
+    def add_header_action(self, widget, page_name=None):
+        """
+        Add a widget to the header actions area.
+        If page_name is provided, associate the widget with that page for later management.
+        """
+        if widget:
+            self.header_actions_layout.addWidget(widget)
+            if page_name:
+                if page_name not in self.page_header_widgets:
+                    self.page_header_widgets[page_name] = []
+                self.page_header_widgets[page_name].append(widget)
+            return True
+        return False
+
+    def clear_header_actions(self, page_name=None):
+        """
+        Clear header action widgets.
+        If page_name is provided, only clear widgets for that page.
+        """
+        if page_name and page_name in self.page_header_widgets:
+            # Remove specific page widgets
+            for widget in self.page_header_widgets[page_name]:
+                self.header_actions_layout.removeWidget(widget)
+                widget.setParent(None)  # Detach from parent
+            self.page_header_widgets[page_name] = []
+        else:
+            # Remove all widgets
+            while self.header_actions_layout.count():
+                item = self.header_actions_layout.takeAt(0)
+                if item.widget():
+                    item.widget().setParent(None)
+            self.page_header_widgets = {}
+
     # --- Navigation Slot ---
     @Slot(int)
     def change_page(self, row):
-        """Changes the visible page and updates the title header."""
+        """Changes the visible page, updates title, and tells pages to update header actions."""
         if 0 <= row < self.stacked_widget.count():
-            # Update Title Label <<< ADDED
+            # Clear all header actions first
+            self.clear_header_actions()
+
+            # Update Title Label
             item = self.sidebar.item(row)
             title_text = item.text().strip() if item else "Unknown Page"
-            if hasattr(self, 'page_title_label'):  # Check if label exists
+            if hasattr(self, 'page_title_label'):
                 self.page_title_label.setText(title_text)
-            # --- End Title Update ---
+
+            # Tell NEW page to add its actions
+            new_widget = self.stacked_widget.widget(row)
+            if new_widget and hasattr(new_widget, 'add_header_actions'):
+                print(f"DEBUG MainWindow: Adding header actions for {new_widget.__class__.__name__}")
+                new_widget.add_header_actions(self)  # Pass self instead of layout
+
             self.log_message(f"Changing page to: {title_text} (Index: {row})")
             self.stacked_widget.setCurrentIndex(row)
             self.refresh_current_page()

@@ -194,9 +194,9 @@ QPushButton:disabled { background-color: #F8F9FA; color: #ADB5BD; border-color: 
 
 /* Add Service Button */
 /* Add Service Button */
-QPushButton#AddServiceButton { background-color: #000000; color: #FFFFFF; border: none; font-weight: bold; padding: 8px 20px; }
-QPushButton#AddServiceButton:hover { background-color: #333333; }
-QPushButton#AddServiceButton:pressed { background-color: #555555; }
+QPushButton#PrimaryButton { background-color: #000000; color: #FFFFFF; border: none; font-weight: bold; padding: 8px 20px; }
+QPushButton#PrimaryButton:hover { background-color: #333333; }
+QPushButton#PrimaryButton:pressed { background-color: #555555; }
 QPushButton#StopAllButton { padding: 6px 20px; font-weight: bold; }
 
 /* Service Item Icon Buttons (Settings/Remove) */
@@ -253,6 +253,11 @@ QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 1px solid #007AFF; }
 QSpinBox::up-button, QSpinBox::down-button { width: 0px; border: none; }
 QSpinBox { padding-right: 1px; }
 QComboBox::drop-down { border: none; padding-right: 5px;}
+
+QLineEdit#SiteSearchInput {
+    min-height: 17px;
+    max-height: 17px;
+}
 
 /* Checkbox */
 QCheckBox { spacing: 8px; }

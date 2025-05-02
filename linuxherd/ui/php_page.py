@@ -76,7 +76,7 @@ class PhpPage(QWidget):
         top_bar_layout.addWidget(self.install_button)
         main_layout.addLayout(top_bar_layout)
 
-        # --- PHP Version List --- <<< Use QListWidget
+        # --- PHP Version List ---
         self.version_list_widget = QListWidget()
         self.version_list_widget.setObjectName("PhpVersionList")  # For styling
         self.version_list_widget.setSpacing(0)  # No extra space between items

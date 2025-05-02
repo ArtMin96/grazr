@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QListWidget, QListWidgetItem,
                                QFrame, QSplitter, QSizePolicy, QStackedWidget,
                                QTextEdit, QScrollArea, QMessageBox, QApplication,
-                               QSpacerItem, QGroupBox)
+                               QSpacerItem, QGroupBox, QLineEdit)
 from PySide6.QtCore import Signal, Slot, Qt, QTimer, QObject, QUrl, QSize
 from PySide6.QtGui import QFont, QPalette, QColor, QTextCursor, QDesktopServices, QClipboard, QIcon, QBrush
 
@@ -102,7 +102,7 @@ class ServicesPage(QWidget):
         self.stop_all_button.clicked.connect(self.stopAllServicesClicked.emit)
 
         self.add_service_button = QPushButton("Add Service")
-        self.add_service_button.setObjectName("AddServiceButton")
+        self.add_service_button.setObjectName("PrimaryButton")
         self.add_service_button.clicked.connect(self.addServiceClicked.emit)
 
         top_bar_layout.addWidget(title)
@@ -149,6 +149,26 @@ class ServicesPage(QWidget):
         self.splitter.setSizes([250, 0])
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
+
+    # --- Header Action Methods ---
+    def add_header_actions(self, main_window):
+        """
+        Add page-specific action buttons to the main window's header.
+        Called by MainWindow when this page is activated.
+        """
+        # Add the "Add Service" button to the header
+        main_window.add_header_action(self.add_service_button, "services_page")
+
+        # Add the "Stop All" button to the header
+        main_window.add_header_action(self.stop_all_button, "services_page")
+
+        # Remove these buttons from the page layout since they're now in the header
+        # This prevents duplicated buttons on the page
+        if self.add_service_button.parent():
+            self.add_service_button.parent().layout().removeWidget(self.add_service_button)
+
+        if self.stop_all_button.parent():
+            self.stop_all_button.parent().layout().removeWidget(self.stop_all_button)
 
     @Slot(str, str)
     def on_service_action(self, service_id, action):
@@ -354,7 +374,7 @@ class ServicesPage(QWidget):
         env_title_layout = QHBoxLayout();
         env_title_layout.setContentsMargins(0, 0, 0, 0)
         env_label = QLabel("Environment Variables");
-        env_label.setFont(QFont("Sans Serif", 10, QFont.Bold))
+        env_label.setFont(QFont("Sans Serif", 10, QFont.Weight.Bold))
 
         try:
             copy_icon = QIcon(":/icons/copy.svg")

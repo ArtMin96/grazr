@@ -74,10 +74,20 @@ class PhpVersionItemWidget(QWidget):
         # No stretch needed here if main layout has stretch before it
 
         # Configure Button (Gear Icon)
-        self.configure_button = QPushButton("⚙️") # Use Gear emoji or "..." or QIcon
+        self.configure_button = QPushButton()
+        try:
+            settings_icon = QIcon(":/icons/settings.svg")
+
+            if not settings_icon.isNull():
+                self.configure_button.setIcon(settings_icon)
+            else:
+                print("Warning: Could not load settings.svg icon, using text fallback.")
+                self.configure_button.setText("...")
+        except NameError:
+            settings_icon = QIcon()
         self.configure_button.setToolTip(f"Configure PHP {php_version} (INI, Extensions)")
         self.configure_button.setObjectName("SettingsButton") # Reuse style from Services
-        self.configure_button.setFixedSize(QSize(30, 30)) # Match service buttons
+        self.configure_button.setIconSize(QSize(16, 16))
         self.configure_button.setFlat(True)
         self.configure_button.clicked.connect(lambda: self.configureClicked.emit(self.php_version))
         self.button_layout.addWidget(self.configure_button)
