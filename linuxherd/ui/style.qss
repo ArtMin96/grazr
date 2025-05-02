@@ -59,6 +59,31 @@ QListWidget#sidebar::item:hover:!selected {
     background-color: #ECEFF1; /* Subtle hover */
 }
 
+/* Site List Widget */
+QListWidget#SiteList { /* Set objectName in SitesPage */
+    background-color: #FFFFFF; /* White background */
+    border: none;
+    outline: none;
+    icon-size: 16px; /* Adjust icon size */
+}
+QListWidget#SiteList::item {
+    background-color: transparent; /* Use parent background */
+    border: none; /* No border on item */
+    padding: 8px 10px 8px 15px; /* Top/Bottom, Right, Left padding */
+    color: #495057; /* Medium text color */
+    font-weight: 500; /* Medium weight */
+    border-radius: 4px; /* Slightly rounded corners for hover/selection */
+    margin: 1px 5px; /* Add small margin around items */
+}
+QListWidget#SiteList::item:selected {
+    background-color: #F1F3F5; /* Light grey background for selection */
+    color: #212529; /* Darker text for selection */
+    font-weight: 600; /* Semi-bold for selection */
+}
+QListWidget#SiteList::item:hover:!selected {
+    background-color: #F8F9FA; /* Slightly lighter grey hover */
+}
+
 /* --- Content Area --- */
 QWidget#ContentArea {
     background-color: #FFFFFF;

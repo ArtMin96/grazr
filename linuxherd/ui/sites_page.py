@@ -230,10 +230,7 @@ class SitesPage(QWidget):
         # --- Populate Details Layout ---
 
         # --- Top Section: Preview & Actions (Unchanged) ---
-        top_section_layout = QHBoxLayout(); top_section_layout.setSpacing(30); top_section_layout.setContentsMargins(0,0,0,0)
-        preview_widget = QWidget(); preview_widget.setObjectName("SitePreviewWidget"); preview_layout = QVBoxLayout(preview_widget); preview_layout.setSpacing(10); preview_layout.setContentsMargins(0,0,0,0); self.preview_image_label = QLabel("Preview Loading..."); self.preview_image_label.setObjectName("SitePreviewLabel"); self.preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter); self.preview_image_label.setMinimumSize(240, 150); self.preview_image_label.setMaximumSize(300, 188); self.preview_image_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred); self.preview_image_label.setStyleSheet("..."); self.update_site_preview(site_info.get('domain', '')); preview_layout.addWidget(self.preview_image_label); preview_button = QPushButton("Preview"); preview_button.setObjectName("OpenButton"); preview_button.setToolTip("Open site in browser"); preview_button.clicked.connect(self.on_open_site_clicked); preview_layout.addWidget(preview_button, 0, Qt.AlignmentFlag.AlignCenter); preview_layout.addStretch(); top_section_layout.addWidget(preview_widget, 0)
-        actions_widget = QWidget(); actions_widget.setObjectName("SiteActionsWidget"); actions_layout = QVBoxLayout(actions_widget); actions_layout.setSpacing(12); actions_layout.setContentsMargins(0,0,0,0); actions_layout.addLayout(self._create_action_row("Terminal", self.on_open_terminal_clicked)); actions_layout.addLayout(self._create_action_row("Editor", self.on_open_editor_clicked)); actions_layout.addLayout(self._create_action_row("Tinker", self.on_open_tinker_clicked, enabled=(site_info.get('framework_type') == 'Laravel'))); actions_layout.addLayout(self._create_action_row("Database", self.on_open_db_gui_clicked)); actions_layout.addStretch(); top_section_layout.addWidget(actions_widget, 1)
-        self.details_layout.addLayout(top_section_layout)
+        top_section_layout = QHBoxLayout(); top_section_layout.setSpacing(30); top_section_layout.setContentsMargins(0,0,0,0); preview_widget = QWidget(); preview_widget.setObjectName("SitePreviewWidget"); preview_layout = QVBoxLayout(preview_widget); preview_layout.setSpacing(10); preview_layout.setContentsMargins(0,0,0,0); self.preview_image_label = QLabel("Preview Loading..."); self.preview_image_label.setObjectName("SitePreviewLabel"); self.preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter); self.preview_image_label.setMinimumSize(240, 150); self.preview_image_label.setMaximumSize(300, 188); self.preview_image_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred); self.preview_image_label.setStyleSheet("..."); self.update_site_preview(site_info.get('domain', '')); preview_layout.addWidget(self.preview_image_label); preview_button = QPushButton("Preview"); preview_button.setObjectName("OpenButton"); preview_button.setToolTip("Open site in browser"); preview_button.clicked.connect(self.on_open_site_clicked); preview_layout.addWidget(preview_button, 0, Qt.AlignmentFlag.AlignCenter); preview_layout.addStretch(); top_section_layout.addWidget(preview_widget, 0); actions_widget = QWidget(); actions_widget.setObjectName("SiteActionsWidget"); actions_layout = QVBoxLayout(actions_widget); actions_layout.setSpacing(12); actions_layout.setContentsMargins(0,0,0,0); actions_layout.addLayout(self._create_action_row("Terminal", self.on_open_terminal_clicked)); actions_layout.addLayout(self._create_action_row("Editor", self.on_open_editor_clicked)); actions_layout.addLayout(self._create_action_row("Tinker", self.on_open_tinker_clicked, enabled=(site_info.get('framework_type') == 'Laravel'))); actions_layout.addLayout(self._create_action_row("Database", self.on_open_db_gui_clicked)); actions_layout.addStretch(); top_section_layout.addWidget(actions_widget, 1); self.details_layout.addLayout(top_section_layout)
 
         # --- Separator ---
         separator = QFrame(); separator.setFrameShape(QFrame.Shape.HLine); separator.setFrameShadow(QFrame.Shadow.Sunken); separator.setStyleSheet("border-color: #E9ECEF;");
@@ -241,46 +238,50 @@ class SitesPage(QWidget):
 
         # --- Bottom Section: General Info & Config <<< RESTRUCTURED ---
         # Title Row (Title + Unlink Button)
-        bottom_title_layout = QHBoxLayout(); bottom_title_layout.setContentsMargins(0,0,0,5) # Add bottom margin
-        bottom_title = QLabel("General"); bottom_title.setFont(label_font) # Use bold font
-        unlink_site_button = QPushButton("Unlink Site"); unlink_site_button.setObjectName("UnlinkSiteButton"); unlink_site_button.setToolTip("Remove this site link from LinuxHerd")
+        bottom_title_layout = QHBoxLayout(); bottom_title_layout.setContentsMargins(0,0,0,5)
+        bottom_title = QLabel("General"); bottom_title.setFont(label_font)
+        unlink_site_button = QPushButton("Unlink Site"); unlink_site_button.setObjectName("UnlinkSiteButton"); unlink_site_button.setToolTip("Remove this site link")
         unlink_site_button.clicked.connect(self.on_unlink_internal_click)
         bottom_title_layout.addWidget(bottom_title); bottom_title_layout.addStretch(); bottom_title_layout.addWidget(unlink_site_button)
-        self.details_layout.addLayout(bottom_title_layout) # Add title row
+        self.details_layout.addLayout(bottom_title_layout)
 
-        # Two-Column Layout for Settings/Info
-        two_column_layout = QHBoxLayout(); two_column_layout.setSpacing(30); two_column_layout.setContentsMargins(0, 0, 0, 0) # No extra margins
+        # Use a single FormLayout for all general fields
+        general_form_layout = QFormLayout()
+        general_form_layout.setSpacing(10)
+        general_form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft) # Labels on left
+        general_form_layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        general_form_layout.setContentsMargins(0, 10, 0, 0) # Add top margin
 
-        # Left Column (Config)
-        config_widget = QWidget(); config_layout = QFormLayout(config_widget); config_layout.setSpacing(10); config_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft); config_layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop); config_layout.setContentsMargins(0,0,0,0)
-        # PHP Version
+        # PHP Version Row
         php_version_combo=QComboBox(); php_version_combo.setFont(details_font); self._available_php_versions = detect_bundled_php_versions(); php_version_combo.addItem("Default");
         if self._available_php_versions: php_version_combo.addItems(self._available_php_versions);
         stored_php = site_info.get('php_version', config.DEFAULT_PHP);
         if stored_php == config.DEFAULT_PHP: php_version_combo.setCurrentText("Default")
         else: php_version_combo.setCurrentText(stored_php)
-        php_version_combo.currentTextChanged.connect(self.on_php_version_changed_for_site); config_layout.addRow("PHP Version:", php_version_combo);
+        php_version_combo.currentTextChanged.connect(self.on_php_version_changed_for_site);
+        general_form_layout.addRow("PHP Version:", php_version_combo)
         self._detail_widgets_cache['php_version_combo'] = php_version_combo
-        # HTTPS Toggle
-        https_checkbox = QCheckBox(); https_checkbox.setToolTip("Enable HTTPS"); self._ignore_https_toggle=True; https_checkbox.setChecked(site_info.get('https',False)); self._ignore_https_toggle=False; https_checkbox.stateChanged.connect(self.on_https_toggled);
-        config_layout.addRow("HTTPS:", https_checkbox)
-        self._detail_widgets_cache['https_checkbox'] = https_checkbox
-        two_column_layout.addWidget(config_widget, 1) # Add left column (stretch factor 1)
 
-        # Right Column (Info)
-        info_widget = QWidget(); info_layout_right = QFormLayout(info_widget); info_layout_right.setSpacing(10); info_layout_right.setLabelAlignment(Qt.AlignmentFlag.AlignLeft); info_layout_right.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop); info_layout_right.setContentsMargins(0,0,0,0)
-        # Path
-        path_val=QLabel(site_info.get('path','N/A')); path_val.setFont(details_font); path_val.setWordWrap(True); path_val.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        info_layout_right.addRow("Path:", path_val)
-        # URL (Domain)
+        # HTTPS Row
+        https_checkbox = QCheckBox(); https_checkbox.setToolTip("Enable HTTPS"); self._ignore_https_toggle=True; https_checkbox.setChecked(site_info.get('https',False)); self._ignore_https_toggle=False; https_checkbox.stateChanged.connect(self.on_https_toggled);
+        general_form_layout.addRow("HTTPS:", https_checkbox)
+        self._detail_widgets_cache['https_checkbox'] = https_checkbox
+
+        # Path Row (Clickable Button)
+        site_path_str = site_info.get('path','N/A')
+        path_button = QPushButton(site_path_str); path_button.setFont(details_font); path_button.setToolTip("Click to open directory"); path_button.setObjectName("PathButton"); path_button.setFlat(True); path_button.setStyleSheet("text-align: left; border: none; color: #007AFF; padding: 0; margin: 0;"); path_button.setCursor(Qt.CursorShape.PointingHandCursor); path_button.clicked.connect(self.on_open_path_clicked);
+        general_form_layout.addRow("Path:", path_button)
+        self._detail_widgets_cache['path_button'] = path_button
+
+        # URL Row (Domain Edit + Save)
         url_edit=QLineEdit(site_info.get('domain','')); url_edit.setFont(details_font); url_edit.setPlaceholderText(f"site.{config.SITE_TLD}"); regex=QRegularExpression(f"^[a-zA-Z0-9-]+(\\.{config.SITE_TLD})$"); validator=QRegularExpressionValidator(regex, url_edit); url_edit.setValidator(validator); url_edit.textChanged.connect(self.on_url_text_changed);
         save_url_button=QPushButton("Save"); save_url_button.setObjectName("SaveUrlButton"); save_url_button.setEnabled(False); save_url_button.clicked.connect(self.on_save_url_internal_click);
-        url_hbox = QHBoxLayout(); url_hbox.addWidget(url_edit, 1); url_hbox.addWidget(save_url_button)
-        info_layout_right.addRow("URL:", url_hbox)
+        url_hbox = QHBoxLayout(); url_hbox.addWidget(url_edit, 1); url_hbox.addWidget(save_url_button); url_hbox.setContentsMargins(0,0,0,0) # No extra margins for hbox
+        general_form_layout.addRow("URL:", url_hbox)
         self._detail_widgets_cache['url_edit'] = url_edit; self._detail_widgets_cache['save_url_button'] = save_url_button;
-        two_column_layout.addWidget(info_widget, 1) # Add right column (stretch factor 1)
 
-        self.details_layout.addLayout(two_column_layout) # Add the two columns layout
+        # Add the single form layout to the main details layout
+        self.details_layout.addLayout(general_form_layout)
         # --- End Bottom Section ---
 
         self.details_layout.addStretch(1) # Push everything up
@@ -543,6 +544,29 @@ class SitesPage(QWidget):
         except Exception as e:
             self.log_to_main(f"Error opening Tinker: {e}"); QMessageBox.critical(self, "Error", f"Failed:\n{e}")
 
+    @Slot()
+    def on_open_path_clicked(self):
+        """Opens the site's directory in the default file manager."""
+        if not self.current_site_info or not self.current_site_info.get('path'):
+            self.log_to_main("Error: No site selected or path missing for opening path.")
+            return
+        site_path = self.current_site_info['path']
+        self.log_to_main(f"Attempting to open path: {site_path}")
+        try:
+            url = QUrl.fromLocalFile(site_path)  # Convert path to URL
+            if not QDesktopServices.openUrl(url):
+                self.log_to_main(f"Error: Failed to open path {site_path} using QDesktopServices.")
+                # Fallback using xdg-open?
+                xdg_open = shutil.which('xdg-open')
+                if xdg_open:
+                    print(f"Attempting fallback with xdg-open {site_path}")
+                    subprocess.Popen([xdg_open, site_path])
+                else:
+                    QMessageBox.warning(self, "Cannot Open Path", f"Could not open the directory:\n{site_path}")
+        except Exception as e:
+            self.log_to_main(f"Error opening path {site_path}: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to open path:\n{e}")
+
     def update_site_preview(self, domain):
         """Placeholder for updating the site preview image."""
         # Check if the preview label widget exists from the cache or create if needed?
@@ -566,17 +590,38 @@ class SitesPage(QWidget):
     # --- List Refresh and Page Activation ---
     @Slot()
     def refresh_site_list(self):
-        """Refreshes the list of sites displayed."""
+        """Refreshes the list of sites displayed, adding icons based on HTTPS status."""
         self.log_to_main("SitesPage: Refreshing site list...")
         self.site_list_widget.clear()
+        # Load icons once
+        try:
+            site_icon = QIcon(":/icons/not-secure.svg")  # Default icon
+            lock_icon = QIcon(":/icons/secure.svg")  # HTTPS icon
+            if site_icon.isNull(): print("Warning: not-secure.svg icon failed to load.")
+            if lock_icon.isNull(): print("Warning: secure.svg icon failed to load.")
+        except NameError:
+            site_icon = QIcon();
+            lock_icon = QIcon()  # Fallback
+
         try:
             sites = load_sites()
+            if not sites:
+                self.site_list_widget.addItem("(No sites linked yet)")
+                return
+
             for site_info in sites:
-                item = QListWidgetItem(site_info.get('domain', Path(site_info.get('path', '?')).name))
+                display_text = site_info.get('domain', Path(site_info.get('path', '?')).name)
+                # Choose icon based on HTTPS status
+                has_https = site_info.get('https', False)
+                icon_to_use = lock_icon if has_https else site_icon
+
+                # Create item with icon and domain name
+                item = QListWidgetItem(icon_to_use, f" {display_text}")  # Add space after icon
                 item.setData(Qt.ItemDataRole.UserRole, site_info)  # Store full dict
                 self.site_list_widget.addItem(item)
         except Exception as e:
             self.log_to_main(f"Error loading sites: {e}")
+            traceback.print_exc()  # Print full traceback for debugging
             self.site_list_widget.addItem("Error loading sites...")
 
     def refresh_data(self):
