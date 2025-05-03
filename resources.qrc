@@ -12,5 +12,7 @@
         <file alias="plus.svg">assets/icons/plus.svg</file>
         <file alias="secure.svg">assets/icons/secure.svg</file>
         <file alias="not-secure.svg">assets/icons/not-secure.svg</file>
+        <file alias="star-filled.svg">assets/icons/star-filled.svg</file>
+        <file alias="star-empty.svg">assets/icons/star-empty.svg</file>
     </qresource>
 </RCC>

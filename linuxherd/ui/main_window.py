@@ -27,7 +27,7 @@ try:
 
     # Managers
     from ..managers.php_manager import detect_bundled_php_versions
-    from ..managers.site_manager import add_site, remove_site
+    from ..managers.site_manager import add_site, remove_site, toggle_site_favorite
     from ..managers.nginx_manager import get_nginx_version
     from ..managers.mysql_manager import get_mysql_version, get_mysql_status
     from ..managers.postgres_manager import get_postgres_status, get_postgres_version
@@ -266,6 +266,7 @@ class MainWindow(QMainWindow):
         self.sites_page.setSitePhpVersionClicked.connect(self.on_set_site_php_version);
         self.sites_page.enableSiteSslClicked.connect(self.on_enable_site_ssl);
         self.sites_page.disableSiteSslClicked.connect(self.on_disable_site_ssl);
+        self.sites_page.toggleSiteFavoriteRequested.connect(self.on_toggle_site_favorite)
         # PHP Page Signals
         self.php_page.managePhpFpmClicked.connect(self.on_manage_php_fpm_triggered);
         self.php_page.saveIniSettingsClicked.connect(self.on_save_php_ini_settings);
@@ -743,6 +744,25 @@ class MainWindow(QMainWindow):
         domain = site_info.get("domain", "?"); self.log_message(f"Requesting SSL disable for '{domain}'...")
         if isinstance(self.sites_page, SitesPage): self.sites_page.set_controls_enabled(False)
         QApplication.processEvents(); task_data = {"site_info": site_info}; self.triggerWorker.emit("disable_ssl", task_data)
+
+    @Slot(str)
+    def on_toggle_site_favorite(self, site_id):
+        """Handles signal from SitesPage to toggle favorite status."""
+        self.log_message(f"Request received to toggle favorite for site ID: {site_id}")
+        # Call site_manager function directly (synchronous, should be fast)
+        try:
+            if toggle_site_favorite(site_id):
+                self.log_message(f"Site ID {site_id} favorite status toggled successfully.")
+                # Refresh the site list to reflect the change (re-sorting)
+                if isinstance(self.sites_page, SitesPage):
+                    self.sites_page.refresh_site_list()
+            else:
+                self.log_message(f"Error toggling favorite status for site ID {site_id}.")
+                QMessageBox.warning(self, "Favorite Error", "Could not toggle favorite status for the selected site.")
+        except Exception as e:
+            self.log_message(f"Exception toggling favorite for site ID {site_id}: {e}")
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred while toggling favorite status:\n{e}")
 
     @Slot()
     def on_stop_all_services_clicked(self):

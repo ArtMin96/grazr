@@ -98,75 +98,46 @@ def _detect_framework_info(site_path_obj: Path):
 
 # --- Public API ---
 
-def load_sites():
-    """
-    Loads site data (list of dictionaries) from the JSON storage file.
-    Uses path from config module. Handles conversion from old list format.
-
-    Returns:
-        list: A list of site dictionaries [ {id, path, domain, php_version, https}, ... ],
-              or an empty list if the file doesn't exist or an error occurs.
-    """
+def load_sites(): # Add favorite default and sorting
+    """Loads site data, ensuring new keys have defaults and sorting by favorite/path."""
     if not _ensure_config_dir_exists(): return []
-
-    sites_data = []
-    sites_file_path = config.SITES_FILE # Use config constant
+    sites_data = []; sites_file_path = config.SITES_FILE
     if sites_file_path.is_file():
         try:
-            with open(sites_file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                # Validate new format
-                if isinstance(data, dict) and 'sites' in data and isinstance(data['sites'], list):
-                    sites_data = data['sites']
-                    # Add default keys for robustness if loading older data
-                    for site in sites_data:
-                        site.setdefault('id', str(uuid.uuid4()))
-                        # Ensure domain ends with correct TLD from config
-                        site_name = Path(site.get('path','')).name
-                        expected_domain = f"{site_name}.{config.SITE_TLD}" if site_name else "unknown.err"
-                        site.setdefault('domain', expected_domain)
-                        site.setdefault('php_version', config.DEFAULT_PHP)
-                        site.setdefault('https', False)
-                        site.setdefault('framework_type', 'Unknown')
-                        site.setdefault('docroot_relative', '.')
-                elif isinstance(data, list): # Handle old format (just list of paths)
-                    print(f"SiteManager Warning: Old sites.json format detected. Converting...")
-                    sites_data = []
-                    for site_path_str in data:
-                         if isinstance(site_path_str, str):
-                             site_path_obj = Path(site_path_str)
-                             if site_path_obj.is_dir(): # Check if dir still exists
-                                 site_name = site_path_obj.name
-                                 # Detect framework for old sites too during conversion
-                                 framework_info = _detect_framework_info(site_path_obj)
+            with open(sites_file_path, 'r', encoding='utf-8') as f: data = json.load(f)
+            if isinstance(data, dict) and 'sites' in data and isinstance(data['sites'], list):
+                sites_data = data['sites']
+                # Add default keys for robustness
+                for site in sites_data:
+                     site.setdefault('id', str(uuid.uuid4()))
+                     site_name = Path(site.get('path','')).name
+                     site.setdefault('domain', f"{site_name}.{config.SITE_TLD}" if site_name else "unknown.err")
+                     site.setdefault('php_version', config.DEFAULT_PHP)
+                     site.setdefault('https', False)
+                     site.setdefault('framework_type', 'Unknown')
+                     site.setdefault('docroot_relative', '.')
+                     site.setdefault('favorite', False)
+            elif isinstance(data, list): # Handle old format conversion
+                 print(f"Warn: Old sites.json format detected. Converting...")
+                 sites_data = []
+                 for site_path_str in data:
+                      if isinstance(site_path_str, str):
+                          site_p_obj = Path(site_path_str)
+                          if site_p_obj.is_dir():
+                              site_name = site_p_obj.name; framework_info = _detect_framework_info(site_p_obj)
+                              sites_data.append({
+                                  "id": str(uuid.uuid4()), "path": str(site_p_obj.resolve()),
+                                  "domain": f"{site_name}.{config.SITE_TLD}",
+                                  "php_version": config.DEFAULT_PHP, "https": False,
+                                  "framework_type": framework_info["framework_type"],
+                                  "docroot_relative": framework_info["docroot_relative"],
+                                  "favorite": False # <<< Add favorite default during conversion
+                              })
+                 print(f"Converted {len(sites_data)} entries.")
+        except Exception as e: print(f"Error Loading {sites_file_path}: {e}"); sites_data = []
 
-                                 sites_data.append({
-                                     "id": str(uuid.uuid4()),
-                                     "path": str(site_path_obj.resolve()),
-                                     "domain": f"{site_name}.{config.SITE_TLD}",
-                                     "php_version": config.DEFAULT_PHP,
-                                     "https": False,
-                                     "framework_type": framework_info["framework_type"],
-                                     "docroot_relative": framework_info["docroot_relative"]
-                                 })
-                    print(f"SiteManager Warning: Converted {len(sites_data)} entries from old format.")
-                    # Consider saving immediately in new format? Risky on load.
-                    # save_sites(sites_data)
-                else:
-                    print(f"SiteManager Warning: Invalid format in {sites_file_path}. Discarding content.")
-                    sites_data = []
-        except json.JSONDecodeError as e:
-            print(f"SiteManager Error: Decoding JSON from {sites_file_path}: {e}")
-            sites_data = []
-        except IOError as e:
-            print(f"SiteManager Error: Reading file {sites_file_path}: {e}")
-            sites_data = []
-        except Exception as e:
-            print(f"SiteManager Error: Unexpected error loading sites: {e}")
-            sites_data = []
-
-    # Ensure consistent sorting
-    sites_data.sort(key=lambda x: x.get('path', ''))
+    # Sort: Favorites first, then alphabetically by path/domain
+    sites_data.sort(key=lambda x: (not x.get('favorite', False), x.get('domain', '').lower()))
     return sites_data
 
 def save_sites(sites_list):
@@ -174,35 +145,33 @@ def save_sites(sites_list):
     if not _ensure_config_dir_exists(): return False
     if not isinstance(sites_list, list): print("Error: save_sites expects list."); return False
 
-    sites_file_path = config.SITES_FILE # Use config constant
+    config_file = config.SITES_FILE
     temp_path_str = None
     try:
         # Ensure consistent sorting before saving
-        sites_list.sort(key=lambda x: x.get('path', ''))
+        sites_list.sort(key=lambda x: (not x.get('favorite', False), x.get('domain', '').lower()))
         data_to_save = {'sites': sites_list}
-        # Use more robust temp file creation/replacement
-        with tempfile.NamedTemporaryFile('w', dir=sites_file_path.parent, delete=False, encoding='utf-8', prefix=f"{sites_file_path.name}.") as temp_f:
-            temp_path_str = temp_f.name # Get path before closing
+        # Atomic write
+        with tempfile.NamedTemporaryFile('w', dir=config_file.parent, delete=False, encoding='utf-8',
+                                         prefix=f"{config_file.name}.") as temp_f:
+            temp_path_str = temp_f.name
             json.dump(data_to_save, temp_f, indent=4)
-            temp_f.flush() # Ensure data is written
-            os.fsync(temp_f.fileno()) # Ensure data is flushed to disk
-
-        # Try preserving permissions from original file if it exists
-        if sites_file_path.exists():
-            try: shutil.copystat(sites_file_path, temp_path_str)
-            except Exception as e_stat: print(f"SiteManager Warning: Could not copy stat info: {e_stat}")
-
-        os.replace(temp_path_str, sites_file_path) # Atomic rename/replace
-        temp_path_str = None # Prevent deletion in finally
-        print(f"SiteManager Info: Saved {len(sites_list)} sites to {sites_file_path}")
+            temp_f.flush();
+            os.fsync(temp_f.fileno())
+        if config_file.exists(): shutil.copystat(config_file, temp_path_str)
+        os.replace(temp_path_str, config_file);
+        temp_path_str = None
+        print(f"SiteManager Info: Saved {len(sites_list)} sites to {config_file}")
         return True
     except Exception as e:
-        print(f"SiteManager Error: Saving sites to {sites_file_path}: {e}"); return False
+        print(f"SiteManager Error: Saving {config_file}: {e}"); return False
     finally:
-        # Ensure temp file is removed if replace failed
         if temp_path_str and os.path.exists(temp_path_str):
-            try: os.unlink(temp_path_str)
-            except OSError: pass
+            try:
+                os.unlink(temp_path_str)
+                return None
+            except OSError:
+                return None
 
 def add_site(path_to_add):
     """Adds a site with defaults using constants from config."""
@@ -225,7 +194,8 @@ def add_site(path_to_add):
         "php_version": config.DEFAULT_PHP,
         "https": False,
         "framework_type": framework_info["framework_type"],
-        "docroot_relative": framework_info["docroot_relative"]
+        "docroot_relative": framework_info["docroot_relative"],
+        "favorite": False
     }
     current_sites.append(new_site)
     # save_sites handles sorting now
@@ -299,6 +269,24 @@ def update_site_settings(path_to_update, new_settings):
     for key, value in new_settings.items():
          current_sites[site_found_index][key] = value
     # save_sites handles sorting now
+    return save_sites(current_sites)
+
+def toggle_site_favorite(site_id):
+    """Finds a site by its ID and toggles its 'favorite' status."""
+    if not site_id: return False
+    current_sites = load_sites()
+    found = False
+    for site in current_sites:
+        if site.get('id') == site_id:
+            current_favorite_state = site.get('favorite', False)
+            site['favorite'] = not current_favorite_state # Toggle the boolean
+            print(f"SiteManager Info: Toggled favorite for '{site.get('domain')}' to {site['favorite']}")
+            found = True
+            break
+    if not found:
+        print(f"SiteManager Error: Site ID '{site_id}' not found for favorite toggle.")
+        return False
+    # Save the modified list (save_sites handles sorting)
     return save_sites(current_sites)
 
 # --- Example Usage ---

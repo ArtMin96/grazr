@@ -25,6 +25,7 @@ try:
     from ..core import config # Import central config
     from ..managers.site_manager import load_sites
     from ..managers.php_manager import detect_bundled_php_versions, get_default_php_version, _get_php_ini_path
+    from .widgets.site_list_item_widget import SiteListItemWidget
 except ImportError as e:
     print(f"ERROR in sites_page.py: Could not import core/manager modules: {e}")
     # Define dummy functions/constants if import fails
@@ -62,6 +63,7 @@ class SitesPage(QWidget):
     setSitePhpVersionClicked = Signal(dict, str)
     enableSiteSslClicked = Signal(dict)
     disableSiteSslClicked = Signal(dict)
+    toggleSiteFavoriteRequested = Signal(str)
 
     def __init__(self, parent=None):
         """Initializes the Sites page UI with master-detail layout."""
@@ -589,40 +591,58 @@ class SitesPage(QWidget):
 
     # --- List Refresh and Page Activation ---
     @Slot()
-    def refresh_site_list(self):
-        """Refreshes the list of sites displayed, adding icons based on HTTPS status."""
+    def refresh_site_list(self):  # <<< CORRECTED SYNTAX/LOGIC
+        """Refreshes the list of sites displayed using SiteListItemWidget."""
         self.log_to_main("SitesPage: Refreshing site list...")
-        self.site_list_widget.clear()
-        # Load icons once
-        try:
-            site_icon = QIcon(":/icons/not-secure.svg")  # Default icon
-            lock_icon = QIcon(":/icons/secure.svg")  # HTTPS icon
-            if site_icon.isNull(): print("Warning: not-secure.svg icon failed to load.")
-            if lock_icon.isNull(): print("Warning: secure.svg icon failed to load.")
-        except NameError:
-            site_icon = QIcon();
-            lock_icon = QIcon()  # Fallback
+        current_selected_id = self.current_site_info.get('id') if self.current_site_info else None
+        selected_item_to_restore = None
+
+        self.site_list_widget.clear()  # Clear the list visually
 
         try:
-            sites = load_sites()
+            sites = load_sites()  # load_sites now sorts by favorite then domain
             if not sites:
                 self.site_list_widget.addItem("(No sites linked yet)")
+                self.display_site_details(None)  # Clear details
                 return
 
             for site_info in sites:
-                display_text = site_info.get('domain', Path(site_info.get('path', '?')).name)
-                # Choose icon based on HTTPS status
-                has_https = site_info.get('https', False)
-                icon_to_use = lock_icon if has_https else site_icon
+                site_id = site_info.get('id')
+                if not site_id:
+                    self.log_to_main(f"Warning: Site missing ID in config: {site_info.get('path')}")
+                    continue  # Skip sites without an ID
 
-                # Create item with icon and domain name
-                item = QListWidgetItem(icon_to_use, f" {display_text}")  # Add space after icon
-                item.setData(Qt.ItemDataRole.UserRole, site_info)  # Store full dict
-                self.site_list_widget.addItem(item)
+                # Create the list item FIRST (it acts as a container)
+                list_item = QListWidgetItem()
+                # Store full site_info dict in item data role for later retrieval
+                list_item.setData(Qt.UserRole, site_info)
+                # Add the item to the list BEFORE setting the widget
+                self.site_list_widget.addItem(list_item)
+
+                # Create the custom widget using the site_info
+                try:
+                    item_widget = SiteListItemWidget(site_info, parent=self.site_list_widget)  # Pass parent
+                    # Connect its favorite toggle signal to our slot
+                    item_widget.favoriteToggled.connect(self.on_favorite_toggled)
+                    # Set the custom widget for the list item
+                    list_item.setSizeHint(item_widget.sizeHint())  # Set size hint based on widget
+                    self.site_list_widget.setItemWidget(list_item, item_widget)
+                except Exception as widget_e:
+                    self.log_to_main(f"Error creating SiteListItemWidget for {site_id}: {widget_e}")
+                    list_item.setText(f"Error loading: {site_info.get('domain', '?')}")  # Fallback text
+
+                # Check if this item should be re-selected
+                if site_id == current_selected_id:
+                    selected_item_to_restore = list_item
+
         except Exception as e:
-            self.log_to_main(f"Error loading sites: {e}")
-            traceback.print_exc()  # Print full traceback for debugging
+            self.log_to_main(f"Error loading/populating sites: {e}")
+            traceback.print_exc()
             self.site_list_widget.addItem("Error loading sites...")
+
+        # Restore selection if possible
+        if selected_item_to_restore:
+            self.site_list_widget.setCurrentItem(selected_item_to_restore)
 
     def refresh_data(self):
         """Refresh site list and current details."""
@@ -646,6 +666,14 @@ class SitesPage(QWidget):
                 self._show_details_placeholder("Error loading site details. Please try again.")
             except Exception:
                 pass  # Last resort - if even showing placeholder fails, just continue
+
+    @Slot(str)
+    def on_favorite_toggled(self, site_id):
+        """Emits signal to MainWindow when a site's favorite status is toggled."""
+        self.log_to_main(f"SitesPage: Favorite toggled for site ID: {site_id}")
+        # Add debug print right before emitting
+        print(f"DEBUG SitesPage: Emitting toggleSiteFavoriteRequested with ID: '{site_id}' (type: {type(site_id)})")
+        self.toggleSiteFavoriteRequested.emit(site_id)
 
     @Slot(bool)
     def set_controls_enabled(self, enabled):
