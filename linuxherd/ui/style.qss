@@ -202,6 +202,37 @@ QTextEdit#LogViewer { /* Set objectName in _create_detail_widget */
     /* Styles above apply, add specific overrides if needed */
 }
 
+/* --- Node Page Specific <<< NEW --- */
+QListWidget#NodeAvailableList, QListWidget#NodeInstalledList {
+    background-color: #FFFFFF; /* White background */
+    border: 1px solid #E9ECEF; /* Light border around list */
+    border-radius: 4px;
+    outline: none;
+    padding: 4px; /* Padding inside the list view */
+}
+QListWidget#NodeAvailableList::item, QListWidget#NodeInstalledList::item {
+    background-color: transparent;
+    border: none; /* No border between items */
+    padding: 6px 8px; /* Padding for each item */
+    color: #495057;
+    font-weight: 500;
+    border-radius: 3px; /* Slight rounding for hover/selection */
+    margin: 1px; /* Small margin between items */
+}
+QListWidget#NodeAvailableList::item:selected, QListWidget#NodeInstalledList::item:selected {
+    background-color: #E7F3FF; /* Light blue selection background */
+    color: #0056b3; /* Darker blue text */
+    font-weight: 500; /* Keep medium weight */
+}
+QListWidget#NodeAvailableList::item:hover:!selected, QListWidget#NodeInstalledList::item:hover:!selected {
+    background-color: #F1F3F5; /* Light grey hover */
+}
+/* Style the Install/Uninstall buttons if needed */
+QPushButton#NodeInstallButton, QPushButton#NodeUninstallButton {
+    /* Inherit general QPushButton styles or add specifics */
+    margin-top: 8px; /* Space above buttons */
+}
+
 /* Buttons (General) */
 QPushButton {
     background-color: #FFFFFF;

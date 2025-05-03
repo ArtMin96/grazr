@@ -22,6 +22,7 @@ try:
     from ..managers.postgres_manager import start_postgres, stop_postgres
     from ..managers.redis_manager import start_redis, stop_redis
     from ..managers.minio_manager import start_minio, stop_minio
+    from ..managers.node_manager import install_node_version, uninstall_node_version
     from .system_utils import run_root_helper_action
 
 except ImportError as e:
@@ -50,6 +51,8 @@ except ImportError as e:
     def stop_redis(*args, **kwargs): return True
     def start_minio(*args, **kwargs): return False
     def stop_minio(*args, **kwargs): return True
+    def install_node_version(*a): return False, "NI"
+    def uninstall_node_version(*a): return False, "NI"
     def run_root_helper_action(*args, **kwargs): return False, "Not imported"
 
 
@@ -381,6 +384,28 @@ class Worker(QObject):
                 local_success = stop_minio()
                 local_message = "Bundled MinIO stop attempt finished."
                 print(f"WORKER: stop_minio returned: success={local_success}")
+
+            elif task_name == "install_node":
+                version = data.get("version")
+                print(f"WORKER DEBUG: install_node handler started. version={version}")
+                if not version:
+                    local_success = False;
+                    local_message = "Missing version for install_node task."
+                else:
+                    # Call the manager function which runs NVM
+                    local_success, local_message = install_node_version(version)
+                    print(f"WORKER DEBUG: install_node_version returned: success={local_success}")
+
+            elif task_name == "uninstall_node":
+                version = data.get("version")
+                print(f"WORKER DEBUG: uninstall_node handler started. version={version}")
+                if not version:
+                    local_success = False;
+                    local_message = "Missing version for uninstall_node task."
+                else:
+                    # Call the manager function which runs NVM
+                    local_success, local_message = uninstall_node_version(version)
+                    print(f"WORKER DEBUG: uninstall_node_version returned: success={local_success}")
 
             elif task_name == "run_helper":
                 action = data.get("action");

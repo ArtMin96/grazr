@@ -8,6 +8,8 @@ import uuid
 from pathlib import Path
 import tempfile
 import shutil
+import sys
+import traceback
 
 # --- Import Core Config ---
 try:
@@ -17,84 +19,78 @@ except ImportError as e:
     print(f"ERROR in site_manager.py: Could not import core.config: {e}")
     # Define critical constants as fallbacks if needed for basic loading
     class ConfigDummy:
-        CONFIG_DIR=Path.home()/'error_cfg'; SITES_FILE=CONFIG_DIR/'error.json';
-        SITE_TLD="err"; DEFAULT_PHP="err";
-        def ensure_dir(p): pass # Add dummy ensure_dir if config has it
+        SITE_TLD="test"; DEFAULT_PHP="default"; DEFAULT_NODE="system";
+        SITES_FILE=Path("sites_err.json"); CONFIG_DIR=Path(".");
+        def ensure_dir(p): os.makedirs(p, exist_ok=True); return True
     config = ConfigDummy()
+    DEFAULT_PHP = config.DEFAULT_PHP # Make accessible
+    DEFAULT_NODE = config.DEFAULT_NODE
 # --- End Imports ---
 
 
 # --- Helper Functions ---
 def _ensure_config_dir_exists():
-    """Creates the application's base configuration directory if it doesn't exist."""
-    # Uses constant from config module
-    try:
-        config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    """Ensures the main config directory exists."""
+    # Use the helper from config module if available
+    if hasattr(config, 'ensure_dir') and callable(config.ensure_dir):
+        return config.ensure_dir(config.CONFIG_DIR)
+    else: # Fallback basic implementation
+        if not config.CONFIG_DIR.exists():
+            try: config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            except OSError as e: print(f"Error creating config dir: {e}"); return False
         return True
-    except OSError as e:
-        print(f"SiteManager Error: Could not create config directory {config.CONFIG_DIR}: {e}")
-        return False
 
 def _detect_framework_info(site_path_obj: Path):
     """
-    Detects framework type and relative document root based on common markers.
+    Detects framework type, relative document root, and if Node.js is likely needed.
 
     Args:
         site_path_obj (Path): The absolute path to the site's root directory.
 
     Returns:
-        dict: {'framework': str, 'docroot': str (relative path like 'public', 'web', '.')}
+        dict: {'framework_type': str, 'docroot_relative': str, 'needs_node': bool}
     """
     framework = "Unknown"
-    docroot = "." # Default to current directory
+    docroot = "."
+    needs_node = False # Default to false
 
-    # Check for common framework markers and docroots
-    # Order matters - check more specific ones first
+    if not isinstance(site_path_obj, Path) or not site_path_obj.is_dir():
+        print(f"Warn: Invalid path provided to _detect_framework_info: {site_path_obj}")
+        return {"framework_type": "Error", "docroot_relative": ".", "needs_node": False}
+
     try:
-        if (site_path_obj / 'artisan').is_file() and (site_path_obj / 'public' / 'index.php').is_file():
-            framework = "Laravel"
-            docroot = "public"
-        elif (site_path_obj / 'bin' / 'console').is_file() and (site_path_obj / 'public' / 'index.php').is_file():
-            framework = "Symfony"
-            docroot = "public"
-        elif (site_path_obj / 'yii').is_file() and (site_path_obj / 'web' / 'index.php').is_file():
-            framework = "Yii2"
-            docroot = "web"
-        elif (site_path_obj / 'craft').is_file() and (site_path_obj / 'web' / 'index.php').is_file():
-            framework = "CraftCMS"
-            docroot = "web" # Default Craft web root
-        elif (site_path_obj / 'please').is_file() and (site_path_obj / 'public' / 'index.php').is_file():
-            framework = "Statamic"
-            docroot = "public"
-        elif (site_path_obj / 'wp-config.php').is_file() or (site_path_obj / 'wp-load.php').is_file():
-            framework = "WordPress"
-            docroot = "." # WordPress runs from the root
-        else:
-            # Fallback checks for common docroot folders if no framework detected
-            if (site_path_obj / 'public').is_dir() and \
-               ((site_path_obj / 'public' / 'index.php').is_file() or \
-                (site_path_obj / 'public' / 'index.html').is_file()):
-                 docroot = "public"
-                 framework = "Unknown (Public Dir)"
-            elif (site_path_obj / 'web').is_dir() and \
-                 ((site_path_obj / 'web' / 'index.php').is_file() or \
-                  (site_path_obj / 'web' / 'index.html').is_file()):
-                  docroot = "web"
-                  framework = "Unknown (Web Dir)"
-            elif (site_path_obj / 'index.php').is_file() or \
-                 (site_path_obj / 'index.html').is_file():
-                 docroot = "." # Assume root if index file found there
-                 framework = "Unknown (Root Dir)"
+        # --- Check for Node.js marker first ---
+        if (site_path_obj / 'package.json').is_file():
+            needs_node = True
+            print(f"SiteManager Info: Found package.json for {site_path_obj}")
+
+        # --- Check for PHP framework markers ---
+        # Check more specific ones first
+        if (site_path_obj / 'artisan').is_file() and (site_path_obj / 'public' / 'index.php').is_file(): framework = "Laravel"; docroot = "public"
+        elif (site_path_obj / 'bin' / 'console').is_file() and (site_path_obj / 'public' / 'index.php').is_file(): framework = "Symfony"; docroot = "public"
+        elif (site_path_obj / 'yii').is_file() and (site_path_obj / 'web' / 'index.php').is_file(): framework = "Yii2"; docroot = "web"
+        elif (site_path_obj / 'craft').is_file() and (site_path_obj / 'web' / 'index.php').is_file(): framework = "CraftCMS"; docroot = "web"
+        elif (site_path_obj / 'please').is_file() and (site_path_obj / 'public' / 'index.php').is_file(): framework = "Statamic"; docroot = "public"
+        elif (site_path_obj / 'wp-config.php').is_file() or (site_path_obj / 'wp-load.php').is_file(): framework = "WordPress"; docroot = "."
+        elif framework == "Unknown": # Only check fallbacks if no PHP framework detected
+            # Check common docroot folders
+            public_dir = site_path_obj / 'public'
+            web_dir = site_path_obj / 'web'
+            if public_dir.is_dir() and ((public_dir/'index.php').is_file() or (public_dir/'index.html').is_file()):
+                docroot = "public"; framework = "Unknown (Public Dir)"
+            elif web_dir.is_dir() and ((web_dir/'index.php').is_file() or (web_dir/'index.html').is_file()):
+                docroot = "web"; framework = "Unknown (Web Dir)"
+            elif (site_path_obj / 'index.php').is_file() or (site_path_obj / 'index.html').is_file():
+                docroot = "."; framework = "Unknown (Root Dir)"
             # Else: keep default docroot = "."
 
     except Exception as e:
-        print(f"SiteManager Warning: Error during framework detection for {site_path_obj}: {e}")
-        # Keep defaults on error
-        framework = "DetectionError"
-        docroot = "."
+        print(f"Warn: Framework/Node detection error for {site_path_obj}: {e}")
+        traceback.print_exc() # Print traceback for debugging
+        framework = "DetectionError"; docroot = "."; needs_node = False # Reset on error
 
-    print(f"SiteManager Info: Detected framework '{framework}', docroot '{docroot}' for {site_path_obj}")
-    return {"framework_type": framework, "docroot_relative": docroot}
+    print(f"Detected: framework='{framework}', docroot='{docroot}', needs_node={needs_node}")
+    return {"framework_type": framework, "docroot_relative": docroot, "needs_node": needs_node}
 
 # --- Public API ---
 
@@ -109,14 +105,19 @@ def load_sites(): # Add favorite default and sorting
                 sites_data = data['sites']
                 # Add default keys for robustness
                 for site in sites_data:
-                     site.setdefault('id', str(uuid.uuid4()))
-                     site_name = Path(site.get('path','')).name
-                     site.setdefault('domain', f"{site_name}.{config.SITE_TLD}" if site_name else "unknown.err")
-                     site.setdefault('php_version', config.DEFAULT_PHP)
-                     site.setdefault('https', False)
-                     site.setdefault('framework_type', 'Unknown')
-                     site.setdefault('docroot_relative', '.')
-                     site.setdefault('favorite', False)
+                    site_path_str = site.get('path', '')
+                    site_path_obj = Path(site_path_str) if site_path_str else None
+
+                    site.setdefault('id', str(uuid.uuid4()))
+                    site_name = site_path_obj.name if site_path_obj else 'unknown'
+                    site.setdefault('domain', f"{site_name}.{config.SITE_TLD}" if site_name else "unknown.err")
+                    site.setdefault('php_version', config.DEFAULT_PHP)
+                    site.setdefault('https', False)
+                    site.setdefault('framework_type', 'Unknown')
+                    site.setdefault('docroot_relative', '.')
+                    site.setdefault('favorite', False)
+                    site.setdefault('needs_node', site_path_obj.joinpath('package.json').is_file() if site_path_obj else False)
+                    site.setdefault('node_version', config.DEFAULT_NODE)
             elif isinstance(data, list): # Handle old format conversion
                  print(f"Warn: Old sites.json format detected. Converting...")
                  sites_data = []
@@ -124,14 +125,19 @@ def load_sites(): # Add favorite default and sorting
                       if isinstance(site_path_str, str):
                           site_p_obj = Path(site_path_str)
                           if site_p_obj.is_dir():
-                              site_name = site_p_obj.name; framework_info = _detect_framework_info(site_p_obj)
+                              site_name = site_p_obj.name
+                              detection_info = _detect_framework_info(site_p_obj)
                               sites_data.append({
-                                  "id": str(uuid.uuid4()), "path": str(site_p_obj.resolve()),
+                                  "id": str(uuid.uuid4()),
+                                  "path": str(site_p_obj.resolve()),
                                   "domain": f"{site_name}.{config.SITE_TLD}",
-                                  "php_version": config.DEFAULT_PHP, "https": False,
-                                  "framework_type": framework_info["framework_type"],
-                                  "docroot_relative": framework_info["docroot_relative"],
-                                  "favorite": False # <<< Add favorite default during conversion
+                                  "php_version": config.DEFAULT_PHP,
+                                  "https": False,
+                                  "framework_type": detection_info["framework_type"],
+                                  "docroot_relative": detection_info["docroot_relative"],
+                                  "favorite": False,
+                                  "needs_node": detection_info["needs_node"],
+                                  "node_version": config.DEFAULT_NODE
                               })
                  print(f"Converted {len(sites_data)} entries.")
         except Exception as e: print(f"Error Loading {sites_file_path}: {e}"); sites_data = []
@@ -152,8 +158,7 @@ def save_sites(sites_list):
         sites_list.sort(key=lambda x: (not x.get('favorite', False), x.get('domain', '').lower()))
         data_to_save = {'sites': sites_list}
         # Atomic write
-        with tempfile.NamedTemporaryFile('w', dir=config_file.parent, delete=False, encoding='utf-8',
-                                         prefix=f"{config_file.name}.") as temp_f:
+        with tempfile.NamedTemporaryFile('w', dir=config_file.parent, delete=False, encoding='utf-8', prefix=f"{config_file.name}.") as temp_f:
             temp_path_str = temp_f.name
             json.dump(data_to_save, temp_f, indent=4)
             temp_f.flush();
@@ -183,18 +188,19 @@ def add_site(path_to_add):
         print(f"Info: Site '{absolute_path}' already linked."); return False
 
     # Detect framework info <<< NEW CALL
-    framework_info = _detect_framework_info(site_path_obj)
-
-    # Create new site entry including framework info
+    detection_info = _detect_framework_info(site_path_obj)  # Detect framework and node need
     site_name = site_path_obj.name
+
     new_site = {
         "id": str(uuid.uuid4()),
         "path": absolute_path,
         "domain": f"{site_name}.{config.SITE_TLD}",
         "php_version": config.DEFAULT_PHP,
+        "node_version": config.DEFAULT_NODE,
         "https": False,
-        "framework_type": framework_info["framework_type"],
-        "docroot_relative": framework_info["docroot_relative"],
+        "framework_type": detection_info["framework_type"],
+        "docroot_relative": detection_info["docroot_relative"],
+        "needs_node": detection_info["needs_node"],
         "favorite": False
     }
     current_sites.append(new_site)
@@ -291,22 +297,31 @@ def toggle_site_favorite(site_id):
 
 # --- Example Usage ---
 if __name__ == "__main__":
-     print(f"Using sites file: {config.SITES_FILE}")
-     test_dir = Path.home() / "Projects" / "sm-test"
-     test_dir.mkdir(parents=True, exist_ok=True)
-     test_path = str(test_dir)
-     print("\n--- Initial Load ---")
-     print(load_sites())
-     print("\n--- Adding Site ---")
-     add_site(test_path)
-     sites = load_sites()
-     print(sites)
-     site_id = sites[0]['id'] if sites else None
-     print(f"\n--- Getting Settings {test_path} ---")
-     print(get_site_settings(test_path))
-     print("\n--- Updating Settings ---")
-     update_site_settings(test_path, {"php_version": "8.2", "https": True})
-     print(get_site_settings(test_path))
-     print("\n--- Removing Site ---")
-     remove_site(test_path)
-     print(load_sites())
+    project_root = Path(__file__).resolve().parent.parent.parent
+    if str(project_root) not in sys.path: sys.path.insert(0, str(project_root))
+    try:
+        from linuxherd.core import config
+    except:
+        print("Could not re-import config."); sys.exit(1)
+    print("Testing Site Manager...")
+    test_path = Path.home() / "test_site_manager"
+    test_path.mkdir(exist_ok=True)
+    (test_path / "package.json").touch()  # Simulate node project
+    print(f"\nAdding site: {test_path}")
+    add_site(str(test_path))
+    print("\nCurrent sites:")
+    print(json.dumps(load_sites(), indent=2))
+    site_id = load_sites()[0]['id']
+    print(f"\nToggling favorite for {site_id}")
+    toggle_site_favorite(site_id)
+    print("\nCurrent sites after toggle:")
+    print(json.dumps(load_sites(), indent=2))
+    print(f"\nUpdating PHP version for {test_path}")
+    update_site_settings(str(test_path), {"php_version": "8.2"})
+    print("\nCurrent sites after update:")
+    print(json.dumps(load_sites(), indent=2))
+    print(f"\nRemoving site: {test_path}")
+    remove_site(str(test_path))
+    print("\nCurrent sites after remove:")
+    print(json.dumps(load_sites(), indent=2))
+    shutil.rmtree(test_path)

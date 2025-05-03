@@ -90,8 +90,14 @@ AVAILABLE_BUNDLED_SERVICES = {
         "doc_url": "https://min.io/docs/minio/linux/index.html",
         "log_path_constant": "INTERNAL_MINIO_LOG",
         "pid_file_constant": None
+    },
+    "node": {
+        "display_name": "Node.js (via NVM)",
+        "category": "Runtime",
+        "process_id": None,
+        "manager_module": "node_manager",
+        "doc_url": "https://nodejs.org/en/docs"
     }
-    # Add other bundled services here later (e.g., mailhog, memcached)
 }
 # --- End Service Definitions ---
 
@@ -190,10 +196,22 @@ MINIO_DEFAULT_ROOT_USER = "linuxherd" # Simple default user
 MINIO_DEFAULT_ROOT_PASSWORD = "password" # Simple default password - user should be aware!
 # --- End MinIO Section ---
 
+# --- NVM / Node Specific Paths ---
+NVM_BUNDLES_DIR = BUNDLES_DIR / 'nvm' # Where nvm.sh etc. live
+NVM_SCRIPT_PATH = NVM_BUNDLES_DIR / 'nvm.sh'
+# Directory where our bundled NVM will install/manage Node versions
+NVM_MANAGED_NODE_DIR = DATA_DIR / 'nvm_nodes'
+# Path template for specific Node version binaries managed by NVM
+# Note: NVM structure is complex, this is a simplified assumption
+NODE_VERSION_BIN_TEMPLATE = NVM_MANAGED_NODE_DIR / 'versions/node/v{version}/bin/node'
+NPM_VERSION_BIN_TEMPLATE = NVM_MANAGED_NODE_DIR / 'versions/node/v{version}/bin/npm'
+# --- End NVM / Node Section ---
+
 # --- Site Management ---
 SITES_FILE = CONFIG_DIR / 'sites.json'
 SITE_TLD = "test"
 DEFAULT_PHP = "default"
+DEFAULT_NODE="system"
 
 # --- SSL Management ---
 MKCERT_BUNDLES_DIR = BUNDLES_DIR / 'mkcert'

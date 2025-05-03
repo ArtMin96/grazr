@@ -16,7 +16,7 @@ try:
     from ..managers.php_manager import (get_ini_value, set_ini_value, # Need set_ini_value now
                                         list_available_extensions, list_enabled_extensions,
                                         enable_extension, disable_extension, # Need enable/disable
-                                        DEFAULT_PHP, _get_php_ini_path)
+                                        _get_php_ini_path)
 except ImportError as e:
     print(f"ERROR in php_config_dialog.py: Could not import dependencies: {e}")
 # --- End Imports ---

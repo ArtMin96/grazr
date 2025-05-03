@@ -27,7 +27,7 @@ try:
 
     # Managers
     from ..managers.php_manager import detect_bundled_php_versions
-    from ..managers.site_manager import add_site, remove_site, toggle_site_favorite
+    from ..managers.site_manager import add_site, remove_site, toggle_site_favorite, update_site_settings
     from ..managers.nginx_manager import get_nginx_version
     from ..managers.mysql_manager import get_mysql_version, get_mysql_status
     from ..managers.postgres_manager import get_postgres_status, get_postgres_version
@@ -51,15 +51,17 @@ try:
     from .services_page import ServicesPage
     from .php_page import PhpPage
     from .sites_page import SitesPage
+    from .node_page import NodePage
 
     from .add_service_dialog import AddServiceDialog
     from .php_config_dialog import PhpConfigurationDialog
 except ImportError as e:
-     print(f"ERROR in main_window.py: Could not import page widgets - {e}")
+    print(f"ERROR in main_window.py: Could not import page widgets - {e}")
 
-     class PhpExtensionsDialog(QWidget): pass
-     class AddServiceDialog(QWidget): pass
-     sys.exit(1)
+    class PhpExtensionsDialog(QWidget): pass
+    class AddServiceDialog(QWidget): pass
+    class NodePage(QWidget): pass
+    sys.exit(1)
 
 try:
     # This import assumes resources_rc.py is in the same 'ui' directory
@@ -124,20 +126,24 @@ class MainWindow(QMainWindow):
             services_icon = QIcon(":/icons/services.svg")
             php_icon = QIcon(":/icons/php.svg")
             sites_icon = QIcon(":/icons/sites.svg")
+            node_icon = QIcon(":/icons/node.svg")
             # Add fallback text or default icon if loading fails?
             if services_icon.isNull(): print("Warning: services.svg icon failed to load from resource.")
             if php_icon.isNull(): print("Warning: php.svg icon failed to load from resource.")
             if sites_icon.isNull(): print("Warning: sites.svg icon failed to load from resource.")
+            if node_icon.isNull(): print("Warning: node.svg icon failed to load from resource.")
         except NameError:  # Handle case where resources_rc failed to import
             print("Warning: resources_rc not imported, using text-only sidebar items.")
             services_icon = QIcon()  # Empty icon
             php_icon = QIcon()
             sites_icon = QIcon()
+            node_icon = QIcon()
 
         # Create items with icons and text (add space for visual separation)
         item_services = QListWidgetItem(services_icon, " Services")
         item_php = QListWidgetItem(php_icon, " PHP")
         item_sites = QListWidgetItem(sites_icon, " Sites")
+        item_node = QListWidgetItem(node_icon, " Node")
 
         # Set icon size for the list widget items (optional, controls display size)
         self.sidebar.setIconSize(QSize(18, 18))  # Adjust size as needed
@@ -145,6 +151,7 @@ class MainWindow(QMainWindow):
         self.sidebar.addItem(item_services)
         self.sidebar.addItem(item_php)
         self.sidebar.addItem(item_sites)
+        self.sidebar.addItem(item_node)
 
         sidebar_layout.addWidget(self.sidebar, 1)
 
@@ -204,9 +211,11 @@ class MainWindow(QMainWindow):
         self.services_page = ServicesPage(self)
         self.php_page = PhpPage(self)
         self.sites_page = SitesPage(self)
+        self.node_page = NodePage(self)
         self.stacked_widget.addWidget(self.services_page)
         self.stacked_widget.addWidget(self.php_page)
         self.stacked_widget.addWidget(self.sites_page)
+        self.stacked_widget.addWidget(self.node_page)
 
         # Log Area (Keep hidden at bottom for now)
         self.log_frame = QFrame()
@@ -264,6 +273,7 @@ class MainWindow(QMainWindow):
         self.sites_page.unlinkSiteClicked.connect(self.remove_selected_site);
         self.sites_page.saveSiteDomainClicked.connect(self.on_save_site_domain);
         self.sites_page.setSitePhpVersionClicked.connect(self.on_set_site_php_version);
+        self.sites_page.setSiteNodeVersionClicked.connect(self.on_set_site_node_version)
         self.sites_page.enableSiteSslClicked.connect(self.on_enable_site_ssl);
         self.sites_page.disableSiteSslClicked.connect(self.on_disable_site_ssl);
         self.sites_page.toggleSiteFavoriteRequested.connect(self.on_toggle_site_favorite)
@@ -272,6 +282,9 @@ class MainWindow(QMainWindow):
         self.php_page.saveIniSettingsClicked.connect(self.on_save_php_ini_settings);
         self.php_page.configurePhpVersionClicked.connect(self.on_configure_php_version_clicked)
         # self.php_page.showExtensionsDialog.connect(self.on_show_extensions_dialog)
+        # Node Page Signals
+        self.node_page.installNodeRequested.connect(self.on_install_node_requested)
+        self.node_page.uninstallNodeRequested.connect(self.on_uninstall_node_requested)
         # --- Initial State Setup --- (Unchanged)
         self.log_message("Application starting...");
         self.sidebar.setCurrentRow(0);
@@ -364,6 +377,7 @@ class MainWindow(QMainWindow):
         service_name_ctx = context_data.get("service_name", "N/A");
         php_version_ctx = context_data.get("version", "N/A");
         ext_name_ctx = context_data.get("extension_name", "N/A")
+        node_version_ctx = context_data.get("version", "N/A")
 
         # Determine target page and display name
         if task_name in ["install_nginx", "uninstall_nginx", "update_site_domain", "set_site_php", "enable_ssl",
@@ -399,6 +413,9 @@ class MainWindow(QMainWindow):
         elif task_name == "toggle_php_extension":
             target_page = self.php_page;
             display_name = f"PHP {php_version_ctx} Ext ({ext_name_ctx})"
+        elif task_name in ["install_node", "uninstall_node"]:
+            target_page = self.node_page;
+            display_name = f"Node {node_version_ctx}"
 
         self.log_message(f"Task '{task_name}' for '{display_name}' finished.");
         self.log_message(f"Result: {'OK' if success else 'Fail'}. Details: {message}")
@@ -441,8 +458,17 @@ class MainWindow(QMainWindow):
                 php_v = context_data.get("version");
                 ext = context_data.get("extension_name")
                 if php_v and ext and self.current_extension_dialog and self.current_extension_dialog.isVisible():
-                    if hasattr(self.current_extension_dialog,
-                               'update_extension_state'): self.current_extension_dialog.update_extension_state(php_v, ext, success)
+                    if hasattr(self.current_extension_dialog, 'update_extension_state'):
+                        self.current_extension_dialog.update_extension_state(php_v, ext, success)
+
+        elif target_page == self.node_page:
+            if isinstance(target_page, NodePage):
+                # Clear cache BEFORE refreshing if install/uninstall succeeded
+                if task_name in ["install_node", "uninstall_node"] and success:
+                    if hasattr(target_page, 'clear_installed_cache'):
+                        target_page.clear_installed_cache()
+
+                QTimer.singleShot(refresh_delay, target_page.refresh_data)
 
         # --- Re-enable controls ---
         print(f"DEBUG handleWorkerResult: Checking target_page for re-enable. Task='{task_name}'")
@@ -827,6 +853,50 @@ class MainWindow(QMainWindow):
         else:
             self.log_message(f"Error removing service configuration ID {service_id}.")
             QMessageBox.warning(self, "Remove Error", "Could not remove the service configuration.")
+
+    @Slot(str)
+    def on_install_node_requested(self, version):
+        """Handles install request from NodePage."""
+        self.log_message(f"Requesting Node install: {version}")
+        if isinstance(self.node_page, NodePage): self.node_page.set_controls_enabled(False)
+        task_data = {"version": version}
+        self.triggerWorker.emit("install_node", task_data)
+
+    @Slot(str)
+    def on_uninstall_node_requested(self, version):
+        """Handles uninstall request from NodePage."""
+        self.log_message(f"Requesting Node uninstall: {version}")
+        if isinstance(self.node_page, NodePage): self.node_page.set_controls_enabled(False)
+        task_data = {"version": version}
+        self.triggerWorker.emit("uninstall_node", task_data)
+
+    @Slot(dict, str)  # Receives site_info, new_node_version
+    def on_set_site_node_version(self, site_info, new_node_version):
+        """Handles signal from SitesPage to update a site's Node version."""
+        site_path = site_info.get('path')
+        site_domain = site_info.get('domain')
+        if not site_path or not site_domain:
+            self.log_message("Error: Missing path or domain when setting Node version.")
+            QMessageBox.warning(self, "Error", "Cannot set Node version. Site information is missing.")
+            return
+
+        self.log_message(f"Updating Node version for site '{site_domain}' to '{new_node_version}'...")
+        # Update the configuration directly (synchronous)
+        success = update_site_settings(site_path, {"node_version": new_node_version})
+
+        if success:
+            self.log_message(f"Node version for '{site_domain}' updated successfully in config.")
+            # No background process needs restarting for Node version change
+            # Refresh the site details display to show the change?
+            # The combo box already reflects the change visually.
+            # We might need to update the current_site_info stored in SitesPage if it relies on it.
+            # For now, just log success.
+        else:
+            self.log_message(f"Error: Failed to save Node version update for '{site_domain}'.")
+            QMessageBox.critical(self, "Error", f"Could not save Node version setting for {site_domain}.")
+            # Optionally refresh site list/details to revert UI change?
+            if isinstance(self.sites_page, SitesPage):
+                self.sites_page.refresh_data()
 
     # --- Methods for Refreshing Page Data ---
     def refresh_nginx_status_on_page(self):

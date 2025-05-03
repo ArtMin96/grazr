@@ -4,6 +4,7 @@
         <file alias="services.svg">assets/icons/server.svg</file>
         <file alias="php.svg">assets/icons/code.svg</file>
         <file alias="sites.svg">assets/icons/globe.svg</file>
+        <file alias="node.svg">assets/icons/hexagon.svg</file>
 
         <file alias="settings.svg">assets/icons/gear.svg</file>
         <file alias="remove.svg">assets/icons/trash.svg</file>
@@ -14,5 +15,6 @@
         <file alias="not-secure.svg">assets/icons/not-secure.svg</file>
         <file alias="star-filled.svg">assets/icons/star-filled.svg</file>
         <file alias="star-empty.svg">assets/icons/star-empty.svg</file>
+        <file alias="refresh.svg">assets/icons/refresh.svg</file>
     </qresource>
 </RCC>

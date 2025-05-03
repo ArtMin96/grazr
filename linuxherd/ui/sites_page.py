@@ -25,6 +25,7 @@ try:
     from ..core import config # Import central config
     from ..managers.site_manager import load_sites
     from ..managers.php_manager import detect_bundled_php_versions, get_default_php_version, _get_php_ini_path
+    from ..managers.node_manager import list_installed_node_versions
     from .widgets.site_list_item_widget import SiteListItemWidget
 except ImportError as e:
     print(f"ERROR in sites_page.py: Could not import core/manager modules: {e}")
@@ -61,6 +62,7 @@ class SitesPage(QWidget):
     unlinkSiteClicked = Signal(dict)
     saveSiteDomainClicked = Signal(dict, str)
     setSitePhpVersionClicked = Signal(dict, str)
+    setSiteNodeVersionClicked = Signal(dict, str)
     enableSiteSslClicked = Signal(dict)
     disableSiteSslClicked = Signal(dict)
     toggleSiteFavoriteRequested = Signal(str)
@@ -222,12 +224,12 @@ class SitesPage(QWidget):
             self._show_details_placeholder("Select a site from the list on the left.")
             return
 
-        site_info = selected_item.data(Qt.UserRole)
+        site_info = selected_item.data(Qt.ItemDataRole.UserRole)
         if not site_info or 'path' not in site_info or 'domain' not in site_info:
              self._show_details_placeholder("Error loading site details."); return
 
         self.current_site_info = site_info
-        details_font = QFont("Sans Serif", 10); label_font = QFont("Sans Serif", 10, QFont.Bold)
+        details_font = QFont("Sans Serif", 10); label_font = QFont("Sans Serif", 10, QFont.Weight.Bold)
 
         # --- Populate Details Layout ---
 
@@ -254,7 +256,7 @@ class SitesPage(QWidget):
         general_form_layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         general_form_layout.setContentsMargins(0, 10, 0, 0) # Add top margin
 
-        # PHP Version Row
+        # --- PHP Version ---
         php_version_combo=QComboBox(); php_version_combo.setFont(details_font); self._available_php_versions = detect_bundled_php_versions(); php_version_combo.addItem("Default");
         if self._available_php_versions: php_version_combo.addItems(self._available_php_versions);
         stored_php = site_info.get('php_version', config.DEFAULT_PHP);
@@ -264,7 +266,32 @@ class SitesPage(QWidget):
         general_form_layout.addRow("PHP Version:", php_version_combo)
         self._detail_widgets_cache['php_version_combo'] = php_version_combo
 
-        # HTTPS Row
+        # --- Node Version (Conditional) ---
+        if site_info.get('needs_node', False):  # Check the flag from site_info
+            node_version_combo = QComboBox()
+            node_version_combo.setFont(details_font)
+            node_version_combo.setToolTip("Select Node.js version for this site")
+            # Populate with "System" and installed versions
+            node_version_combo.addItem("System")  # Option to use system node
+            try:
+                installed_node_versions = list_installed_node_versions()
+                if installed_node_versions:
+                    node_version_combo.addItems(installed_node_versions)
+            except Exception as e:
+                self.log_to_main(f"Error getting installed Node versions: {e}")
+            # Set current value
+            stored_node = site_info.get('node_version', config.DEFAULT_NODE)
+            if stored_node == config.DEFAULT_NODE:
+                node_version_combo.setCurrentText("System")
+            else:
+                node_version_combo.setCurrentText(stored_node)  # Set specific version
+            # Connect signal
+            node_version_combo.currentTextChanged.connect(self.on_node_version_changed_for_site)
+            general_form_layout.addRow("Node Version:", node_version_combo)
+            self._detail_widgets_cache['node_version_combo'] = node_version_combo  # Cache reference
+        # --- End Node Version ---
+
+        # --- HTTPS ---
         https_checkbox = QCheckBox(); https_checkbox.setToolTip("Enable HTTPS"); self._ignore_https_toggle=True; https_checkbox.setChecked(site_info.get('https',False)); self._ignore_https_toggle=False; https_checkbox.stateChanged.connect(self.on_https_toggled);
         general_form_layout.addRow("HTTPS:", https_checkbox)
         self._detail_widgets_cache['https_checkbox'] = https_checkbox
@@ -477,6 +504,24 @@ class SitesPage(QWidget):
              # Disable combo temporarily? Or rely on MainWindow disabling page?
              # php_combo.setEnabled(False)
              self.setSitePhpVersionClicked.emit(self.current_site_info, current_selection)
+
+    @Slot(str)
+    def on_node_version_changed_for_site(self, selected_text):
+        """Triggers saving the new Node version for the current site."""
+        if not self.current_site_info: return
+        node_combo = self._detail_widgets_cache.get('node_version_combo')
+        if not node_combo: return
+
+        stored_version = self.current_site_info.get('node_version', config.DEFAULT_NODE)
+        # Map "System" UI text back to the internal default value
+        current_selection = config.DEFAULT_NODE if selected_text == "System" else selected_text
+
+        if current_selection != stored_version:
+            self.log_to_main(
+                f"Request Node change for site '{self.current_site_info['domain']}' -> '{current_selection}'")
+            # Disable combo temporarily? Or rely on MainWindow disabling page?
+            # node_combo.setEnabled(False)
+            self.setSiteNodeVersionClicked.emit(self.current_site_info, current_selection)
 
     @Slot()
     def on_set_php_internal_click(self):
