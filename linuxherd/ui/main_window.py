@@ -13,7 +13,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QTextEdit, QFrame, QListWidget, QListWidgetItem, QStackedWidget,
-    QSizePolicy, QFileDialog, QMessageBox, QDialog, QPushButton
+    QSizePolicy, QFileDialog, QMessageBox, QDialog, QPushButton, QProgressDialog
 )
 from PySide6.QtCore import Qt, QTimer, QObject, QThread, Signal, Slot, QSize
 from PySide6.QtGui import QFont, QIcon, QTextCursor
@@ -49,8 +49,8 @@ except ImportError as e:
 # --- Import Page Widgets ---
 try:
     from .services_page import ServicesPage
-    from .php_page import PhpPage
     from .sites_page import SitesPage
+    from .php_page import PhpPage
     from .node_page import NodePage
 
     from .add_service_dialog import AddServiceDialog
@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
         title_header_layout.setSpacing(15)
         self.page_title_label = QLabel("Services");
         self.page_title_label.setObjectName("PageTitleLabel");
-        self.page_title_label.setFont(QFont("Inter", 14, QFont.Bold));
+        self.page_title_label.setFont(QFont("Inter", 14, QFont.Weight.Bold));
         title_header_layout.addWidget(self.page_title_label);
         title_header_layout.addStretch()
 
@@ -209,12 +209,12 @@ class MainWindow(QMainWindow):
 
         # --- Create Page Instances (Remove titles from them later) ---
         self.services_page = ServicesPage(self)
-        self.php_page = PhpPage(self)
         self.sites_page = SitesPage(self)
+        self.php_page = PhpPage(self)
         self.node_page = NodePage(self)
         self.stacked_widget.addWidget(self.services_page)
-        self.stacked_widget.addWidget(self.php_page)
         self.stacked_widget.addWidget(self.sites_page)
+        self.stacked_widget.addWidget(self.php_page)
         self.stacked_widget.addWidget(self.node_page)
 
         # Log Area (Keep hidden at bottom for now)
@@ -251,6 +251,7 @@ class MainWindow(QMainWindow):
         # --- End Right Pane ---
 
         self.current_extension_dialog = None
+        self.progress_dialog = None
 
         # --- Setup Worker Thread ---
         self.thread = QThread(self);
@@ -379,6 +380,13 @@ class MainWindow(QMainWindow):
         ext_name_ctx = context_data.get("extension_name", "N/A")
         node_version_ctx = context_data.get("version", "N/A")
 
+        # --- Close Progress Dialog if active for Node tasks ---
+        if task_name in ["install_node", "uninstall_node"]:
+            if self.progress_dialog:
+                self.progress_dialog.close()
+                self.progress_dialog = None
+        # --- End Progress Dialog Close ---
+
         # Determine target page and display name
         if task_name in ["install_nginx", "uninstall_nginx", "update_site_domain", "set_site_php", "enable_ssl",
                          "disable_ssl"]:
@@ -474,7 +482,8 @@ class MainWindow(QMainWindow):
         print(f"DEBUG handleWorkerResult: Checking target_page for re-enable. Task='{task_name}'")
         if target_page and hasattr(target_page, 'set_controls_enabled'):
             print(f"DEBUG handleWorkerResult: Scheduling {target_page.__class__.__name__}.set_controls_enabled(True)")
-            QTimer.singleShot(refresh_delay + 150, lambda: target_page.set_controls_enabled(True))
+            re_enable_delay = refresh_delay + 150 if not self.progress_dialog else 100
+            QTimer.singleShot(re_enable_delay, lambda: target_page.set_controls_enabled(True))
         else:
             print(f"DEBUG handleWorkerResult: NOT scheduling re-enable (target_page is None or no method).")
 
@@ -856,17 +865,38 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def on_install_node_requested(self, version):
-        """Handles install request from NodePage."""
+        """Handles install request from NodePage, shows progress dialog."""
         self.log_message(f"Requesting Node install: {version}")
         if isinstance(self.node_page, NodePage): self.node_page.set_controls_enabled(False)
+
+        # --- Show Progress Dialog ---
+        self.progress_dialog = QProgressDialog(f"Installing Node.js {version} via NVM...", "Cancel", 0, 0,
+                                               self)  # Indeterminate
+        self.progress_dialog.setWindowTitle("Node Installation")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.progress_dialog.setMinimumDuration(0)  # Show immediately
+        self.progress_dialog.setValue(0)  # Required for indeterminate
+        self.progress_dialog.show()
+        # --- End Progress Dialog ---
+
         task_data = {"version": version}
         self.triggerWorker.emit("install_node", task_data)
 
     @Slot(str)
     def on_uninstall_node_requested(self, version):
-        """Handles uninstall request from NodePage."""
+        """Handles uninstall request from NodePage, shows progress dialog."""
         self.log_message(f"Requesting Node uninstall: {version}")
         if isinstance(self.node_page, NodePage): self.node_page.set_controls_enabled(False)
+
+        # --- Show Progress Dialog ---
+        self.progress_dialog = QProgressDialog(f"Uninstalling Node.js {version} via NVM...", "Cancel", 0, 0, self)  # Indeterminate
+        self.progress_dialog.setWindowTitle("Node Uninstallation")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setValue(0)
+        self.progress_dialog.show()
+        # --- End Progress Dialog ---
+
         task_data = {"version": version}
         self.triggerWorker.emit("uninstall_node", task_data)
 
