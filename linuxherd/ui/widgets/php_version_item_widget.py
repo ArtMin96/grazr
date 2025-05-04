@@ -12,7 +12,7 @@ import traceback # For debugging
 # --- Import StatusIndicator ---
 # Option 1: Assume it's defined in service_item_widget (needs that file)
 try:
-    from ..service_item_widget import StatusIndicator
+    from .widgets.status_indicator import StatusIndicator
 except ImportError:
     print("Warning: Could not import StatusIndicator from service_item_widget. Using dummy.")
     # Option 2: Define StatusIndicator directly here if preferred
