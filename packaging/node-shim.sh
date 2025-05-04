@@ -1,23 +1,23 @@
 #!/bin/bash
-# /usr/local/bin/node - LinuxHerd Shim Script (Using nvm which - Clean Version)
+# /usr/local/bin/node - Grazr Shim Script (Using nvm which - Clean Version)
 
 # --- Configuration ---
-LINUXHERD_PYTHON_EXEC="/home/arthur/Projects/LinuxHerd/venv/bin/python"
-LINUXHERD_PROJECT_ROOT="/home/arthur/Projects/LinuxHerd"
+GRAZR_PYTHON_EXEC="${HOME}/Projects/Grazr/venv/bin/python"
+GRAZR_PROJECT_ROOT="${HOME}/Projects/Grazr"
 
-NVM_BUNDLES_DIR="${HOME}/.local/share/linuxherd/bundles/nvm"
+NVM_BUNDLES_DIR="${HOME}/.local/share/grazr/bundles/nvm"
 NVM_SCRIPT_PATH="${NVM_BUNDLES_DIR}/nvm.sh"
-NVM_MANAGED_NODE_DIR="${HOME}/.local/share/linuxherd/nvm_nodes"
+NVM_MANAGED_NODE_DIR="${HOME}/.local/share/grazr/nvm_nodes"
 # --- End Configuration ---
 
 CURRENT_DIR="$PWD"
 CALLED_COMMAND=$(basename "$0")
 
-log_error() { echo "[LinuxHerd Shim Error|${CALLED_COMMAND}] $1" >&2; }
+log_error() { echo "[Grazr Shim Error|${CALLED_COMMAND}] $1" >&2; }
 
 # --- Check required components exist ---
-if [ ! -x "$LINUXHERD_PYTHON_EXEC" ]; then
-    log_error "Python exec not found: ${LINUXHERD_PYTHON_EXEC}"
+if [ ! -x "$GRAZR_PYTHON_EXEC" ]; then
+    log_error "Python exec not found: ${GRAZR_PYTHON_EXEC}"
     exit 127
 fi
 
@@ -38,11 +38,11 @@ PYTHON_CODE="
 import sys
 import os
 from pathlib import Path
-project_root = Path('${LINUXHERD_PROJECT_ROOT}')
+project_root = Path('${GRAZR_PROJECT_ROOT}')
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 try:
-    from linuxherd.cli import find_node_version_for_path
+    from grazr.cli import find_node_version_for_path
     target_path = '${CURRENT_DIR}'
     version = find_node_version_for_path(target_path)
     print(version)
@@ -54,7 +54,7 @@ except Exception as e:
     print(f'Shim Python Error: Exec: {e}', file=sys.stderr)
     sys.exit(2)
 "
-NODE_VERSION_STRING=$("$LINUXHERD_PYTHON_EXEC" -c "$PYTHON_CODE")
+NODE_VERSION_STRING=$("$GRAZR_PYTHON_EXEC" -c "$PYTHON_CODE")
 HELPER_EXIT_CODE=$?
 
 # --- Handle Helper Result ---
@@ -86,7 +86,7 @@ WHICH_EXIT_CODE=$?
 
 if [ $WHICH_EXIT_CODE -ne 0 ] || [ -z "$TARGET_NODE_EXEC_PATH" ] || [ ! -x "$TARGET_NODE_EXEC_PATH" ]; then
     log_error "Could not find executable path for Node version '${NODE_VERSION_STRING}' using 'nvm which'."
-    log_error "Ensure version '${NODE_VERSION_STRING}' is installed via LinuxHerd Node page."
+    log_error "Ensure version '${NODE_VERSION_STRING}' is installed via Grazr Node page."
     SYSTEM_CMD_PATH=$(command -v "$CALLED_COMMAND")
     if [ -x "$SYSTEM_CMD_PATH" ] && [ "$SYSTEM_CMD_PATH" != "$0" ]; then
         exec "$SYSTEM_CMD_PATH" "$@"

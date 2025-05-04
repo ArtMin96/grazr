@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script to download and bundle the NVM (Node Version Manager) scripts
-# for use within LinuxHerd Helper.
+# for use within Grazr.
 # MODIFIED: Check for optional files before copying.
 
 # Exit immediately if a command exits with a non-zero status.
@@ -21,10 +21,10 @@ EXTRACT_BASE_DIR="${TEMP_DIR}/extracted_nvm"
 # The directory name inside the tarball is usually nvm-X.Y.Z
 EXTRACTED_DIR_NAME="nvm-${NVM_VERSION#v}" # Remove 'v' prefix for directory name
 
-# Target directory for the LinuxHerd NVM scripts bundle
-BUNDLE_DIR="${HOME}/.local/share/linuxherd/bundles/nvm"
+# Target directory for the Grazr NVM scripts bundle
+BUNDLE_DIR="${HOME}/.local/share/grazr/bundles/nvm"
 # Directory where THIS bundled NVM will install Node versions
-NVM_MANAGED_NODE_DIR="${HOME}/.local/share/linuxherd/nvm_nodes"
+NVM_MANAGED_NODE_DIR="${HOME}/.local/share/grazr/nvm_nodes"
 
 # --- Script Start ---
 echo "--- Starting NVM Script Bundling Process (Version: ${NVM_VERSION}) ---"

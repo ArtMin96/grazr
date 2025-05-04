@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to bundle Redis server and client for LinuxHerd Helper.
+# Script to bundle Redis server and client for Grazr.
 
 # Exit immediately if a command exits with a non-zero status.
 set -e
@@ -8,7 +8,7 @@ set -e
 # --- Configuration ---
 TEMP_DIR="${HOME}/redis_bundle_temp"
 EXTRACT_DIR="${TEMP_DIR}/extracted_redis"
-BUNDLE_DIR="${HOME}/.local/share/linuxherd/bundles/redis"
+BUNDLE_DIR="${HOME}/.local/share/grazr/bundles/redis"
 # Define target lib dir within bundle (even if likely empty)
 BUNDLE_LIB_DIR="${BUNDLE_DIR}/lib"
 # --- End Configuration ---

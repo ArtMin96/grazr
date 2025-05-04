@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to bundle PostgreSQL server and client for LinuxHerd Helper.
+# Script to bundle PostgreSQL server and client for Grazr.
 # Includes check/install for base system packages needed for share files.
 # Uses correct binary paths found previously.
 
@@ -18,7 +18,7 @@ PG_LIBPQ_PKG="libpq5" # Common library package
 
 TEMP_DIR="${HOME}/postgres_bundle_temp"
 EXTRACT_DIR="${TEMP_DIR}/extracted_postgres"
-BUNDLE_DIR="${HOME}/.local/share/linuxherd/bundles/postgres"
+BUNDLE_DIR="${HOME}/.local/share/grazr/bundles/postgres"
 BUNDLE_BIN_DIR="${BUNDLE_DIR}/bin"
 BUNDLE_LIB_DIR="${BUNDLE_DIR}/lib"
 BUNDLE_SHARE_DIR="${BUNDLE_DIR}/share"

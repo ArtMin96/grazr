@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LinuxHerd Root Helper
+Grazr Root Helper
 
 A minimal utility providing systemd service check capability.
 No longer used for Nginx control or hosts file editing at runtime.
