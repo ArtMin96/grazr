@@ -74,6 +74,7 @@ class SitesPage(QWidget):
         self.current_site_info = None
         self._available_php_versions = []
         self._ignore_https_toggle = False
+        self._cached_installed_node_versions = None
         # Cache for detail widgets (keyed by site ID?) - might not be needed if rebuilt each time
         self._detail_widgets_cache = {}
         self._header_widgets = []
@@ -267,28 +268,48 @@ class SitesPage(QWidget):
         self._detail_widgets_cache['php_version_combo'] = php_version_combo
 
         # --- Node Version (Conditional) ---
-        if site_info.get('needs_node', False):  # Check the flag from site_info
+        if site_info.get('needs_node', False):
             node_version_combo = QComboBox()
             node_version_combo.setFont(details_font)
             node_version_combo.setToolTip("Select Node.js version for this site")
-            # Populate with "System" and installed versions
-            node_version_combo.addItem("System")  # Option to use system node
-            try:
-                installed_node_versions = list_installed_node_versions()
-                if installed_node_versions:
-                    node_version_combo.addItems(installed_node_versions)
-            except Exception as e:
-                self.log_to_main(f"Error getting installed Node versions: {e}")
+            node_version_combo.addItem("System")
+
+            # --- Use Cache or Fetch ---
+            if self._cached_installed_node_versions is None:
+                self.log_to_main("Fetching installed Node versions for dropdown...")
+                try:
+                    self._cached_installed_node_versions = list_installed_node_versions()
+                except Exception as e:
+                    self.log_to_main(f"Error getting installed Node versions: {e}")
+                    self._cached_installed_node_versions = []  # Store empty list on error
+            # --- Populate from Cache ---
+            if self._cached_installed_node_versions:
+                node_version_combo.addItems(self._cached_installed_node_versions)
+
             # Set current value
             stored_node = site_info.get('node_version', config.DEFAULT_NODE)
             if stored_node == config.DEFAULT_NODE:
                 node_version_combo.setCurrentText("System")
             else:
-                node_version_combo.setCurrentText(stored_node)  # Set specific version
+                node_version_combo.setCurrentText(stored_node)
+
             # Connect signal
             node_version_combo.currentTextChanged.connect(self.on_node_version_changed_for_site)
-            general_form_layout.addRow("Node Version:", node_version_combo)
+
+            # Add Refresh button next to combo box
+            refresh_node_button = QPushButton("🔄");  # Use refresh icon/symbol
+            refresh_node_button.setToolTip("Refresh installed Node version list")
+            refresh_node_button.setObjectName("RefreshNodeButton")  # For styling
+            refresh_node_button.setFixedSize(QSize(28, 28))  # Small button
+            refresh_node_button.clicked.connect(self._refresh_node_list_for_site)
+
+            node_row_layout = QHBoxLayout();
+            node_row_layout.setContentsMargins(0, 0, 0, 0)
+            node_row_layout.addWidget(node_version_combo, 1)  # Combo takes stretch
+            node_row_layout.addWidget(refresh_node_button)  # Add refresh button
+            general_form_layout.addRow("Node Version:", node_row_layout)  # Add HBox layout as row widget
             self._detail_widgets_cache['node_version_combo'] = node_version_combo  # Cache reference
+            self._detail_widgets_cache['refresh_node_button'] = refresh_node_button
         # --- End Node Version ---
 
         # --- HTTPS ---
@@ -614,6 +635,35 @@ class SitesPage(QWidget):
             self.log_to_main(f"Error opening path {site_path}: {e}")
             QMessageBox.critical(self, "Error", f"Failed to open path:\n{e}")
 
+    @Slot()
+    def _refresh_node_list_for_site(self):
+        """Clears the node version cache and refreshes the dropdown for the current site."""
+        self.log_to_main("SitesPage: Refreshing Node version list for dropdown...")
+        self.clear_node_cache()  # Clear the cache
+
+        # Find the combo box and repopulate it
+        node_combo = self._detail_widgets_cache.get('node_version_combo')
+        if node_combo and self.current_site_info:
+            # Store current selection before clearing
+            current_selection = node_combo.currentText()
+            # Clear existing items (except "System")
+            while node_combo.count() > 1: node_combo.removeItem(1)
+            # Repopulate
+            try:
+                installed_node_versions = list_installed_node_versions()
+                if installed_node_versions: node_combo.addItems(installed_node_versions)
+                self._cached_installed_node_versions = installed_node_versions  # Update cache
+            except Exception as e:
+                self.log_to_main(f"Error getting installed Node versions: {e}")
+            # Try to restore selection
+            index = node_combo.findText(current_selection)
+            if index > -1:
+                node_combo.setCurrentIndex(index)
+            else:
+                node_combo.setCurrentIndex(0)  # Default to "System" if previous selection gone
+        else:
+            self.log_to_main("Could not find Node combo box to refresh.")
+
     def update_site_preview(self, domain):
         """Placeholder for updating the site preview image."""
         # Check if the preview label widget exists from the cache or create if needed?
@@ -719,6 +769,11 @@ class SitesPage(QWidget):
         # Add debug print right before emitting
         print(f"DEBUG SitesPage: Emitting toggleSiteFavoriteRequested with ID: '{site_id}' (type: {type(site_id)})")
         self.toggleSiteFavoriteRequested.emit(site_id)
+
+    def clear_node_cache(self):
+        """Clears the cached list of installed node versions."""
+        self.log_to_main("SitesPage: Clearing installed Node version cache.")
+        self._cached_installed_node_versions = None
 
     @Slot(bool)
     def set_controls_enabled(self, enabled):
