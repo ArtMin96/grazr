@@ -190,77 +190,107 @@ def start_process(process_id, command, pid_file_path=None, working_dir=None, env
              except Exception: pass
 
 def stop_process(process_id, signal_to_use=signal.SIGTERM, timeout=5):
-    """Stops a managed process using PID file or Popen object."""
+    """
+    Stops a managed process using internal tracking (Popen) or by reading its PID file.
+    """
     print(f"Process Manager: Requesting stop for '{process_id}'...")
-    if process_id not in running_processes:
-        print(f"PM Info: Process '{process_id}' not tracked. Assuming stopped.")
-        return True
-
-    proc_info = running_processes[process_id]
-    pid_file = proc_info.get("pid_file")
-    popen_obj = proc_info.get("process")
     pid_to_signal = None
+    pid_file_path_str = None
+    popen_obj = None
+    is_tracked_internally = process_id in running_processes
 
-    if pid_file:
-        pid_to_signal = _read_pid_file(pid_file)
-        print(f"PM: Found PID file '{pid_file}', read PID: {pid_to_signal}")
-    elif popen_obj:
-        # Check if Popen object is still valid and process hasn't exited
-        if popen_obj.poll() is None:
-            pid_to_signal = popen_obj.pid
-            print(f"PM: Using PID {pid_to_signal} from stored Popen object.")
-        else:
-            print(f"PM Info: Stored Popen object for '{process_id}' already exited (Code: {popen_obj.poll()}).")
-            pid_to_signal = None # Already stopped
+    # 1. Determine the PID to signal
+    if is_tracked_internally:
+        proc_info = running_processes[process_id]
+        pid_file = proc_info.get("pid_file")
+        popen_obj = proc_info.get("process") # Get Popen object if tracked directly
+
+        if pid_file: # Primarily use PID file if available in tracking info
+            pid_to_signal = _read_pid_file(pid_file)
+            pid_file_path_str = pid_file # Store path for cleanup
+            print(f"PM: Found tracked PID file '{pid_file}', read PID: {pid_to_signal}")
+        elif popen_obj: # Use Popen object if no PID file tracked
+            if popen_obj.poll() is None: # Check if process is still running
+                pid_to_signal = popen_obj.pid
+                print(f"PM: Using PID {pid_to_signal} from tracked Popen object.")
+            else: # Tracked via Popen but already exited
+                print(f"PM Info: Tracked Popen for '{process_id}' already exited (Code: {popen_obj.poll()}). Cleaning up tracking.")
+                del running_processes[process_id]
+                return True # Already stopped
+        else: # Invalid internal tracking state
+            print(f"PM Error: Invalid internal tracking for '{process_id}'. Removing.")
+            del running_processes[process_id]
+            return False # Cannot determine PID
     else:
-        print(f"PM Error: No PID file or Popen object tracked for '{process_id}'. Cannot stop.")
-        # Should we remove from tracking? Maybe.
-        del running_processes[process_id]
-        return False # Cannot determine how to stop
+        # Not tracked internally, check PID file directly
+        pid_file_path = _get_pid_file_path_for_id(process_id)
+        if pid_file_path:
+            pid_to_signal = _read_pid_file(str(pid_file_path))
+            pid_file_path_str = str(pid_file_path) # Store path for cleanup
+            if pid_to_signal and _check_pid_running(pid_to_signal):
+                print(f"PM Info: Found untracked running process '{process_id}' (PID {pid_to_signal}) via file '{pid_file_path_str}'. Proceeding with stop.")
+            else:
+                # PID file doesn't exist, is invalid, or process isn't running
+                print(f"PM Info: Process '{process_id}' not tracked and PID file invalid or process dead.")
+                if pid_file_path.exists(): pid_file_path.unlink(missing_ok=True) # Clean stale file
+                return True # Assume stopped
+        else:
+             # Not tracked and no known PID file path
+             print(f"PM Info: Process '{process_id}' not tracked and no known PID file.")
+             return True # Assume stopped
 
-    # If PID is None or 0 after checks, assume stopped
+    # 2. Check if a valid, running PID was found
     if not pid_to_signal or pid_to_signal <= 0:
-        print(f"PM Info: No valid PID found for '{process_id}'. Assuming stopped.")
-        if pid_file: Path(pid_file).unlink(missing_ok=True) # Clean up PID file if it exists
-        if process_id in running_processes: del running_processes[process_id]
+        print(f"PM Info: No valid PID determined for '{process_id}'. Assuming stopped.")
+        if pid_file_path_str: Path(pid_file_path_str).unlink(missing_ok=True) # Clean up known PID file path
+        if is_tracked_internally: del running_processes[process_id] # Clean up internal tracking
         return True
 
-    # Check if the determined PID is actually running
     if not _check_pid_running(pid_to_signal):
-        print(f"PM Info: Process PID {pid_to_signal} for '{process_id}' not running. Cleaning up.")
-        if pid_file: Path(pid_file).unlink(missing_ok=True)
-        if process_id in running_processes: del running_processes[process_id]
+        print(f"PM Info: PID {pid_to_signal} for '{process_id}' determined but not running. Cleaning up.")
+        if pid_file_path_str: Path(pid_file_path_str).unlink(missing_ok=True)
+        if is_tracked_internally: del running_processes[process_id]
         return True
 
-    # Process is running, try stopping it
+    # 3. Attempt to stop the running process
     print(f"PM: Stopping '{process_id}' (PID: {pid_to_signal}) with {signal_to_use.name}...")
     stopped_cleanly = False
     try:
         os.kill(pid_to_signal, signal_to_use)
         start_time = time.monotonic()
+        # Wait for process to disappear
         while (time.monotonic() - start_time) < timeout:
             if not _check_pid_running(pid_to_signal):
                 print(f"PM: Process '{process_id}' (PID: {pid_to_signal}) stopped gracefully.")
                 stopped_cleanly = True; break
             time.sleep(0.2)
 
+        # If still running after timeout, send SIGKILL
         if not stopped_cleanly:
-            print(f"PM: Process '{process_id}' timeout. Sending SIGKILL."); os.kill(pid_to_signal, signal.SIGKILL); time.sleep(0.5)
-            if not _check_pid_running(pid_to_signal):
+            print(f"PM: Process '{process_id}' timeout. Sending SIGKILL.");
+            try: os.kill(pid_to_signal, signal.SIGKILL); time.sleep(0.5)
+            except OSError as kill_err: # Handle case where process died between checks
+                 if kill_err.errno == errno.ESRCH: print("PM Info: Process disappeared before SIGKILL."); stopped_cleanly = True
+                 else: raise # Re-raise other kill errors
+            if not stopped_cleanly and not _check_pid_running(pid_to_signal):
                  print(f"PM: Process '{process_id}' stopped after SIGKILL."); stopped_cleanly = True
-            else: print(f"PM Error: Process '{process_id}' did not stop after SIGKILL.")
+            elif not stopped_cleanly:
+                 print(f"PM Error: Process '{process_id}' did not stop even after SIGKILL.")
 
-    except ProcessLookupError: print(f"PM Info: Process PID {pid_to_signal} disappeared during stop."); stopped_cleanly = True
-    except PermissionError: print(f"PM Error: Permission denied sending signal to PID {pid_to_signal}."); stopped_cleanly = False
-    except Exception as e: print(f"PM Error: Unexpected error stopping '{process_id}': {e}"); stopped_cleanly = False
+    except ProcessLookupError: # Process died before or during signal sending
+        print(f"PM Info: Process PID {pid_to_signal} disappeared during stop attempt."); stopped_cleanly = True
+    except PermissionError:
+        print(f"PM Error: Permission denied sending signal to PID {pid_to_signal}. Cannot stop."); stopped_cleanly = False
+    except Exception as e:
+        print(f"PM Error: Unexpected error stopping '{process_id}': {e}"); stopped_cleanly = False; traceback.print_exc()
 
-    # Cleanup tracking and PID file only if stop was successful
+    # 4. Cleanup tracking and PID file ONLY if stop was successful
     if stopped_cleanly:
-        if pid_file: Path(pid_file).unlink(missing_ok=True)
-        if process_id in running_processes: del running_processes[process_id]
+        if pid_file_path_str: Path(pid_file_path_str).unlink(missing_ok=True) # Clean up PID file
+        if process_id in running_processes: del running_processes[process_id] # Remove from internal tracking
         return True
     else:
-        return False # Stop failed
+        return False
 
 
 def get_process_status(process_id):

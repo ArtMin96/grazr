@@ -209,12 +209,12 @@ class MainWindow(QMainWindow):
 
         # --- Create Page Instances (Remove titles from them later) ---
         self.services_page = ServicesPage(self)
-        self.sites_page = SitesPage(self)
         self.php_page = PhpPage(self)
+        self.sites_page = SitesPage(self)
         self.node_page = NodePage(self)
         self.stacked_widget.addWidget(self.services_page)
-        self.stacked_widget.addWidget(self.sites_page)
         self.stacked_widget.addWidget(self.php_page)
+        self.stacked_widget.addWidget(self.sites_page)
         self.stacked_widget.addWidget(self.node_page)
 
         # Log Area (Keep hidden at bottom for now)
@@ -802,45 +802,52 @@ class MainWindow(QMainWindow):
     @Slot()
     def on_stop_all_services_clicked(self):
         """Stops all managed services directly via process_manager."""
+        # Add debug print at the very start <<< NEW
+        print("DEBUG MainWindow: on_stop_all_services_clicked slot entered.")
         self.log_message("Stop All Services button clicked...")
+
         # Optional: Confirmation dialog
         reply = QMessageBox.question(self, 'Confirm Stop All',
-                                     "Stop all running managed services (Nginx, MySQL, Redis, MinIO, PostgreSQL, PHP-FPMs)?",
+                                     "Stop all running managed services?",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                      QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.No:
             self.log_message("Stop All cancelled by user.")
             return
 
-        # Disable UI temporarily while stopping
+        # Disable UI temporarily
         if isinstance(self.services_page, ServicesPage):
             self.services_page.set_controls_enabled(False)
-        # Disable other pages too? Maybe not necessary if user stays on Services page.
-        QApplication.processEvents()  # Allow UI to update (show disabled state)
+        # Also disable the header button itself?
+        if hasattr(self, 'header_stop_all_button'): self.header_stop_all_button.setEnabled(False)
+        QApplication.processEvents()
 
         self.log_message("Stopping all managed background processes...")
         all_stopped = False
         if process_manager and hasattr(process_manager, 'stop_all_processes'):
             try:
-                all_stopped = process_manager.stop_all_processes()  # Call the manager function
+                print("DEBUG MainWindow: Calling process_manager.stop_all_processes()...")  # <<< DEBUG
+                all_stopped = process_manager.stop_all_processes()
+                print(f"DEBUG MainWindow: process_manager.stop_all_processes() returned: {all_stopped}")  # <<< DEBUG
                 if not all_stopped:
-                    self.log_message("Warn: Some managed processes may not have stopped cleanly.")
+                    self.log_message("Warn: Some processes may not have stopped cleanly.")
                 else:
-                    self.log_message("All managed services stop commands issued successfully.")
+                    self.log_message("Stop all commands issued successfully.")
             except Exception as e:
-                self.log_message(f"Error calling process_manager.stop_all_processes: {e}")
-                traceback.print_exc()
-                all_stopped = False  # Mark as failed on exception
+                self.log_message(f"Error calling stop_all_processes: {e}");
+                traceback.print_exc();
+                all_stopped = False
         else:
-            self.log_message("Error: Process manager not available or missing stop_all_processes.")
-            all_stopped = False  # Cannot stop
+            self.log_message("Error: Process manager not available or missing stop_all_processes.");
+            all_stopped = False
 
-        # Refresh the services page after attempting stop, regardless of success
-        # The refresh will show the actual final state of each service.
+        # Refresh the services page after attempting stop
         if isinstance(self.services_page, ServicesPage):
-            self.log_message("Scheduling Services page refresh after Stop All attempt.")
-            # Use a timer to ensure stop commands have time to process before refresh
-            QTimer.singleShot(1000, self.services_page.refresh_data)
+            self.log_message("Scheduling Services page refresh after Stop All.")
+            QTimer.singleShot(1000, self.services_page.refresh_data)  # Refresh after delay
+        # Re-enable header button after refresh timer (or rely on page refresh?)
+        # Let's re-enable header button explicitly after a delay
+        if hasattr(self, 'header_stop_all_button'): QTimer.singleShot(1100, lambda: self.header_stop_all_button.setEnabled(True))
 
     # Slot connected to services_page.removeServiceRequested
     @Slot(str)  # Receives service_id (the unique ID from services.json)
