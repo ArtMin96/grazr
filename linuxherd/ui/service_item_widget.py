@@ -14,11 +14,43 @@ except ImportError:
     class ConfigDummy: NGINX_PROCESS_ID="internal-nginx" # Dummy
     config = ConfigDummy()
 
-# --- StatusIndicator Class (Unchanged) ---
+# --- StatusIndicator Class (Helper Widget - Added Robustness) ---
 class StatusIndicator(QWidget):
-    def __init__(self, color=Qt.gray, parent=None): super().__init__(parent); self.setFixedSize(12, 12); self._color = QColor(color)
-    def set_color(self, color): qcolor = QColor(color); self._color = qcolor; self.update()
-    def paintEvent(self, event): painter = QPainter(self); painter.setRenderHint(QPainter.Antialiasing); painter.setBrush(self._color); painter.setPen(Qt.NoPen); painter.drawEllipse(self.rect())
+    """A simple widget displaying a colored circle for status."""
+    def __init__(self, color=Qt.GlobalColor.gray, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(10, 10) # Slightly smaller dot
+        self._color = QColor(color)
+
+    def set_color(self, color):
+        """Sets the indicator color, guarding against deleted object."""
+        try: # Add try-except for safety during shutdown
+             # Check if underlying C++ object still exists
+             if self is None or not hasattr(self, '_color'): return
+             qcolor = QColor(color)
+             if self._color != qcolor:
+                 self._color = qcolor
+                 self.update() # Trigger repaint
+        except RuntimeError:
+            # print("DEBUG StatusIndicator: set_color called on deleted object.") # Optional debug
+            pass # Ignore if object deleted
+        except Exception as e:
+            print(f"Error in StatusIndicator.set_color: {e}")
+
+    def paintEvent(self, event):
+        """Paints the circle, guarding against deleted object."""
+        try: # Add try-except for safety during shutdown
+             if self is None: return # Check if self is deleted
+             painter = QPainter(self)
+             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+             painter.setBrush(self._color)
+             painter.setPen(Qt.PenStyle.NoPen)
+             painter.drawEllipse(self.rect())
+        except RuntimeError:
+            # print("DEBUG StatusIndicator: paintEvent called on deleted object.") # Optional debug
+            pass # Ignore if object deleted
+        except Exception as e:
+            print(f"Error in StatusIndicator.paintEvent: {e}")
 # --- End StatusIndicator ---
 
 class ServiceItemWidget(QWidget):

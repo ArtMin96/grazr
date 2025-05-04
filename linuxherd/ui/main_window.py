@@ -8,15 +8,17 @@ import sys
 import os
 import traceback
 from pathlib import Path
+import shutil
 
 # --- Qt Imports ---
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QTextEdit, QFrame, QListWidget, QListWidgetItem, QStackedWidget,
-    QSizePolicy, QFileDialog, QMessageBox, QDialog, QPushButton, QProgressDialog
+    QSizePolicy, QFileDialog, QMessageBox, QDialog, QPushButton,
+    QProgressDialog, QSystemTrayIcon
 )
-from PySide6.QtCore import Qt, QTimer, QObject, QThread, Signal, Slot, QSize
-from PySide6.QtGui import QFont, QIcon, QTextCursor
+from PySide6.QtCore import Qt, QTimer, QObject, QThread, Signal, Slot, QSize, QUrl
+from PySide6.QtGui import QFont, QIcon, QTextCursor, QDesktopServices
 
 # --- Import Core & Manager Modules (Refactored Paths) ---
 try:
@@ -75,6 +77,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+
+        self.tray_icon = None
 
         self.setWindowTitle(f"{config.APP_NAME} (Alpha)")
         self.setGeometry(100, 100, 1000, 750)
@@ -286,12 +290,77 @@ class MainWindow(QMainWindow):
         # Node Page Signals
         self.node_page.installNodeRequested.connect(self.on_install_node_requested)
         self.node_page.uninstallNodeRequested.connect(self.on_uninstall_node_requested)
-        # --- Initial State Setup --- (Unchanged)
+        # --- Initial State Setup ---
         self.log_message("Application starting...");
         self.sidebar.setCurrentRow(0);
         self.log_message("Attempting to start bundled Nginx...");
         QTimer.singleShot(100, lambda: self.triggerWorker.emit("start_internal_nginx", {}))
         self.start_configured_autostart_services()
+
+    # --- Method to receive tray icon reference ---
+    def set_tray_icon(self, tray_icon: QSystemTrayIcon):
+        """Stores a reference to the system tray icon."""
+        self.tray_icon = tray_icon
+
+    # --- Method to toggle window visibility ---
+    @Slot()
+    def toggle_visibility(self):
+        """Shows or hides the main application window."""
+        if self.isVisible():
+            self.hide()
+            # Optional: Show notification only if tray icon exists
+            if self.tray_icon and self.tray_icon.isVisible():
+                self.tray_icon.showMessage(
+                    f"{config.APP_NAME} Hidden",
+                    "Application is still running in the background.",
+                    QSystemTrayIcon.MessageIcon.Information,  # Or use QIcon
+                    2000  # milliseconds
+                )
+        else:
+            self.show()
+            self.activateWindow()  # Bring to front
+            self.raise_()  # For some window managers
+
+    # --- Slot for Start All action from tray ---
+    @Slot()
+    def on_start_all_services_clicked(self):
+        """Triggers start for all configured, non-running services."""
+        self.log_message("Start All Services requested...")
+        # Disable UI temporarily? Maybe just the button if called from header?
+        # Let's rely on individual service items disabling during their start task
+        # if hasattr(self, 'header_start_all_button'): self.header_start_all_button.setEnabled(False) # Example
+        QApplication.processEvents()
+
+        # Get configured services
+        services_to_start = ["internal-nginx"]  # Always include Nginx
+        try:
+            services = load_configured_services()
+            for svc in services:
+                svc_type = svc.get('service_type')
+                process_id = config.AVAILABLE_BUNDLED_SERVICES.get(svc_type, {}).get('process_id')
+                if process_id and process_id not in services_to_start:
+                    # Check if already running before adding to start list?
+                    current_status = process_manager.get_process_status(process_id)
+                    if current_status != "running":
+                        services_to_start.append(process_id)
+                    else:
+                        self.log_message(f"Service {process_id} already running, skipping start.")
+        except Exception as e:
+            self.log_message(f"Error loading services for Start All: {e}"); return
+
+        # Trigger start tasks via worker, slightly staggered
+        delay = 50
+        if not services_to_start:
+            self.log_message("No services need starting.")
+            return
+
+        self.log_message(f"Attempting to start services: {services_to_start}")
+        for process_id in services_to_start:
+            task_name = f"start_{process_id.replace('internal-', '')}"
+            self.log_message(f"Triggering start task: {task_name}")
+            task_data = {"process_id": process_id}  # Pass ID in context? Not strictly needed by worker
+            self.triggerWorker.emit(task_name, task_data)
+            delay += 100  # Increment delay slightly
 
     def add_header_action(self, widget, page_name=None):
         """
@@ -1116,17 +1185,25 @@ class MainWindow(QMainWindow):
 
     # --- Window Close Event ---
     def closeEvent(self, event):
-        # (Updated slightly for clarity)
-        self.log_message("Close event received, attempting cleanup...")
-        if hasattr(self, 'thread') and self.thread and self.thread.isRunning():
-            self.log_message("Quitting worker thread...");
-            self.thread.quit();
-            if not self.thread.wait(1000): self.log_message("Warn: Worker thread didn't quit gracefully.")
-        self.log_message("Stopping managed background processes (Nginx/PHP/Dnsmasq)...")
-        if process_manager:
-            stopped_all = process_manager.stop_all_processes()
-            if not stopped_all: self.log_message("Warn: Some managed processes may not have stopped.")
+        """Overrides close event to hide window instead of quitting (if tray active)."""
+        print("DEBUG: closeEvent triggered")
+        # Check if tray icon exists and is visible
+        if self.tray_icon and self.tray_icon.isVisible():
+            # If tray icon exists and is visible, just hide the window
+            self.log_message("Closing window to system tray.")
+            self.hide()
+            event.ignore() # Prevent the window from actually closing
+            # Optional: Show notification
+            self.tray_icon.showMessage(
+                f"{config.APP_NAME} Running",
+                "Application hidden to system tray.",
+                QSystemTrayIcon.MessageIcon.Information,
+                2000
+            )
         else:
-            self.log_message("Process manager not available.")
-        self.log_message("Cleanup finished, closing window.");
-        event.accept()
+            # No tray icon, or it's not visible: behave normally (allow close and quit)
+            self.log_message("No active tray icon or quitting via tray. Allowing close.")
+            # Stop worker thread first? Maybe better handled by aboutToQuit
+            if hasattr(self, 'thread') and self.thread.isRunning():
+                self.thread.quit(); self.thread.wait(500) # Brief wait
+            event.accept()

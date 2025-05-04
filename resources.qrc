@@ -1,6 +1,8 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
     <qresource prefix="/icons">
+        <file alias="tray-icon.png">assets/icons/tray-icon.png</file>
+
         <file alias="services.svg">assets/icons/server.svg</file>
         <file alias="php.svg">assets/icons/code.svg</file>
         <file alias="sites.svg">assets/icons/globe.svg</file>
