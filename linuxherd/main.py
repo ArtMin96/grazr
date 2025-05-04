@@ -6,6 +6,7 @@ import sys
 import os
 import traceback
 from pathlib import Path
+import logging
 
 # This helps resolve imports when main.py is inside the package
 project_root = Path(__file__).resolve().parent.parent
@@ -14,13 +15,31 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 # --- End Path Addition ---
 
+# --- Configure Logging ---
+try:
+    from linuxherd.core import config # Need config for log dir
+    log_file_path = config.LOG_DIR / 'grazr_app.log'
+    config.ensure_dir(config.LOG_DIR)
+    file_handler = logging.FileHandler(log_file_path, encoding='utf-8', mode='a') # Append mode
+    file_formatter = logging.Formatter('%(asctime)s [%(levelname)-7s] %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    file_handler.setFormatter(file_formatter)
+    file_handler.setLevel(logging.DEBUG) # Log DEBUG and above to file
+    logging.getLogger().addHandler(file_handler)
+    logging.info("File logging initialized.")
+except Exception as log_e:
+    logging.error(f"Failed to set up file logging: {log_e}")
+
+logger = logging.getLogger(__name__)
+logger.info("Application logging initialized.")
+# --- End Logging Configuration ---
+
 # --- Qt Imports ---
 try:
     from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
     from PySide6.QtCore import QTimer
     from PySide6.QtGui import QIcon, QAction
 except ImportError as e:
-    print(f"FATAL: Failed to import PySide6 components: {e}", file=sys.stderr)
+    logger.critical(f"Failed to import PySide6: {e}", exc_info=True)
     sys.exit(1)
 # --- End Qt Imports ---
 
@@ -30,9 +49,7 @@ try:
     from linuxherd.core import process_manager
     from linuxherd.core import config
 except ImportError as e:
-    print(f"FATAL: Failed to import application components: {e}", file=sys.stderr)
-    print("Ensure package structure is correct and 'pip install -e .' was run.", file=sys.stderr)
-    traceback.print_exc()
+    logger.critical(f"Failed to import app components: {e}", exc_info=True)
     sys.exit(1)
 # --- End App Imports ---
 
@@ -41,44 +58,27 @@ try:
     # Assumes resources_rc.py is in the ui directory relative to this file's package
     from linuxherd.ui import resources_rc
 except ImportError:
-    print("WARNING: Could not import resources_rc.py. Icons will be missing.")
+    logger.warning("Could not import resources_rc.py.")
 # --- End Resource Import ---
-
-# Optional: Global Exception Hook (Useful for debugging UI errors)
-def global_exception_hook(exctype, value, tb):
-    """Catches unhandled exceptions and prints them."""
-    print("--- Unhandled Exception ---")
-    import traceback
-    traceback.print_exception(exctype, value, tb)
-    print("---------------------------")
-    # Call the default handler afterwards
-    sys.__excepthook__(exctype, value, tb)
-# Set the global hook (Uncomment to enable)
-# sys.excepthook = global_exception_hook
 
 # --- Function to Load Stylesheet ---
 def load_stylesheet():
-    """Loads the QSS file."""
-    style_path = Path(__file__).parent / "ui" / "style.qss" # Path relative to main.py
+    style_path = Path(__file__).parent / "ui" / "style.qss"
     if style_path.is_file():
         try:
-            with open(style_path, 'r', encoding='utf-8') as f:
-                return f.read()
-        except Exception as e:
-            print(f"Error loading stylesheet {style_path}: {e}")
-            return "" # Return empty string on error
-    else:
-        print(f"Warning: Stylesheet not found at {style_path}")
-        return "" # Return empty string if file missing
+            with open(style_path, 'r', encoding='utf-8') as f: logger.info(f"Loading stylesheet from: {style_path}"); return f.read()
+        except Exception as e: logger.error(f"Error loading stylesheet {style_path}: {e}")
+    else: logger.warning(f"Stylesheet not found at {style_path}")
+    return ""
 
 # --- Main Application Execution ---
 if __name__ == "__main__":
 
-    print("INFO: Starting application execution...")
+    logger.info("Starting application execution...")
 
     # Check if MainWindow was imported successfully before creating QApplication
     if 'MainWindow' not in locals() or MainWindow is None:
-         print("FATAL: MainWindow class could not be imported. Cannot start GUI.", file=sys.stderr)
+         logger.critical("MainWindow class not imported.")
          sys.exit(1)
 
     # --- Create QApplication (Only Once) ---
@@ -91,20 +91,16 @@ if __name__ == "__main__":
     # --- Setup System Tray Icon ---
     tray_icon = None
     if QSystemTrayIcon.isSystemTrayAvailable():
-        print("INFO: System tray available. Creating icon...")
+        logger.info("System tray available. Creating icon...")
         tray_icon = QSystemTrayIcon()
         try:
-            # Load icon from resources
-            icon = QIcon(":/icons/tray-icon.png") # Use your tray icon alias
+            icon = QIcon(":/icons/tray-icon.png")
             if icon.isNull():
-                 print("WARNING: Tray icon :/icons/tray-icon.png not found in resources.")
-                 # Fallback icon? Or let it be potentially blank?
-                 # icon = QIcon.fromTheme("application-x-executable") # Example fallback
+                logger.warning("Tray icon not found.")
+                tray_icon.setIcon(QIcon.fromTheme("application-x-executable"))
             tray_icon.setIcon(icon)
-        except NameError: # If resources_rc failed import
-             print("WARNING: resources_rc not imported, cannot load tray icon.")
-        except Exception as e:
-             print(f"ERROR: Failed to load tray icon: {e}")
+        except NameError:
+             logger.warning("resources_rc not imported.")
 
         tray_icon.setToolTip(f"{config.APP_NAME} is running")
 
@@ -115,8 +111,7 @@ if __name__ == "__main__":
         stop_all_action = QAction("Stop All Services")
         quit_action = QAction("Quit LinuxHerd")
 
-        # Connect quit action HERE to app.quit <<< MODIFIED
-        quit_action.triggered.connect(app.quit) # Connect directly to app quit
+        quit_action.triggered.connect(app.quit)
 
         tray_menu.addAction(show_action)
         tray_menu.addSeparator()
@@ -127,56 +122,48 @@ if __name__ == "__main__":
 
         tray_icon.setContextMenu(tray_menu)
         tray_icon.show()
-        # Activation signal connection moved after window creation
 
     else:
-        print("WARNING: System tray not available on this system.")
-        # If no tray, ensure app quits when window closes
+        logger.warning("System tray not available.")
         QApplication.setQuitOnLastWindowClosed(True)
     # --- End Tray Icon Setup ---
 
     # --- Load and Apply Stylesheet ---
     style_sheet_content = load_stylesheet()
-    if style_sheet_content: app.setStyleSheet(style_sheet_content); print("Applied global stylesheet.")
+    if style_sheet_content: app.setStyleSheet(style_sheet_content)
+    logger.info("Applied global stylesheet.")
 
     # --- Create the Main Window ---
-    print("Creating MainWindow instance...")
+    logger.info("Creating MainWindow instance...")
     try:
-        window = MainWindow() # Instantiation
-        # Pass tray icon reference to main window
-        if tray_icon:
-            window.set_tray_icon(tray_icon)
-        print("MainWindow instance created successfully.")
+        window = MainWindow()
     except Exception as e:
-        print(f"FATAL: Error during MainWindow creation: {e}", file=sys.stderr); traceback.print_exc(); sys.exit(1)
+        logger.critical(f"Error during MainWindow creation: {e}", exc_info=True)
+        traceback.print_exc()
+        sys.exit(1)
+
+    if tray_icon: window.set_tray_icon(tray_icon)
+    logger.info("MainWindow instance created successfully.")
 
     # --- Connect Signals Between Tray and Window ---
-    # Now that 'window' exists, connect the remaining tray actions
     if tray_icon:
-         # Connect show/hide action
          show_action.triggered.connect(window.toggle_visibility)
-         # Connect start/stop all actions
          start_all_action.triggered.connect(window.on_start_all_services_clicked)
          stop_all_action.triggered.connect(window.on_stop_all_services_clicked)
-         # Connect tray activation (left-click)
          tray_icon.activated.connect(lambda reason: window.toggle_visibility() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
 
     # --- Connect Application Quit Logic ---
-    # REMOVED quit_application function
-    # Connect aboutToQuit for final process cleanup
     if process_manager and hasattr(process_manager, 'stop_all_processes'):
-        # This signal is emitted AFTER the last window closes (if QuitOnLastWindowClosed is true)
-        # OR after app.quit() is called.
         app.aboutToQuit.connect(process_manager.stop_all_processes)
-        print("INFO: Connected process_manager.stop_all_processes to app.aboutToQuit.")
+        logger.info("Connected process_manager.stop_all_processes to app.aboutToQuit.")
     else:
-        print("WARN: Could not connect process manager cleanup to app.aboutToQuit.")
+        logger.warning("Could not connect process manager cleanup.")
 
 
     # --- Show Window and Run ---
-    print("Showing main window...")
+    logger.info("Showing main window...")
     window.show()
-    print("Starting Qt event loop...")
+    logger.info("Starting Qt event loop...")
     exit_code = app.exec()
-    print(f"Application exiting with code {exit_code}.")
+    logger.info(f"Application exiting with code {exit_code}.")
     sys.exit(exit_code)
