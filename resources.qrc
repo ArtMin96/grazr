@@ -1,6 +1,7 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
     <qresource prefix="/icons">
+        <file alias="grazr-logo.png">assets/icons/logo.png</file>
         <file alias="tray-icon.png">assets/icons/tray-icon.png</file>
 
         <file alias="services.svg">assets/icons/server.svg</file>
