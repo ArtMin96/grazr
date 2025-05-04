@@ -15,22 +15,47 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 # --- End Path Addition ---
 
-# --- Configure Logging ---
+# --- Attempt to import config first for logging setup ---
 try:
-    from linuxherd.core import config # Need config for log dir
-    log_file_path = config.LOG_DIR / 'grazr_app.log'
-    config.ensure_dir(config.LOG_DIR)
-    file_handler = logging.FileHandler(log_file_path, encoding='utf-8', mode='a') # Append mode
-    file_formatter = logging.Formatter('%(asctime)s [%(levelname)-7s] %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    file_handler.setFormatter(file_formatter)
-    file_handler.setLevel(logging.DEBUG) # Log DEBUG and above to file
-    logging.getLogger().addHandler(file_handler)
-    logging.info("File logging initialized.")
-except Exception as log_e:
-    logging.error(f"Failed to set up file logging: {log_e}")
+    from linuxherd.core import config
+except ImportError as e:
+    print(f"FATAL: Failed to import core.config: {e}", file=sys.stderr)
+    config = None # Set config to None if import fails
+# --- End Config Import ---
+
+# --- Configure Logging ---
+log_level = logging.DEBUG # More verbose for file logging
+log_format = '%(asctime)s [%(levelname)-7s] %(name)s: %(message)s'
+log_datefmt = '%Y-%m-%d %H:%M:%S'
+
+logging.basicConfig(level=log_level,
+                    format=log_format,
+                    datefmt=log_datefmt,
+                    stream=sys.stderr)
+
+if config and hasattr(config, 'LOG_DIR') and hasattr(config, 'ensure_dir'):
+    try:
+        log_file_path = config.LOG_DIR / 'grazr_app.log' # <<< Use requested filename
+        config.ensure_dir(config.LOG_DIR) # Ensure log dir exists
+        # Use RotatingFileHandler for better log management (optional)
+        # file_handler = logging.handlers.RotatingFileHandler(
+        #     log_file_path, maxBytes=5*1024*1024, backupCount=3, encoding='utf-8'
+        # )
+        # Or simple FileHandler:
+        file_handler = logging.FileHandler(log_file_path, encoding='utf-8', mode='a') # Append mode
+
+        file_formatter = logging.Formatter(log_format, datefmt=log_datefmt)
+        file_handler.setFormatter(file_formatter)
+        file_handler.setLevel(logging.DEBUG) # Log DEBUG and above to file
+        logging.getLogger().addHandler(file_handler) # Add handler to root logger
+        logging.info("File logging initialized.")
+    except Exception as log_e:
+        logging.error(f"Failed to set up file logging: {log_e}", exc_info=True)
+else:
+    logging.warning("Config module or LOG_DIR/ensure_dir not available, skipping file logging setup.")
+
 
 logger = logging.getLogger(__name__)
-logger.info("Application logging initialized.")
 # --- End Logging Configuration ---
 
 # --- Qt Imports ---
@@ -47,7 +72,6 @@ except ImportError as e:
 try:
     from linuxherd.ui.main_window import MainWindow
     from linuxherd.core import process_manager
-    from linuxherd.core import config
 except ImportError as e:
     logger.critical(f"Failed to import app components: {e}", exc_info=True)
     sys.exit(1)

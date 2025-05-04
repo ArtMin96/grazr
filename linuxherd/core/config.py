@@ -14,10 +14,10 @@ RUN_DIR = CONFIG_DIR / 'run'
 LOG_DIR = CONFIG_DIR / 'logs'
 CERT_DIR = CONFIG_DIR / 'certs'
 
-# --- Service Configuration Storage <<< NEW ---
+# --- Service Configuration Storage ---
 SERVICES_CONFIG_FILE = CONFIG_DIR / 'services.json'
 
-# --- Definitions of AVAILABLE Bundled Services <<< NEW ---
+# --- Definitions of AVAILABLE Bundled Services ---
 # This dictionary defines the services the user CAN add, based on bundles
 # Key: Service Type (internal identifier)
 # Value: Dictionary of properties
