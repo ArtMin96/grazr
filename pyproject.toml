@@ -1,4 +1,23 @@
-# Grazr/pyproject.toml
+[tool.black]
+line-length = 120
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = "E203,W503"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
 
 [build-system]
 # Specifies build tools pip needs to install your package

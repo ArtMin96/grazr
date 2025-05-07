@@ -1,0 +1,98 @@
+name: Code Quality Checks
+
+on:
+  push:
+    branches: [ main, master, develop ] # Or your main development branches
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  lint-format-check:
+    name: Lint, Format, Type & Security Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' # Or your project's Python version
+        cache: 'pip' # Cache pip dependencies
+
+    - name: Install dependencies (including quality tools)
+      run: |
+        python -m pip install --upgrade pip
+        pip install black flake8 isort mypy bandit
+        # Install your project's dependencies if linters/mypy need them
+        # For example, if you have a requirements.txt:
+        # pip install -r requirements.txt
+        # If using poetry or PDM, install dependencies using those tools
+
+    - name: Run Black (Format Check)
+      run: black --check --diff .
+      # To auto-format and commit (use with caution, typically run locally or in a separate PR):
+      # black .
+      # git diff --exit-code # Fails if black made changes
+      # Or use a specific action like psf/black@stable
+
+    - name: Run isort (Import Sort Check)
+      run: isort --check-only --diff .
+      # To auto-format and commit:
+      # isort .
+      # git diff --exit-code
+
+    - name: Run Flake8 (Linting)
+      run: flake8 .
+      # You can add --max-line-length, --ignore, etc. here or in a config file
+
+    - name: Run MyPy (Static Type Checking)
+      # MyPy might require your project dependencies to be installed
+      # and a pyproject.toml or mypy.ini for configuration.
+      # Add --install-types if you want MyPy to try and install missing stubs.
+      run: |
+        mypy grazr/ --ignore-missing-imports
+      # Replace 'grazr/' with your main package directory name
+
+    - name: Run Bandit (Security Scan)
+      run: bandit -r grazr/ -ll -ii
+      # -r: recursive, grazr/: your package directory
+      # -ll: report on medium and high severity issues
+      # -ii: report on medium and high confidence issues
+
+  # Optional: CodeQL Analysis (GitHub native, very powerful)
+  # codeql-analysis:
+  #   name: CodeQL Analysis
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     actions: read
+  #     contents: read
+  #     security-events: write # Required to upload scan results
+
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       language: [ 'python' ]
+
+  #   steps:
+  #   - name: Checkout repository
+  #     uses: actions/checkout@v4
+
+  #   - name: Initialize CodeQL
+  #     uses: github/codeql-action/init@v3
+  #     with:
+  #       languages: ${{ matrix.language }}
+  #       # If you wish to specify custom queries, you can do so here
+  #       # queries: +security-extended,etc.
+
+  #   # Autobuild attempts to build any compiled languages  (C/C++, C#, Go, Java, Swift).
+  #   # If this step fails, then you should remove it and run the build manually (see documentation).
+  #   - name: Autobuild
+  #     uses: github/codeql-action/autobuild@v3
+  #     # For Python, Autobuild is usually not strictly necessary if dependencies are installed
+
+  #   - name: Perform CodeQL Analysis
+  #     uses: github/codeql-action/analyze@v3
+  #     with:
+  #       category: "/language:${{matrix.language}}"
