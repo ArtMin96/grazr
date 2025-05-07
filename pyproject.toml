@@ -1,5 +1,10 @@
 [tool.black]
 line-length = 120
+exclude = '''
+/(
+    linuxherd/grazr/ui/resources_rc\.py
+)$
+'''
 
 [tool.isort]
 profile = "black"
