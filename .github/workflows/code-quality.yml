@@ -31,7 +31,7 @@ jobs:
         # If using poetry or PDM, install dependencies using those tools
 
     - name: Run Black (Format Check)
-      run: black --check --diff . --exclude '^linuxherd/grazr/ui/resources_rc\.py$'
+      run: black --check --diff .
       # To auto-format and commit (use with caution, typically run locally or in a separate PR):
       # black .
       # git diff --exit-code # Fails if black made changes
