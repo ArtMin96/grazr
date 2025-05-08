@@ -1,21 +1,19 @@
 [tool.black]
-line-length = 120
-exclude = '''
-/(
-    linuxherd/grazr/ui/resources_rc\.py
-)$
+line-length = 100
+force-exclude = '''
+/grazr/ui/resources_rc\.py$
 '''
 
 [tool.isort]
 profile = "black"
-line_length = 88
+line_length = 100
 multi_line_output = 3
 include_trailing_comma = true
 force_grid_wrap = 0
 use_parentheses = true
 
 [tool.flake8]
-max-line-length = 88
+max-line-length = 100
 extend-ignore = "E203,W503"
 
 [tool.mypy]
@@ -23,6 +21,21 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+exclude = 'grazr/ui/resources_rc\.py'
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["grazr"]
+
+[tool.ruff]
+line-length = 120
+extend-select = ["I", "N"]
+ignore = ["E203", "W503"]
 
 [build-system]
 # Specifies build tools pip needs to install your package
