@@ -117,13 +117,21 @@ INTERNAL_SCGI_TEMP = INTERNAL_NGINX_TEMP_DIR / 'scgi'
 
 # --- PHP Specific Paths ---
 PHP_BUNDLES_DIR = BUNDLES_DIR / 'php'
-PHP_CONFIG_DIR = CONFIG_DIR / 'php'
-PHP_FPM_PID_TEMPLATE = RUN_DIR / "php{version}-fpm.pid"
-PHP_FPM_SOCK_TEMPLATE = RUN_DIR / "php{version}-fpm.sock"
-PHP_ERROR_LOG_TEMPLATE = LOG_DIR / "php{version}-error.log"
-PHP_FPM_ERROR_LOG_TEMPLATE = LOG_DIR / "php{version}-fpm.log"
-PHP_LIB_SUBDIR = "lib/x86_64-linux-gnu"
-PHP_EXT_SUBDIR = "extensions"
+PHP_CONFIG_DIR = CONFIG_DIR / 'php' # Active configs root: ~/.config/grazr/php/
+
+# PID and Socket templates should point to the location where PHP-FPM,
+# as configured by php_manager.py (using ${grazr_prefix}), will actually create these files.
+# ${grazr_prefix} resolves to PHP_CONFIG_DIR / "{version}".
+# The files are created in a 'var/run' subdirectory within that.
+PHP_FPM_PID_TEMPLATE = PHP_CONFIG_DIR / "{version}" / "var" / "run" / "php{version}-fpm.pid"
+PHP_FPM_SOCK_TEMPLATE = PHP_CONFIG_DIR / "{version}" / "var" / "run" / "php{version}-fpm.sock"
+
+# Log templates for PHP errors (these are targets for php.ini directives)
+PHP_ERROR_LOG_TEMPLATE = PHP_CONFIG_DIR / "{version}" / "var" / "log" / "php{version}-cli-error.log"
+PHP_FPM_ERROR_LOG_TEMPLATE = PHP_CONFIG_DIR / "{version}" / "var" / "log" / "php{version}-fpm.log"
+
+PHP_LIB_SUBDIR = "lib/php" # Relative to bundle's lib/ for include_path symlink source
+PHP_EXT_SUBDIR = "extensions" # Relative to bundle and active_config for extensions
 
 # --- MySQL Specific Paths
 MYSQL_BUNDLES_DIR = BUNDLES_DIR / 'mysql' # Base bundle directory
@@ -228,18 +236,48 @@ HOSTS_FILE_PATH = "/etc/hosts"
 HOSTS_MARKER = "# Added by Grazr"
 SYSTEM_DNSMASQ_SERVICE_NAME = "dnsmasq.service"
 
-# --- Packaging Source Paths ---
+# --- Packaging Source Paths (relative to project root) ---
 PACKAGING_DIR = Path(__file__).resolve().parent.parent / 'packaging'
-HELPER_SCRIPT_NAME = PACKAGING_DIR / 'grazr_root_helper.py'
-POLICY_FILE_SOURCE = PACKAGING_DIR / 'com.grazr.pkexec.policy'
-HELPER_SCRIPT_INSTALL_PATH = f"/usr/local/bin/{HELPER_SCRIPT_NAME}"
+HELPER_SCRIPT_SOURCE_PATH = PACKAGING_DIR / 'grazr_root_helper.py'
+HELPER_SCRIPT_INSTALL_PATH = "/usr/local/bin/grazr_root_helper.py"
 POLKIT_ACTION_ID = "com.grazr.pkexec.manage_service"
 
 # --- Misc ---
 APP_NAME = "Grazr"
 
-# --- Helper function (optional) ---
+# --- Helper function ---
 def ensure_dir(path: Path):
-    """Creates a directory if it doesn't exist."""
-    try: path.mkdir(parents=True, exist_ok=True); return True
-    except OSError as e: print(f"Error creating directory {path}: {e}"); return False
+    """Creates a directory if it doesn't exist. Returns True on success."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        return True
+    except OSError as e:
+        # Ensure logger is defined if this file is imported before main.py's logging setup
+        # For now, using print as a fallback, or use a local logger.
+        # logging.getLogger(__name__).error(f"CONFIG_ERROR: Error creating directory {path}: {e}")
+        print(f"CONFIG_ERROR: Error creating directory {path}: {e}")
+        return False
+
+# --- Ensure base directories exist on config load ---
+def ensure_base_dirs():
+    """Ensures all base directories defined in config are created."""
+    base_dirs_to_ensure = [
+        CONFIG_DIR, DATA_DIR, BUNDLES_DIR, RUN_DIR, LOG_DIR, CERT_DIR,
+        INTERNAL_NGINX_TEMP_DIR, PHP_CONFIG_DIR, PHP_BUNDLES_DIR, # PHP_BUNDLES_DIR is under BUNDLES_DIR
+        MYSQL_BUNDLES_DIR, INTERNAL_MYSQL_CONF_DIR, INTERNAL_MYSQL_DATA_DIR,
+        POSTGRES_BUNDLES_DIR, INTERNAL_POSTGRES_CONF_DIR, INTERNAL_POSTGRES_DATA_DIR, INTERNAL_POSTGRES_SOCK_DIR,
+        REDIS_BUNDLES_DIR, INTERNAL_REDIS_CONF_DIR, INTERNAL_REDIS_DATA_DIR,
+        MINIO_BUNDLES_DIR, INTERNAL_MINIO_DATA_DIR, INTERNAL_MINIO_CONFIG_DIR,
+        NVM_BUNDLES_DIR, NVM_MANAGED_NODE_DIR,
+        MKCERT_BUNDLES_DIR
+    ]
+    all_ok = True
+    for d_path in base_dirs_to_ensure:
+        if not ensure_dir(d_path):
+            all_ok = False
+    if not all_ok:
+        print("CONFIG_WARNING: Some base directories could not be created. Check permissions or logs.")
+    return all_ok
+
+if not ensure_base_dirs():
+    print("CONFIG_CRITICAL: Failed to create one or more essential base directories on startup.")

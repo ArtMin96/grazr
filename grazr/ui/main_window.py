@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QTextEdit, QFrame, QListWidget, QListWidgetItem, QStackedWidget,
     QSizePolicy, QFileDialog, QMessageBox, QDialog, QPushButton,
-    QProgressDialog, QSystemTrayIcon
+    QProgressDialog, QSystemTrayIcon, QMenu
 )
 from PySide6.QtCore import Qt, QTimer, QObject, QThread, Signal, Slot, QSize, QUrl
 from PySide6.QtGui import QFont, QIcon, QTextCursor, QDesktopServices, QPixmap
@@ -641,14 +641,12 @@ class MainWindow(QMainWindow):
         """Handles request to open the NEW configuration dialog for a PHP version."""
         self.log_message(f"MAIN_WINDOW: Configure PHP {version} requested...")
         try:
-            # Create the new dialog instance
             dialog = PhpConfigurationDialog(version, self)
-            # Connect signals from the dialog to trigger worker tasks
             dialog.saveIniSettingsRequested.connect(self.on_save_php_config_ini)
             dialog.toggleExtensionRequested.connect(self.on_toggle_php_extension)
-            dialog.finished.connect(self.on_php_config_dialog_closed)  # Use generic finished handler
-
-            dialog.exec()  # Show dialog modally
+            dialog.configureInstalledExtensionRequested.connect(self.on_configure_installed_extension_requested)
+            dialog.finished.connect(self.on_php_config_dialog_closed)
+            dialog.exec()
 
         except Exception as e:
             self.log_message(f"Error opening PHP config dialog for {version}: {e}")
@@ -982,6 +980,13 @@ class MainWindow(QMainWindow):
 
         task_data = {"version": version}
         self.triggerWorker.emit("uninstall_node", task_data)
+
+    @Slot(str, str)
+    def on_configure_installed_extension_requested(self, version, ext_name):
+        """Handles request from dialog to configure a manually installed extension."""
+        self.log_message(f"Request received to configure manually installed extension '{ext_name}' for PHP {version}")
+        task_data = {"version": version, "extension_name": ext_name}
+        self.triggerWorker.emit("configure_php_extension", task_data)
 
     @Slot(dict, str)  # Receives site_info, new_node_version
     def on_set_site_node_version(self, site_info, new_node_version):

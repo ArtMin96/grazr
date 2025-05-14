@@ -1,11 +1,14 @@
-import subprocess
 import os
 import signal
 import time
 from pathlib import Path
+import subprocess
 import shutil
-import shlex
 import re
+import tempfile
+import logging
+
+logger = logging.getLogger(__name__)
 
 # --- Import other core/manager modules ---
 try:
@@ -356,26 +359,53 @@ server {{ listen 80; listen [::]:80; server_name {domain}; root "{root_path_str}
 
 # --- Nginx Process Control Functions (using process_manager) ---
 def start_internal_nginx():
-    """Starts internal Nginx via process_manager using paths from config."""
-    # Uses constants from config module
-    print("Attempting to start internal Nginx via Process Manager...")
-    if not ensure_internal_nginx_structure(): return False, "Failed config structure check."
-    if not config.NGINX_BINARY.is_file(): return False, f"Nginx binary not found: {config.NGINX_BINARY}"
-    if process_manager.get_process_status(config.NGINX_PROCESS_ID) == "running": return True, "Nginx already running."
+    """Ensures structure and starts the internal Nginx server."""
+    logger.info("Attempting to start internal Nginx via Process Manager...")
+    if not ensure_internal_nginx_structure():
+        return False, "Failed to ensure Nginx structure."
 
-    command = [str(config.NGINX_BINARY.resolve()), '-c', str(config.INTERNAL_NGINX_CONF_FILE.resolve()), '-g', 'daemon off;']
-    authbind_path = shutil.which(config.AUTHBIND_PATH if hasattr(config, 'AUTHBIND_PATH') else 'authbind') # Use config path if defined
-    if authbind_path and Path("/etc/authbind/byport/80").exists():
-        print("Prepending authbind."); command.insert(0,'--deep'); command.insert(0, authbind_path)
-    nginx_lib_path = config.BUNDLES_DIR/'nginx/lib/x86_64-linux-gnu'; env=os.environ.copy(); ld=env.get('LD_LIBRARY_PATH','');
-    if nginx_lib_path.is_dir(): env['LD_LIBRARY_PATH'] = f"{nginx_lib_path.resolve()}{os.pathsep}{ld}" if ld else str(nginx_lib_path.resolve())
-    log_path = config.INTERNAL_NGINX_ERROR_LOG; print(f"Launching Nginx: {' '.join(command)}")
-    ok = process_manager.start_process(config.NGINX_PROCESS_ID, command, str(config.INTERNAL_NGINX_PID_FILE.resolve()), env=env, log_file_path=log_path)
-    if ok:
-        time.sleep(1.0); status = process_manager.get_process_status(config.NGINX_PROCESS_ID)
-        if status != "running": msg=f"Nginx exited immediately (Status:{status})."; print(f"Error:{msg}"); return False, msg
-        else: msg = "Nginx started via Process Manager."; print(f"Info:{msg}"); return True, msg
-    else: msg = "Failed start via Process Manager."; print(f"Error:{msg}"); return False, msg
+    # Check status using process manager BEFORE attempting start
+    if process_manager.get_process_status(config.NGINX_PROCESS_ID) == "running":
+        logger.info("Nginx already running.")
+        return True, "Nginx already running."
+
+    nginx_binary = config.NGINX_BINARY
+    nginx_conf = config.INTERNAL_NGINX_CONF_FILE
+    pid_file = config.INTERNAL_NGINX_PID_FILE
+    log_file = config.INTERNAL_NGINX_ERROR_LOG # Main error log
+
+    if not nginx_binary.is_file() or not os.access(nginx_binary, os.X_OK):
+        msg = f"Nginx binary not found or not executable: {nginx_binary}"
+        logger.error(msg)
+        return False, msg
+    if not nginx_conf.is_file():
+        msg = f"Nginx config file not found: {nginx_conf}"
+        logger.error(msg)
+        return False, msg
+
+    # Command to run Nginx in foreground, managed by process_manager
+    # -g 'daemon off;' prevents Nginx from daemonizing itself
+    command = [
+        str(nginx_binary.resolve()),
+        '-c', str(nginx_conf.resolve()),
+        '-g', 'daemon off;'
+    ]
+
+    # Start using process manager (which handles PID file creation/check)
+    success = process_manager.start_process(
+        process_id=config.NGINX_PROCESS_ID,
+        command=command,
+        pid_file_path=str(pid_file.resolve()), # Tell PM where PID file is
+        log_file_path=str(log_file.resolve()) # Log stdout/stderr here
+    )
+
+    # REMOVED immediate status check here. Rely on subsequent refresh.
+    if success:
+        logger.info("Nginx start command issued successfully.")
+        return True, "Nginx start initiated." # Report success of issuing command
+    else:
+        logger.error("Failed to issue start command for Nginx.")
+        return False, "Failed to issue start command for Nginx."
 
 
 def stop_internal_nginx():

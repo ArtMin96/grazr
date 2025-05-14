@@ -1,19 +1,19 @@
 [tool.black]
-line-length = 100
+line-length = 80
 force-exclude = '''
 /grazr/ui/resources_rc\.py$
 '''
 
 [tool.isort]
 profile = "black"
-line_length = 100
+line_length = 80
 multi_line_output = 3
 include_trailing_comma = true
 force_grid_wrap = 0
 use_parentheses = true
 
 [tool.flake8]
-max-line-length = 100
+max-line-length = 80
 extend-ignore = "E203,W503"
 
 [tool.mypy]
@@ -33,9 +33,9 @@ branch = true
 source = ["grazr"]
 
 [tool.ruff]
-line-length = 120
-extend-select = ["I", "N"]
-ignore = ["E203", "W503"]
+line-length = 80
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
 
 [build-system]
 # Specifies build tools pip needs to install your package

@@ -18,7 +18,7 @@ from pathlib import Path
 try:
     from ..core import config # Import central config
     from ..managers.site_manager import load_sites
-    from ..managers.php_manager import detect_bundled_php_versions, get_default_php_version, _get_php_ini_path
+    from ..managers.php_manager import detect_bundled_php_versions, get_default_php_version, get_php_ini_path
     from ..managers.node_manager import list_installed_node_versions
     from .widgets.site_list_item_widget import SiteListItemWidget
 except ImportError as e:
@@ -45,7 +45,7 @@ except ImportError as e:
         return "?.? (err)"
 
 
-    def _get_php_ini_path(v):
+    def get_php_ini_path(v):
         return Path(f"/tmp/error_php_{v}.ini")
 # --- End Imports ---
 

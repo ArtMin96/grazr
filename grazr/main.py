@@ -3,6 +3,7 @@ import os
 import traceback
 from pathlib import Path
 import logging
+import logging.handlers
 
 # This helps resolve imports when main.py is inside the package
 project_root = Path(__file__).resolve().parent.parent
@@ -11,39 +12,76 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 # --- End Path Addition ---
 
+# --- Custom Log Formatter for Colors ---
+class ColorLogFormatter(logging.Formatter):
+    """Adds ANSI color codes to log messages based on level for console output."""
+
+    # Define colors using ANSI escape codes
+    GREY = "\x1b[38;20m"
+    YELLOW = "\x1b[33;20m" # Warning
+    RED = "\x1b[31;20m"    # Error
+    BOLD_RED = "\x1b[31;1m" # Critical
+    RESET = "\x1b[0m"
+
+    # Define the base format string
+    BASE_FORMAT = '%(asctime)s [%(levelname)-7s] %(name)s: %(message)s'
+    DATE_FORMAT = '%H:%M:%S'
+
+    # Map logging levels to format strings with colors
+    FORMATS = {
+        logging.DEBUG: GREY + BASE_FORMAT + RESET,
+        logging.INFO: BASE_FORMAT, # No color for INFO
+        logging.WARNING: YELLOW + BASE_FORMAT + RESET,
+        logging.ERROR: RED + BASE_FORMAT + RESET,
+        logging.CRITICAL: BOLD_RED + BASE_FORMAT + RESET
+    }
+
+    def format(self, record):
+        # Get the format string for the record's level
+        log_fmt = self.FORMATS.get(record.levelno, self.BASE_FORMAT)
+        # Create a temporary formatter with the specific format
+        formatter = logging.Formatter(log_fmt, datefmt=self.DATE_FORMAT)
+        return formatter.format(record)
+# --- End Custom Log Formatter ---
+
 # --- Attempt to import config first for logging setup ---
 try:
     from grazr.core import config
 except ImportError as e:
     print(f"FATAL: Failed to import core.config: {e}", file=sys.stderr)
-    config = None # Set config to None if import fails
+    config = None
 # --- End Config Import ---
 
 # --- Configure Logging ---
-log_level = logging.DEBUG # More verbose for file logging
+log_level = logging.DEBUG
 log_format = '%(asctime)s [%(levelname)-7s] %(name)s: %(message)s'
-log_datefmt = '%Y-%m-%d %H:%M:%S'
+log_datefmt = '%H:%M:%S'
 
-logging.basicConfig(level=log_level,
-                    format=log_format,
-                    datefmt=log_datefmt,
-                    stream=sys.stderr)
+# Remove basicConfig handlers if they exist (to avoid duplicate messages)
+root_logger = logging.getLogger()
+for handler in root_logger.handlers[:]:
+    root_logger.removeHandler(handler)
+
+# Set root logger level
+root_logger.setLevel(log_level)
+
+# Console Handler (stderr) with Color Formatter
+console_handler = logging.StreamHandler(sys.stderr)
+console_handler.setLevel(logging.INFO) # Log INFO and above to console
+console_handler.setFormatter(ColorLogFormatter()) # Use custom color formatter
+root_logger.addHandler(console_handler)
 
 if config and hasattr(config, 'LOG_DIR') and hasattr(config, 'ensure_dir'):
     try:
-        log_file_path = config.LOG_DIR / 'grazr_app.log' # <<< Use requested filename
-        config.ensure_dir(config.LOG_DIR) # Ensure log dir exists
-        # Use RotatingFileHandler for better log management (optional)
-        # file_handler = logging.handlers.RotatingFileHandler(
-        #     log_file_path, maxBytes=5*1024*1024, backupCount=3, encoding='utf-8'
-        # )
-        # Or simple FileHandler:
-        file_handler = logging.FileHandler(log_file_path, encoding='utf-8', mode='a') # Append mode
-
+        log_file_path = config.LOG_DIR / 'grazr_app.log'
+        config.ensure_dir(config.LOG_DIR)
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_file_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8'
+        )
         file_formatter = logging.Formatter(log_format, datefmt=log_datefmt)
         file_handler.setFormatter(file_formatter)
         file_handler.setLevel(logging.DEBUG)
-        logging.getLogger().addHandler(file_handler)
+        root_logger.addHandler(file_handler)
         logging.info("File logging initialized.")
     except Exception as log_e:
         logging.error(f"Failed to set up file logging: {log_e}", exc_info=True)
@@ -52,6 +90,7 @@ else:
 
 
 logger = logging.getLogger(__name__)
+logger.info("Application logging configured.")
 # --- End Logging Configuration ---
 
 # --- Qt Imports ---
@@ -87,7 +126,7 @@ def load_stylesheet():
     if style_path.is_file():
         try:
             with open(style_path, 'r', encoding='utf-8') as f: logger.info(f"Loading stylesheet from: {style_path}"); return f.read()
-        except Exception as e: logger.error(f"Error loading stylesheet {style_path}: {e}")
+        except Exception as e: logger.error(f"Error loading stylesheet {style_path}: {e}", exc_info=True)
     else: logger.warning(f"Stylesheet not found at {style_path}")
     return ""
 

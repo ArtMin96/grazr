@@ -20,7 +20,7 @@ try:
                                         get_php_fpm_status,
                                         get_default_php_version,
                                         get_ini_value,
-                                        _get_php_ini_path
+                                        get_php_ini_path
                                         )
     from .widgets.php_version_item_widget import PhpVersionItemWidget
 except ImportError as e:
@@ -29,7 +29,7 @@ except ImportError as e:
     def detect_bundled_php_versions(): return ["?.?(ImportErr)"]
     def get_php_fpm_status(v): return "unknown"
     def get_ini_value(v, k, s='PHP'): return None
-    def _get_php_ini_path(v): return Path(f"/tmp/error_php_{v}.ini")
+    def get_php_ini_path(v): return Path(f"/tmp/error_php_{v}.ini")
 
 
     class PhpVersionItemWidget(QWidget):

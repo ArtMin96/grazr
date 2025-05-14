@@ -2,15 +2,18 @@ from PySide6.QtCore import QObject, Signal, Slot
 import traceback
 import time
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Import the functions that the worker will call using new structure
 try:
     # Managers (now in ../managers relative to core)
     from ..managers.nginx_manager import install_nginx_site, uninstall_nginx_site
     from ..managers.nginx_manager import start_internal_nginx, stop_internal_nginx
-    from ..managers.php_manager import start_php_fpm, stop_php_fpm, restart_php_fpm
-    from ..managers.php_manager import enable_extension, disable_extension
-    from ..managers.php_manager import set_ini_value
+    from ..managers.php_manager import (start_php_fpm, stop_php_fpm, restart_php_fpm,
+                                        enable_extension, disable_extension, configure_extension,
+                                        set_ini_value)
     from ..managers.site_manager import update_site_settings, remove_site, get_site_settings
     from ..managers.ssl_manager import generate_certificate, delete_certificate
     from ..managers.mysql_manager import start_mysql, stop_mysql
@@ -21,7 +24,7 @@ try:
     from .system_utils import run_root_helper_action
 
 except ImportError as e:
-    print(f"ERROR in worker.py: Could not import dependencies (check paths & __init__.py files): {e}")
+    logger.error(f"Failed to import dependencies: {e}", exc_info=True)
     # Define dummy functions if imports fail
     def install_nginx_site(*args, **kwargs): return False, "Not imported"
     def uninstall_nginx_site(*args, **kwargs): return False, "Not imported"
@@ -33,6 +36,7 @@ except ImportError as e:
     def set_ini_value(*args, **kwargs): return False
     def enable_extension(*args, **kwargs): return False, "Not Imported"
     def disable_extension(*args, **kwargs): return False,
+    def configure_extension(*a): return False, "NI - configure_extension dummy"
     def update_site_settings(*args, **kwargs): return False
     def remove_site(*args, **kwargs): return False
     def get_site_settings(*args, **kwargs): return None
@@ -68,7 +72,7 @@ class Worker(QObject):
         local_message = f"Unknown task '{task_name}'."  # Default message
         context_data = data.copy()  # Pass back original data
 
-        print(f"WORKER: Starting task '{task_name}' with data {data}")
+        logger.info(f"Starting task '{task_name}' with data {data}")
 
         try:
             # --- Task Dispatching ---
@@ -315,7 +319,7 @@ class Worker(QObject):
                         local_success = ok;
                         local_message = f"Disable SSL: {'|'.join(results)}"
 
-            elif task_name == "toggle_php_extension":  # <<< ADDED BACK
+            elif task_name == "toggle_php_extension":
                 version = data.get("version")
                 ext_name = data.get("extension_name")
                 enable_state = data.get("enable_state")  # True to enable, False to disable
@@ -331,6 +335,19 @@ class Worker(QObject):
                     else:
                         local_success, local_message = disable_extension(version, ext_name)
                     print(f"WORKER: {action_word} task returned: success={local_success}, msg='{local_message}'")
+
+            elif task_name == "configure_php_extension":
+                version = data.get("version")
+                ext_name = data.get("extension_name")
+                logger.debug(f"WORKER: configure_php_extension handler started. v={version}, ext={ext_name}")
+                if not version or not ext_name:
+                    local_success = False;
+                    local_message = "Missing data for configure_php_extension task."
+                    logger.error(local_message)
+                else:
+                    # Call the manager function to copy .so, create .ini, enable symlinks, restart fpm
+                    local_success, local_message = configure_extension(version, ext_name)
+                    logger.debug(f"WORKER: configure_extension returned: success={local_success}, msg='{local_message}'")
 
             elif task_name == "start_mysql":
                 print(f"WORKER: Calling start_mysql...")
@@ -412,17 +429,14 @@ class Worker(QObject):
                 else:
                     local_success = False; local_message = "Unsupported action/service for run_helper."
 
-            # If task_name didn't match any, local_success/local_message keep initial "Unknown" state
-
-            print(f"WORKER: Task '{task_name}' computation finished.")
+            logger.info(f"Task '{task_name}' computation finished.")
 
         except Exception as e:
-            print(f"WORKER: EXCEPTION during task '{task_name}' for data {data}:")
+            logger.exception(f"EXCEPTION during task '{task_name}' for data {data}")
             traceback.print_exc()
             local_success = False  # Ensure failure on exception
             local_message = f"Unexpected error: {type(e).__name__} - {e}"
 
         finally:
-            # Emit the final calculated results
-            print(f"WORKER: Emitting resultReady signal for task '{task_name}' (Success={local_success})")
+            logger.info(f"Emitting resultReady signal for task '{task_name}' (Success={local_success})")
             self.resultReady.emit(task_name, context_data, local_success, local_message)
