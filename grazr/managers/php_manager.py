@@ -75,12 +75,12 @@ def get_php_version_paths(version_str: str):
             "bundle_base": bundle_base_path, "bundle_bin_dir": bundle_base_path / "bin",
             "bundle_sbin_dir": bundle_base_path / "sbin",
             "bundle_cli_ini_template": bundle_base_path / "cli" / "php.ini.grazr-default",
-            "bundle_cli_conf_d_dir": bundle_base_path / "cli" / "conf.d",  # Default active INIs from bundle
+            "bundle_cli_conf_d_dir": bundle_base_path / "cli" / "conf.d",
             "bundle_fpm_ini_template": bundle_base_path / "fpm" / "php.ini.grazr-default",
             "bundle_fpm_conf_template": bundle_base_path / "fpm" / "php-fpm.conf.grazr-default",
             "bundle_fpm_pool_d_dir": bundle_base_path / "fpm" / "pool.d",
-            "bundle_fpm_conf_d_dir": bundle_base_path / "fpm" / "conf.d",  # Default active INIs from bundle
-            "bundle_mods_available_dir": bundle_base_path / "mods-available",  # Templates for all modules
+            "bundle_fpm_conf_d_dir": bundle_base_path / "fpm" / "conf.d",
+            "bundle_mods_available_dir": bundle_base_path / "mods-available",
             "bundle_extensions_src_dir": bundle_base_path / config.PHP_EXT_SUBDIR,
             "bundle_lib_php_src_dir": bundle_base_path / "lib" / "php",
             "bundle_lib_arch_dir": bundle_base_path / "lib" / "x86_64-linux-gnu",
@@ -177,10 +177,12 @@ def ensure_php_version_config_structure(version, force_recreate=False):  # Made 
             logger.error(
                 f"PHP_MANAGER: Failed to remove existing active config {active_config_root}: {e}"); return False
 
-    dirs_to_create = [paths['active_cli_confd'], paths['active_fpm_confd'], paths['active_mods_available'],
-                      paths['active_fpm_pool_dir'], paths['active_var_run'], paths['active_var_log'],
-                      paths['active_var_lib_php_sessions'], paths['active_extensions_symlink'].parent,
-                      paths['active_lib_php_symlink'].parent]
+    dirs_to_create = [
+        paths['active_cli_confd'], paths['active_fpm_confd'], paths['active_mods_available'],
+        paths['active_fpm_pool_dir'], paths['active_var_run'], paths['active_var_log'],
+        paths['active_var_lib_php_sessions'],
+        paths['active_extensions_symlink'].parent, paths['active_lib_php_symlink'].parent
+    ]
     for d_path in dirs_to_create:
         try:
             d_path.mkdir(parents=True, exist_ok=True)
@@ -202,29 +204,37 @@ def ensure_php_version_config_structure(version, force_recreate=False):  # Made 
         elif not (bundle_src_dir and bundle_src_dir.is_dir()):
             logger.warning(f"PHP_MANAGER: Bundle source dir for {symlink_name} not found: {bundle_src_dir}")
 
-    # --- Copy and process template config files (Corrected logic from response #53) ---
-    essential_configs_setup = {"cli_ini": False, "fpm_conf": False}
-
-    # CLI php.ini
+    # --- Copy and process template config files ---
+    # CLI php.ini (ESSENTIAL)
     template_cli_ini = paths.get('bundle_cli_ini_template');
     active_cli_ini = paths.get('active_cli_ini')
-    if template_cli_ini and active_cli_ini:
-        if not active_cli_ini.is_file() or force_recreate:
-            if not template_cli_ini.is_file(): logger.error(
-                f"Bundle CLI INI template missing: {template_cli_ini}."); return False
-            try:
-                shutil.copy2(template_cli_ini, active_cli_ini); os.chmod(active_cli_ini, 0o644)
-            except Exception as e:
-                logger.error(f"Failed copy CLI INI: {e}"); return False
-        if active_cli_ini.is_file():
-            if _process_placeholders_in_file(active_cli_ini, active_config_root):
-                essential_configs_setup["cli_ini"] = True
-            else:
-                logger.error(f"Failed placeholder processing for CLI INI: {active_cli_ini}"); return False
-        else:
-            logger.error(f"Active CLI INI missing after setup: {active_cli_ini}"); return False
-    else:
-        logger.error("Path definition error for CLI INI."); return False
+    if not (template_cli_ini and active_cli_ini): logger.error(
+        "PHP_MANAGER: Path definition error for CLI INI."); return False
+    if not active_cli_ini.is_file() or force_recreate:
+        if not template_cli_ini.is_file(): logger.error(
+            f"Bundle CLI INI template missing: {template_cli_ini}."); return False
+        try:
+            shutil.copy2(template_cli_ini, active_cli_ini); os.chmod(active_cli_ini, 0o644); logger.debug(
+                f"Copied {template_cli_ini} to {active_cli_ini}")
+        except Exception as e:
+            logger.error(f"Failed copy CLI INI: {e}"); return False
+    if not active_cli_ini.is_file(): logger.error(f"Active CLI INI {active_cli_ini} missing after copy."); return False
+    if not _process_placeholders_in_file(active_cli_ini, active_config_root): logger.error(
+        f"Failed placeholder processing for CLI INI: {active_cli_ini}."); return False
+    # Append SAPI-specific scan_dir for CLI
+    try:
+        cli_scan_dir_path = str((active_config_root / 'cli' / 'conf.d').resolve())
+        cli_ini_content = active_cli_ini.read_text(encoding='utf-8')
+        scan_dir_directive_cli = f"scan_dir={cli_scan_dir_path}"
+        if scan_dir_directive_cli not in cli_ini_content:  # Avoid duplicate appends
+            with open(active_cli_ini, 'a', encoding='utf-8') as f:
+                f.write(f"\n; Grazr: Added by php_manager.py to scan CLI-specific conf.d\n")
+                f.write(f"{scan_dir_directive_cli}\n")
+            logger.debug(f"Appended scan_dir='{cli_scan_dir_path}' to {active_cli_ini}")
+    except Exception as e:
+        logger.error(f"Failed to append scan_dir to {active_cli_ini}: {e}"); return False
+    if not active_cli_ini.is_file() or active_cli_ini.stat().st_size == 0: logger.error(
+        f"Active CLI INI {active_cli_ini} missing or empty!"); return False
 
     # FPM php.ini (if distinct)
     template_fpm_ini_bundle = paths.get('bundle_fpm_ini_template');
@@ -243,8 +253,24 @@ def ensure_php_version_config_structure(version, force_recreate=False):  # Made 
         if active_fpm_ini.is_file():
             if not _process_placeholders_in_file(active_fpm_ini, active_config_root): logger.warning(
                 f"Failed placeholders for FPM INI: {active_fpm_ini}")
+            # Append SAPI-specific scan_dir for FPM
+            try:
+                fpm_scan_dir_path = str((active_config_root / 'fpm' / 'conf.d').resolve())
+                fpm_ini_content = active_fpm_ini.read_text(encoding='utf-8')
+                scan_dir_directive_fpm = f"scan_dir={fpm_scan_dir_path}"
+                if scan_dir_directive_fpm not in fpm_ini_content:
+                    with open(active_fpm_ini, 'a', encoding='utf-8') as f:
+                        f.write(f"\n; Grazr: Added by php_manager.py to scan FPM-specific conf.d\n")
+                        f.write(f"{scan_dir_directive_fpm}\n")
+                    logger.debug(f"Appended scan_dir='{fpm_scan_dir_path}' to {active_fpm_ini}")
+            except Exception as e:
+                logger.error(f"Failed to append scan_dir to {active_fpm_ini}: {e}")
+        elif not (
+                chosen_fpm_template and chosen_fpm_template.is_file()):  # If no template was found and file still doesn't exist
+            logger.warning(
+                f"PHP_MANAGER: Active FPM INI {active_fpm_ini} could not be created as no template was found.")
 
-    # php-fpm.conf
+    # php-fpm.conf (ESSENTIAL for FPM)
     template_fpm_conf = paths.get('bundle_fpm_conf_template');
     active_fpm_conf = paths.get('active_fpm_conf')
     if not (template_fpm_conf and active_fpm_conf): logger.error("Path error for FPM conf."); return False
@@ -255,17 +281,15 @@ def ensure_php_version_config_structure(version, force_recreate=False):  # Made 
             shutil.copy2(template_fpm_conf, active_fpm_conf); os.chmod(active_fpm_conf, 0o644)
         except Exception as e:
             logger.error(f"Failed copy FPM conf: {e}"); return False
-    if active_fpm_conf.is_file():
-        if not _process_placeholders_in_file(active_fpm_conf, active_config_root):
-            logger.error(f"Failed placeholders for FPM conf: {active_fpm_conf}"); return False
-        else:
-            essential_configs_setup["fpm_conf"] = True
-    else:
-        logger.error(f"Active FPM conf missing after setup: {active_fpm_conf}"); return False
+    if not active_fpm_conf.is_file(): logger.error(
+        f"Active FPM conf missing after copy: {active_fpm_conf}"); return False
+    if not _process_placeholders_in_file(active_fpm_conf, active_config_root): logger.error(
+        f"Failed placeholders for FPM conf: {active_fpm_conf}"); return False
+    if not active_fpm_conf.is_file() or active_fpm_conf.stat().st_size == 0: logger.error(
+        f"Active FPM conf {active_fpm_conf} missing or empty!"); return False
 
-    if not all(essential_configs_setup.values()): logger.error("Essential config file setup failed."); return False
-
-    # FPM pool.d contents
+    # (Rest of the function for pool.d, conf.d population, mods-available population is the same as response #58)
+    # ...
     bundle_pool_dir = paths.get('bundle_fpm_pool_d_dir');
     active_pool_dir = paths.get('active_fpm_pool_dir')
     if bundle_pool_dir and bundle_pool_dir.is_dir() and active_pool_dir:
@@ -281,43 +305,39 @@ def ensure_php_version_config_structure(version, force_recreate=False):  # Made 
                 except Exception as e:
                     logger.error(f"Failed copy/process {item.name} to pool.d: {e}")
 
-    # Populate active SAPI-specific conf.d from bundle's SAPI-specific conf.d
     for sapi_type in ["cli", "fpm"]:
-        bundle_sapi_conf_d = paths.get('bundle_base') / sapi_type / "conf.d"  # e.g. .../bundles/php/8.1/cli/conf.d
-        active_sapi_conf_d = paths.get(f'active_{sapi_type}_confd')  # e.g. .../.config/grazr/php/8.1/cli/conf.d
+        bundle_sapi_conf_d = paths.get('bundle_base') / sapi_type / "conf.d";
+        active_sapi_conf_d = paths.get(f'active_{sapi_type}_confd')
         if bundle_sapi_conf_d and bundle_sapi_conf_d.is_dir() and active_sapi_conf_d:
             for item_in_bundle_confd in bundle_sapi_conf_d.iterdir():
                 target_in_active_confd = active_sapi_conf_d / item_in_bundle_confd.name
                 if not target_in_active_confd.exists() or force_recreate:
-                    if target_in_active_confd.is_symlink() or target_in_active_confd.exists():
-                        target_in_active_confd.unlink(missing_ok=True)
+                    if target_in_active_confd.is_symlink() or target_in_active_confd.exists(): target_in_active_confd.unlink(
+                        missing_ok=True)
                     try:
                         if item_in_bundle_confd.is_symlink():
-                            # Recreate the symlink in the active config, pointing to active_mods_available
-                            link_target_in_bundle_relative = os.readlink(
-                                item_in_bundle_confd)  # e.g., ../mods-available/phar.ini
-                            actual_ini_filename_in_mods = Path(link_target_in_bundle_relative).name  # e.g., phar.ini
-                            source_for_new_link = paths['active_mods_available'] / actual_ini_filename_in_mods
-
-                            if source_for_new_link.is_file():  # Check if the target INI exists in active_mods_available
-                                relative_path_to_active_mod = os.path.relpath(source_for_new_link.resolve(),
-                                                                              active_sapi_conf_d)
-                                os.symlink(relative_path_to_active_mod, target_in_active_confd)
+                            link_target_in_bundle_relative = os.readlink(item_in_bundle_confd);
+                            actual_ini_filename_in_mods = Path(link_target_in_bundle_relative).name
+                            source_for_new_link_in_active_mods = paths[
+                                                                     'active_mods_available'] / actual_ini_filename_in_mods
+                            if source_for_new_link_in_active_mods.is_file():
+                                relative_path_to_active_mod = os.path.relpath(
+                                    source_for_new_link_in_active_mods.resolve(), active_sapi_conf_d)
+                                os.symlink(relative_path_to_active_mod, target_in_active_confd);
                                 logger.debug(
-                                    f"PHP_MANAGER: Recreated symlink {target_in_active_confd} -> {relative_path_to_active_mod}")
+                                    f"Recreated symlink {target_in_active_confd} -> {relative_path_to_active_mod}")
                             else:
                                 logger.warning(
-                                    f"PHP_MANAGER: Target INI {source_for_new_link} for symlink {item_in_bundle_confd.name} not found in active_mods_available. Skipping symlink.")
+                                    f"Target INI {source_for_new_link_in_active_mods} for symlink {item_in_bundle_confd.name} not in active_mods_available.")
                         elif item_in_bundle_confd.is_file():
                             shutil.copy2(item_in_bundle_confd, target_in_active_confd)
-                    except Exception as e_copy_symlink:
+                    except Exception as e_cs:
                         logger.error(
-                            f"PHP_MANAGER: Failed to copy/symlink {item_in_bundle_confd.name} to active {sapi_type}/conf.d: {e_copy_symlink}")
+                            f"Failed copy/symlink {item_in_bundle_confd.name} to active {sapi_type}/conf.d: {e_cs}")
         else:
             logger.debug(
-                f"PHP_MANAGER: Bundle conf.d for {sapi_type} ({bundle_sapi_conf_d}) or active path ({active_sapi_conf_d}) not found.")
+                f"Bundle conf.d for {sapi_type} ({bundle_sapi_conf_d}) or active path ({active_sapi_conf_d}) not found.")
 
-    # Populate active mods-available from bundle's mods-available
     bundle_mods_avail = paths.get('bundle_mods_available_dir');
     active_mods_avail = paths.get('active_mods_available')
     if bundle_mods_avail and bundle_mods_avail.is_dir() and active_mods_avail:
@@ -456,58 +476,120 @@ def get_php_fpm_status(version_str):  # Your existing function
 
 def start_php_fpm(version_str):
     current_status = get_php_fpm_status(version_str)
-    if current_status == "running": logger.info(f"PHP_MANAGER: PHP-FPM {version_str} is already running."); return True
-    if not ensure_php_version_config_structure(version_str, force_recreate=False): logger.error(
-        f"PHP_MANAGER: Cannot start PHP-FPM {version_str}: active config prep failed."); return False
+    if current_status == "running":
+        logger.info(f"PHP_MANAGER: PHP-FPM {version_str} is already running.")
+        return True
+
+    if not ensure_php_version_config_structure(version_str, force_recreate=False):
+        logger.error(f"PHP_MANAGER: Cannot start PHP-FPM {version_str}: active config preparation failed.")
+        return False
+
     logger.info(f"PHP_MANAGER: Attempting to start PHP-FPM {version_str}...")
-    paths = get_php_version_paths(version_str);
-    if not paths: return False
-    fpm_bin = _get_php_fpm_binary_path(version_str);
-    fpm_conf = paths['active_fpm_conf'];
-    active_config_root = paths['active_config_root'];
-    pid_path_for_pm = paths['fpm_pid']
+    paths = get_php_version_paths(version_str)
+    if not paths:
+        logger.error(f"PHP_MANAGER: Failed to get paths for PHP {version_str} during start.")
+        return False
+
+    fpm_bin = _get_php_fpm_binary_path(version_str)
+    fpm_conf = paths.get('active_fpm_conf')
+    active_config_root = paths.get('active_config_root')
+    pid_path_for_pm = paths.get('fpm_pid')
+    active_fpm_ini_path = paths.get('active_fpm_ini')
+    active_fpm_confd_path = paths.get('active_fpm_confd')  # Get the active FPM conf.d path
+
     manager_log_file = config.LOG_DIR / f"php{version_str}-fpm-manager.log"
+
     try:
-        config.ensure_dir(manager_log_file.parent); config.ensure_dir(pid_path_for_pm.parent)
+        if pid_path_for_pm:
+            pid_path_for_pm.parent.mkdir(parents=True, exist_ok=True)
+        config.ensure_dir(manager_log_file.parent)
     except Exception as e:
-        logger.error(f"PHP_MANAGER: Error creating runtime dirs for FPM {version_str}: {e}"); return False
-    expected_sock_path = paths['fpm_sock']
+        logger.error(f"PHP_MANAGER: Error creating runtime directories for FPM {version_str}: {e}")
+        return False
+
+    expected_sock_path = paths.get('fpm_sock')
     if expected_sock_path and expected_sock_path.exists():
         logger.info(f"PHP_MANAGER: Removing existing socket file: {expected_sock_path}")
         try:
             expected_sock_path.unlink(missing_ok=True)
         except OSError as e_unlink:
-            logger.warning(f"PHP_MANAGER: Could not remove socket {expected_sock_path}: {e_unlink}")
-    if not all([fpm_bin, fpm_conf, active_config_root, pid_path_for_pm]): logger.error(
-        f"PHP_MANAGER: Missing critical components for PHP {version_str} FPM start."); return False
-    if not fpm_bin.is_file() or not os.access(fpm_bin, os.X_OK): logger.error(
-        f"PHP_MANAGER: FPM binary not found/executable: {fpm_bin}"); return False
-    if not fpm_conf.is_file(): logger.error(f"PHP_MANAGER: Active FPM config not found: {fpm_conf}"); return False
-    command = [str(fpm_bin.resolve()), '--fpm-config', str(fpm_conf.resolve()), '--prefix',
-               str(active_config_root.resolve()), '--nodaemonize', '-R']
-    process_id_template_str = getattr(config, 'PHP_FPM_PROCESS_ID_TEMPLATE', "php-fpm-{version}");
+            logger.warning(f"PHP_MANAGER: Could not remove existing socket {expected_sock_path}: {e_unlink}")
+
+    if not all([fpm_bin, fpm_conf, active_config_root, pid_path_for_pm, active_fpm_ini_path, active_fpm_confd_path]):
+        logger.error(
+            f"PHP_MANAGER: Missing critical components (binary, FPM config, active INI, paths, or active FPM conf.d) for PHP {version_str} FPM start.");
+        return False
+    if not fpm_bin.is_file() or not os.access(fpm_bin, os.X_OK):
+        logger.error(f"PHP_MANAGER: FPM binary not found or not executable: {fpm_bin}");
+        return False
+    if not fpm_conf.is_file():
+        logger.error(f"PHP_MANAGER: Active FPM config (php-fpm.conf) not found: {fpm_conf}");
+        return False
+    if not active_fpm_ini_path.is_file():
+        logger.error(f"PHP_MANAGER: Active FPM php.ini not found: {active_fpm_ini_path}");
+        return False
+    if not active_fpm_confd_path.is_dir():  # Check if the FPM conf.d directory exists
+        logger.error(f"PHP_MANAGER: Active FPM conf.d directory not found: {active_fpm_confd_path}");
+        return False
+
+    command = [
+        str(fpm_bin.resolve()),
+        '--fpm-config', str(fpm_conf.resolve()),
+        '--prefix', str(active_config_root.resolve()),
+        '--nodaemonize',
+        '-R'
+    ]
+
+    # --- Set PHPRC and PHP_INI_SCAN_DIR environment variables ---
+    env = os.environ.copy()
+    env['PHPRC'] = str(active_fpm_ini_path.resolve())
+    logger.info(f"PHP_MANAGER: Setting PHPRC for FPM {version_str} to: {env['PHPRC']}")
+
+    # Explicitly set PHP_INI_SCAN_DIR for the FPM process
+    env['PHP_INI_SCAN_DIR'] = str(active_fpm_confd_path.resolve())
+    logger.info(f"PHP_MANAGER: Setting PHP_INI_SCAN_DIR for FPM {version_str} to: {env['PHP_INI_SCAN_DIR']}")
+    # --- End Environment Setup ---
+
+    process_id_template_str = getattr(config, 'PHP_FPM_PROCESS_ID_TEMPLATE', "php-fpm-{version}")
     process_id = process_id_template_str.format(version=version_str)
+
     logger.info(f"PHP_MANAGER: Starting PHP-FPM {version_str} with command: {' '.join(command)}")
-    success = process_manager.start_process(process_id, command, pid_file_path=str(pid_path_for_pm.resolve()),
-                                            log_file_path=str(manager_log_file.resolve()))
-    if success:
-        time.sleep(1.5);
-        status = get_php_fpm_status(version_str);
-        logger.info(f"PHP_MANAGER: PHP-FPM {version_str} status after start attempt: {status}")
+
+    success_launch = process_manager.start_process(
+        process_id,
+        command,
+        pid_file_path=str(pid_path_for_pm.resolve()),
+        log_file_path=str(manager_log_file.resolve()),
+        env=env  # Pass the modified environment
+    )
+
+    if success_launch:
+        status = "stopped"
+        for attempt in range(5):
+            time.sleep(0.5)
+            status = get_php_fpm_status(version_str)
+            if status == "running":
+                break
+            logger.debug(f"PHP_MANAGER: FPM status check attempt {attempt + 1}/5 for {version_str}: {status}")
+
+        logger.info(f"PHP_MANAGER: PHP-FPM {version_str} status after start attempt and checks: {status}")
         if status != "running":
-            logger.error(f"PHP_MANAGER: PHP-FPM {version_str} initiated but status is '{status}'.")
-            fpm_daemon_error_log = paths['active_fpm_error_log'];
-            logger.error(f"  Check FPM's own error log: {fpm_daemon_error_log}");
-            logger.error(f"  And manager's output log: {manager_log_file}")
-            if fpm_daemon_error_log.is_file():
-                try:
-                    log_tail = fpm_daemon_error_log.read_text(encoding='utf-8').splitlines()[-15:]
-                    logger.error(f"Tail of FPM's error_log ({fpm_daemon_error_log}):\n" + "\n".join(log_tail))
-                except Exception as e_log:
-                    logger.error(f"Could not read FPM's error_log {fpm_daemon_error_log}: {e_log}")
+            logger.error(
+                f"PHP_MANAGER: PHP-FPM {version_str} process initiated by manager but final status is '{status}'.")
+            fpm_daemon_error_log = paths.get('active_fpm_error_log')
+            if fpm_daemon_error_log:
+                logger.error(f"  Check FPM's own error log (from php-fpm.conf): {fpm_daemon_error_log}")
+                if fpm_daemon_error_log.is_file():
+                    try:
+                        log_tail = fpm_daemon_error_log.read_text(encoding='utf-8').splitlines()[-15:]
+                        logger.error(f"Tail of FPM's error_log ({fpm_daemon_error_log}):\n" + "\n".join(log_tail))
+                    except Exception as e_log:
+                        logger.error(f"Could not read FPM's error_log {fpm_daemon_error_log}: {e_log}")
+            logger.error(f"  And manager's output log for FPM process: {manager_log_file}")
             return False
         return True
-    logger.error(f"PHP_MANAGER: process_manager failed to start PHP-FPM {version_str}");
+
+    logger.error(f"PHP_MANAGER: process_manager failed to issue start command for PHP-FPM {version_str}")
     return False
 
 def stop_php_fpm(version):  # Your existing function

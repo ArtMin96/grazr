@@ -130,6 +130,39 @@ def load_stylesheet():
     else: logger.warning(f"Stylesheet not found at {style_path}")
     return ""
 
+
+# --- Global reference to MainWindow instance for cleanup ---
+# This is not ideal, but necessary if app.aboutToQuit needs to access window.thread
+# A better approach might involve a dedicated application class or signal mechanism.
+main_window_instance = None
+
+
+def application_cleanup():
+    """Function to handle cleanup tasks before the application quits."""
+    logger.info("MAIN_APP: Starting application cleanup...")
+
+    global main_window_instance
+    if main_window_instance and hasattr(main_window_instance, 'thread') and main_window_instance.thread.isRunning():
+        logger.info("MAIN_APP: Quitting worker thread...")
+        main_window_instance.thread.quit()
+        if not main_window_instance.thread.wait(2000):  # Wait up to 2 seconds
+            logger.warning("MAIN_APP: Worker thread did not finish in time. Forcing termination.")
+            main_window_instance.thread.terminate()  # Last resort
+            main_window_instance.thread.wait(500)  # Wait again after terminate
+        else:
+            logger.info("MAIN_APP: Worker thread finished.")
+    else:
+        logger.info("MAIN_APP: Worker thread not running or not found.")
+
+    if process_manager and hasattr(process_manager, 'stop_all_processes'):
+        logger.info("MAIN_APP: Stopping all managed processes via process_manager...")
+        process_manager.stop_all_processes()
+        logger.info("MAIN_APP: stop_all_processes command issued.")
+    else:
+        logger.warning("MAIN_APP: Process manager or stop_all_processes not available for cleanup.")
+
+    logger.info("MAIN_APP: Application cleanup finished.")
+
 # --- Main Application Execution ---
 if __name__ == "__main__":
 
@@ -145,7 +178,7 @@ if __name__ == "__main__":
     QApplication.setQuitOnLastWindowClosed(False) # Default to not quitting
     app = QApplication(sys.argv)
     app.setOrganizationName("Grazr")
-    app.setApplicationName(config.APP_NAME)
+    app.setApplicationName(config.APP_NAME if hasattr(config, 'APP_NAME') else "Grazr")
 
     # --- Setup System Tray Icon ---
     tray_icon = None
@@ -196,6 +229,7 @@ if __name__ == "__main__":
     logger.info("Creating MainWindow instance...")
     try:
         window = MainWindow()
+        main_window_instance = window
     except Exception as e:
         logger.critical(f"Error during MainWindow creation: {e}", exc_info=True)
         traceback.print_exc()
@@ -206,18 +240,15 @@ if __name__ == "__main__":
 
     # --- Connect Signals Between Tray and Window ---
     if tray_icon:
-         show_action.triggered.connect(window.toggle_visibility)
-         start_all_action.triggered.connect(window.on_start_all_services_clicked)
-         stop_all_action.triggered.connect(window.on_stop_all_services_clicked)
-         tray_icon.activated.connect(lambda reason: window.toggle_visibility() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
+        window.set_tray_icon(tray_icon)
+        show_action.triggered.connect(window.toggle_visibility)
+        start_all_action.triggered.connect(window.on_start_all_services_clicked)
+        stop_all_action.triggered.connect(window.on_stop_all_services_clicked)
+        tray_icon.activated.connect(lambda reason: window.toggle_visibility() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
 
-    # --- Connect Application Quit Logic ---
-    if process_manager and hasattr(process_manager, 'stop_all_processes'):
-        app.aboutToQuit.connect(process_manager.stop_all_processes)
-        logger.info("Connected process_manager.stop_all_processes to app.aboutToQuit.")
-    else:
-        logger.warning("Could not connect process manager cleanup.")
-
+        # --- Connect Application Cleanup Logic ---
+    app.aboutToQuit.connect(application_cleanup)  # Centralized cleanup
+    logger.info("Connected application_cleanup to app.aboutToQuit.")
 
     # --- Show Window and Run ---
     logger.info("Showing main window...")

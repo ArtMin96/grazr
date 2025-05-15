@@ -1215,7 +1215,4 @@ class MainWindow(QMainWindow):
         else:
             # No tray icon, or it's not visible: behave normally (allow close and quit)
             self.log_message("No active tray icon or quitting via tray. Allowing close.")
-            # Stop worker thread first? Maybe better handled by aboutToQuit
-            if hasattr(self, 'thread') and self.thread.isRunning():
-                self.thread.quit(); self.thread.wait(500) # Brief wait
             event.accept()

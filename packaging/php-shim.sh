@@ -98,11 +98,16 @@ PHP_INI_SCAN_DIR_TO_SET=""
 if [ -n "$PHP_CLI_CONFD_PATH_FROM_HELPER" ] && [ -d "$PHP_CLI_CONFD_PATH_FROM_HELPER" ]; then
     PHP_INI_SCAN_DIR_TO_SET="$PHP_CLI_CONFD_PATH_FROM_HELPER"
     log_shim_info "Using PHP_INI_SCAN_DIR from helper: ${PHP_INI_SCAN_DIR_TO_SET}"
-elif [ -n "$EXPECTED_ACTIVE_CLI_CONFD_PATH" ] && [ -d "$EXPECTED_ACTIVE_CLI_CONFD_PATH" ]; then
-    PHP_INI_SCAN_DIR_TO_SET="$EXPECTED_ACTIVE_CLI_CONFD_PATH"
-    log_shim_info "Using constructed PHP_INI_SCAN_DIR: ${PHP_INI_SCAN_DIR_TO_SET}"
-else
-    log_shim_info "Could not determine valid active cli_conf.d path. Not setting PHP_INI_SCAN_DIR."
+elif [ -n "$PHP_INI_PATH_ACTIVE" ]; then
+    # Fallback: Construct from active INI path if helper didn't provide conf.d path
+    ACTIVE_INI_DIR=$(dirname "$PHP_INI_PATH_ACTIVE") # e.g., /home/arthur/.config/grazr/php/8.1/cli
+    if [[ "$ACTIVE_INI_DIR" == */cli ]]; then # Ensure it's the CLI INI path
+        CONSTRUCTED_SCAN_DIR="${ACTIVE_INI_DIR}/conf.d"
+        if [ -d "$CONSTRUCTED_SCAN_DIR" ]; then
+            PHP_INI_SCAN_DIR_TO_SET="$CONSTRUCTED_SCAN_DIR"
+            log_shim_info "Using constructed PHP_INI_SCAN_DIR: ${PHP_INI_SCAN_DIR_TO_SET}"
+        fi
+    fi
 fi
 
 if [ -n "$PHP_INI_SCAN_DIR_TO_SET" ]; then
