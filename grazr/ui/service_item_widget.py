@@ -2,22 +2,42 @@ from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
                                QPushButton, QFrame, QSizePolicy)
 from PySide6.QtCore import Signal, Slot, Qt, QSize
 from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QIcon
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     from ..core import config
     from .widgets.status_indicator import StatusIndicator
 except ImportError:
-    print(f"ERROR in service_item_widget.py: Could not import core.config")
-    class ConfigDummy: NGINX_PROCESS_ID="internal-nginx" # Dummy
-    config = ConfigDummy()
+    logger.error(f"SERVICE_ITEM_WIDGET: Could not import dependencies (core.config or StatusIndicator). Using dummies.")
+    class ConfigDummySIW:
+        NGINX_PROCESS_ID = "internal-nginx"
+    config = ConfigDummySIW()
+    class StatusIndicator(QWidget):  # Minimal dummy
+        def __init__(self, color=None, parent=None):
+            super().__init__(parent); self.setFixedSize(10, 10); self._color = QColor(color or Qt.GlobalColor.gray)
+        def set_color(self, c):
+            self._color = QColor(c); self.update()
+        def paintEvent(self, event):
+            # Ensure QPainter and QColor are imported if this dummy is used
+            try:
+                from PySide6.QtGui import QPainter, QColor
+                painter = QPainter(self)
+                painter.setBrush(self._color);
+                painter.setPen(Qt.GlobalColor.transparent);
+                painter.drawEllipse(self.rect())
+            except ImportError:
+                pass
 
 class ServiceItemWidget(QWidget):
-    # Args: service_id (str), action (str: 'start'/'stop')
-    actionClicked = Signal(str, str)
-    # Args: service_id (str)
-    removeClicked = Signal(str)
-    # Args: service_id (str)
-    settingsClicked = Signal(str)
+    """
+    Widget representing one row in the ServicesPage list.
+    Displays service name, status, details (like version/port), and action buttons.
+    """
+    actionClicked = Signal(str, str)  # Emits service_id (widget_key), action
+    removeClicked = Signal(str)  # Emits config_id
+    settingsClicked = Signal(str)  # Emits service_id (widget_key)
 
     def __init__(self, service_id, display_name, initial_status="unknown", parent=None):
         super().__init__(parent)
@@ -31,19 +51,24 @@ class ServiceItemWidget(QWidget):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(10)
 
-        # Status Indicator
-        self.status_indicator = StatusIndicator(Qt.gray)
+        # --- Status Indicator ---
+        try:
+            self.status_indicator = StatusIndicator(Qt.GlobalColor.gray, self)
+        except Exception as e_si:
+            logger.error(f"Failed to create StatusIndicator: {e_si}. Using QLabel fallback.")
+            self.status_indicator = QLabel("●")  # Fallback
+            self.status_indicator.setStyleSheet("color: gray; font-size: 14pt;")
         main_layout.addWidget(self.status_indicator, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # Service Info
-        info_layout = QVBoxLayout();
+        info_layout = QVBoxLayout()
         info_layout.setSpacing(1)
         self.name_label = QLabel(f"<b>{self.display_name}</b>")
         self.detail_label = QLabel("Version/Port: Checking...")
         self.detail_label.setStyleSheet("color: #6C757D; font-size: 9pt;")
-        info_layout.addWidget(self.name_label);
+        info_layout.addWidget(self.name_label)
         info_layout.addWidget(self.detail_label)
-        main_layout.addLayout(info_layout, 1)  # Info area takes stretch
+        main_layout.addLayout(info_layout, 1)
 
         # --- Action Buttons Area ---
         self.button_layout = QHBoxLayout()
@@ -106,74 +131,119 @@ class ServiceItemWidget(QWidget):
 
     @Slot()
     def _on_action_button_clicked(self):
-        """Internal slot for the single action button (Start/Stop)."""
-        # Determine action based on current status stored internally
         action = "start"
-        # Check against various 'stopped' or 'error' states
-        if self._current_status in ["running", "active"]:
-            action = "stop"
-        # Emit the main signal with the determined action
-        self.actionClicked.emit(self.service_id, action)
+        if self._current_status in ["running", "active"]: action = "stop"
+        self.actionClicked.emit(self.service_id, action)  # Emits widget_key
 
     @Slot(str)
     def update_status(self, status):
-        """Updates status indicator and action/remove button states."""
-        # (Modified to handle remove button disable for Nginx)
         self._current_status = status
-        status_color = Qt.GlobalColor.gray; button_text = "Start"; action_enabled = False; remove_enabled = False; tooltip = ""
+        status_color = Qt.GlobalColor.gray
+        button_text = "Start"
+        action_enabled = False
+        remove_enabled = False
+        tooltip = ""
 
-        # Import NGINX_PROCESS_ID here if needed, or pass it in constructor?
-        # Assuming config is accessible globally for simplicity here (not ideal)
-        try: from ..core import config
-        except ImportError:
-            class config: NGINX_PROCESS_ID = "internal-nginx" # Dummy
-
-        is_nginx = (self.service_id == config.NGINX_PROCESS_ID)
+        nginx_proc_id = getattr(config, 'NGINX_PROCESS_ID', 'internal-nginx')
+        is_nginx = (self.service_id == nginx_proc_id)  # service_id is widget_key
 
         if status == "running" or status == "active":
-            status_color = Qt.GlobalColor.darkGreen; button_text = "Stop"; action_enabled = True; remove_enabled = False; tooltip = f"Stop {self.display_name}"
+            status_color = Qt.GlobalColor.darkGreen;
+            button_text = "Stop";
+            action_enabled = True;
+            remove_enabled = False;
+            tooltip = f"Stop {self.display_name}"
         elif status == "stopped" or status == "inactive":
-            status_color = Qt.GlobalColor.darkRed; button_text = "Start"; action_enabled = True; remove_enabled = (not is_nginx); tooltip = f"Start {self.display_name}" # Enable remove if stopped (and not nginx)
-        elif status == "not_found":
-            status_color = Qt.GlobalColor.lightGray; button_text = "N/A"; action_enabled = False; remove_enabled = (not is_nginx); tooltip = f"{self.display_name} bundle not found" # Allow removal if bundle missing (except nginx)
-        else: # unknown, error, checking etc.
-             status_color = Qt.GlobalColor.darkYellow; button_text = "Status?"; action_enabled = False; remove_enabled = False; tooltip = f"Status unknown or error" # Disable remove on error
+            status_color = Qt.GlobalColor.darkRed;
+            button_text = "Start";
+            action_enabled = True;
+            remove_enabled = (not is_nginx);
+            tooltip = f"Start {self.display_name}"
+        elif status == "not_found":  # e.g. bundle missing
+            status_color = Qt.GlobalColor.lightGray;
+            button_text = "N/A";
+            action_enabled = False;
+            remove_enabled = (not is_nginx);
+            tooltip = f"{self.display_name} bundle not found"
+        else:  # unknown, error, checking etc.
+            status_color = Qt.GlobalColor.darkYellow;
+            button_text = "Status?";
+            action_enabled = False;
+            remove_enabled = False;
+            tooltip = f"Status unknown or error for {self.display_name}"
 
-        self.status_indicator.set_color(status_color)
-        self.action_button.setText(button_text)
-        self.action_button.setEnabled(action_enabled)
-        self.action_button.setToolTip(tooltip)
-        self.remove_button.setEnabled(remove_enabled) # Set remove button state
-        # Settings button always enabled if service exists?
-        self.settings_button.setEnabled(True)
+        if hasattr(self, 'status_indicator'): self.status_indicator.set_color(status_color)
+        if hasattr(self, 'action_button'):
+            self.action_button.setText(button_text)
+            self.action_button.setEnabled(action_enabled)
+            self.action_button.setToolTip(tooltip)
+        if hasattr(self, 'remove_button'): self.remove_button.setEnabled(remove_enabled)
+        if hasattr(self, 'settings_button'): self.settings_button.setEnabled(
+            True)  # Settings usually always enabled if item exists
 
-        # Force repaint
-        self.status_indicator.update(); self.action_button.update(); self.remove_button.update(); self.settings_button.update()
+        try:
+            if hasattr(self, 'status_indicator'): self.status_indicator.update()
+            if hasattr(self, 'action_button'): self.action_button.update()
+            if hasattr(self, 'remove_button'): self.remove_button.update()
+            if hasattr(self, 'settings_button'): self.settings_button.update()
+        except RuntimeError:
+            logger.warning(f"SERVICE_ITEM_WIDGET: Runtime error updating widget for {self.service_id}, likely deleted.")
 
     @Slot(str)
-    def update_details(self, detail_text):  # (Unchanged)
-        self.detail_label.setText(detail_text);
-        self.detail_label.update()
+    def update_details(self, detail_text):
+        if hasattr(self, 'detail_label'):
+            self.detail_label.setText(detail_text)
+            self.detail_label.update()
 
     @Slot(bool)
-    def set_controls_enabled(self, enabled): # (Updated to include settings button)
-        """Disables/Enables action buttons during background tasks."""
-        self.settings_button.setEnabled(enabled) # Also disable settings during tasks
-        self.action_button.setEnabled(enabled)
-        self.remove_button.setEnabled(enabled)
-        if not enabled:
-            self.action_button.setText("...") # Indicate working
-            self.action_button.update()
-            self.remove_button.update()
-            self.settings_button.update()
+    def set_controls_enabled(self, enabled: bool):
+        """Disables/Enables action buttons during background tasks. Does NOT re-trigger update_status."""
+        logger.debug(f"SERVICE_ITEM_WIDGET ({self.display_name}): set_controls_enabled({enabled})")
+
+        # Directly set enabled state for all buttons
+        if hasattr(self, 'settings_button'): self.settings_button.setEnabled(enabled)
+        if hasattr(self, 'action_button'): self.action_button.setEnabled(enabled)
+
+        # For remove button, its enabled state also depends on service status and type (Nginx)
+        # So, if we are enabling controls, re-evaluate based on current status.
+        # If we are disabling, just disable it.
+        if hasattr(self, 'remove_button'):
+            if enabled:
+                # Let update_status (called by refresh_data or status update) handle remove_button's specific logic
+                # For now, just enable it if 'enabled' is true, update_status will refine it.
+                nginx_proc_id = getattr(config, 'NGINX_PROCESS_ID', 'internal-nginx')
+                is_nginx = (self.service_id == nginx_proc_id)
+                can_be_removed = (not is_nginx) and (self._current_status in ["stopped", "inactive", "not_found"])
+                self.remove_button.setEnabled(can_be_removed)
+            else:
+                self.remove_button.setEnabled(False)
+
+        if not enabled and hasattr(self, 'action_button'):
+            self.action_button.setText("...")  # Indicate working
+        elif enabled and hasattr(self, 'action_button'):
+            # When re-enabling, restore text based on current status
+            # This will be more accurately set by a subsequent call to update_status()
+            # from refresh_data or specific service status update.
+            # For now, just ensure it's not "..." if action_button is enabled.
+            if self.action_button.text() == "...":
+                self.action_button.setText(
+                    "Start" if self._current_status in ["stopped", "inactive", "not_found", "error",
+                                                        "unknown"] else "Stop")
+
+        try:
+            if hasattr(self, 'action_button'): self.action_button.update()
+            if hasattr(self, 'remove_button'): self.remove_button.update()
+            if hasattr(self, 'settings_button'): self.settings_button.update()
+        except RuntimeError:
+            logger.warning(
+                f"SERVICE_ITEM_WIDGET: Runtime error updating widget controls for {self.service_id}, likely deleted.")
 
     # --- Set Selected State for Settings Button ---
-    def set_selected(self, selected):
-        """Sets the visual state of the settings button."""
+    def set_selected(self, selected: bool):
         self._is_selected_for_settings = selected
-        # Use a dynamic property for QSS selector [selected="true"]
-        self.settings_button.setProperty("selected", selected)
-        # Re-polish to apply style changes based on property
-        self.settings_button.style().unpolish(self.settings_button)
-        self.settings_button.style().polish(self.settings_button)
-        self.settings_button.update()  # Ensure repaint
+        if hasattr(self, 'settings_button'):
+            self.settings_button.setProperty("selected", selected)
+            # Re-polish to apply style changes based on property
+            self.settings_button.style().unpolish(self.settings_button)
+            self.settings_button.style().polish(self.settings_button)
+            # self.settings_button.update()

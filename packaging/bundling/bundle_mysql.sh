@@ -51,7 +51,7 @@ PACKAGES_TO_DOWNLOAD=(
     "${MYSQL_CLIENT_PKG}"
     "${MYSQL_COMMON_PKG}"
 )
-echo "Attempting to download: ${PACKAGES_TO_DOWNLOAD[@]}"
+echo "Attempting to download: ${PACKAGES_TO_DOWNLOAD[*]}"
 apt download "${PACKAGES_TO_DOWNLOAD[@]}"
 echo "Download complete."
 

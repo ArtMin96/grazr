@@ -47,16 +47,83 @@ AVAILABLE_BUNDLED_SERVICES = {
     "postgres16": {
         "display_name": "PostgreSQL 16",
         "category": "Database",
-        "process_id_template": "internal-postgres-{version}",
-        "version": "16",
+        "service_group": "postgres", # For grouping similar services if needed
+        "major_version": "16",       # To help find the correct bundle subdirectory
+        "bundle_version_full": "16.2", # Specify the exact bundled version (e.g., from bundle_postgres.sh)
+        "process_id_template": "internal-postgres-16-{instance_id}", # For unique process IDs per instance
         "default_port": 5432,
-        "version_args": ["--version"],
+        "version_args": ["--version"], # For the 'postgres' binary
         "version_regex": r'postgres \(PostgreSQL\)\s+([\d\.]+)',
-        "binary_path_template": "POSTGRES_BINARY_TEMPLATE",
+        "binary_name": "postgres", # The main server binary name within the bundle's bin dir
+        "initdb_name": "initdb",   # Name of initdb binary
+        "pg_ctl_name": "pg_ctl",   # Name of pg_ctl binary
+        "psql_name": "psql",     # Name of psql client binary
         "manager_module": "postgres_manager",
         "doc_url": "https://www.postgresql.org/docs/16/",
-        "log_path_template": "INTERNAL_POSTGRES_LOG_TEMPLATE",
-        "pid_file_constant": "INTERNAL_POSTGRES_PID_FILE",
+        # Path templates are now primary, these point to the names of those template constants
+        "log_file_template_name": "INTERNAL_POSTGRES_INSTANCE_LOG_TEMPLATE",
+        "pid_file_template_name": "INTERNAL_POSTGRES_INSTANCE_PID_TEMPLATE",
+        "data_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_DATA_DIR_TEMPLATE",
+        "config_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_CONFIG_DIR_TEMPLATE",
+        "socket_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_SOCK_DIR_TEMPLATE",
+        "bundle_path_template_name": "POSTGRES_BUNDLE_PATH_TEMPLATE",
+        "binary_path_template_name": "POSTGRES_BINARY_TEMPLATE", # For main 'postgres' binary
+        "lib_dir_template_name": "POSTGRES_LIB_DIR_TEMPLATE",
+        "share_dir_template_name": "POSTGRES_SHARE_DIR_TEMPLATE",
+        "db_client_tools": ["tableplus", "dbeaver", "pgadmin4"]
+    },
+    "postgres15": {
+        "display_name": "PostgreSQL 15",
+        "category": "Database",
+        "service_group": "postgres",
+        "major_version": "15",
+        "bundle_version_full": "15.5", # Example: Update with your actual bundled version
+        "process_id_template": "internal-postgres-15-{instance_id}",
+        "default_port": 5433, # Suggest different default port for new instances
+        "version_args": ["--version"],
+        "version_regex": r'postgres \(PostgreSQL\)\s+([\d\.]+)',
+        "binary_name": "postgres",
+        "initdb_name": "initdb",
+        "pg_ctl_name": "pg_ctl",
+        "psql_name": "psql",
+        "manager_module": "postgres_manager",
+        "doc_url": "https://www.postgresql.org/docs/15/",
+        "log_file_template_name": "INTERNAL_POSTGRES_INSTANCE_LOG_TEMPLATE",
+        "pid_file_template_name": "INTERNAL_POSTGRES_INSTANCE_PID_TEMPLATE",
+        "data_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_DATA_DIR_TEMPLATE",
+        "config_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_CONFIG_DIR_TEMPLATE",
+        "socket_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_SOCK_DIR_TEMPLATE",
+        "bundle_path_template_name": "POSTGRES_BUNDLE_PATH_TEMPLATE",
+        "binary_path_template_name": "POSTGRES_BINARY_TEMPLATE",
+        "lib_dir_template_name": "POSTGRES_LIB_DIR_TEMPLATE",
+        "share_dir_template_name": "POSTGRES_SHARE_DIR_TEMPLATE",
+        "db_client_tools": ["tableplus", "dbeaver", "pgadmin4"]
+    },
+    "postgres14": {
+        "display_name": "PostgreSQL 14",
+        "category": "Database",
+        "service_group": "postgres",
+        "major_version": "14",
+        "bundle_version_full": "14.9", # Example: Update with your actual bundled version
+        "process_id_template": "internal-postgres-14-{instance_id}",
+        "default_port": 5434,
+        "version_args": ["--version"],
+        "version_regex": r'postgres \(PostgreSQL\)\s+([\d\.]+)',
+        "binary_name": "postgres",
+        "initdb_name": "initdb",
+        "pg_ctl_name": "pg_ctl",
+        "psql_name": "psql",
+        "manager_module": "postgres_manager",
+        "doc_url": "https://www.postgresql.org/docs/14/",
+        "log_file_template_name": "INTERNAL_POSTGRES_INSTANCE_LOG_TEMPLATE",
+        "pid_file_template_name": "INTERNAL_POSTGRES_INSTANCE_PID_TEMPLATE",
+        "data_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_DATA_DIR_TEMPLATE",
+        "config_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_CONFIG_DIR_TEMPLATE",
+        "socket_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_SOCK_DIR_TEMPLATE",
+        "bundle_path_template_name": "POSTGRES_BUNDLE_PATH_TEMPLATE",
+        "binary_path_template_name": "POSTGRES_BINARY_TEMPLATE",
+        "lib_dir_template_name": "POSTGRES_LIB_DIR_TEMPLATE",
+        "share_dir_template_name": "POSTGRES_SHARE_DIR_TEMPLATE",
         "db_client_tools": ["tableplus", "dbeaver", "pgadmin4"]
     },
     "redis": {
@@ -151,27 +218,26 @@ INTERNAL_MYSQL_SOCK_FILE = RUN_DIR / "mysqld.sock" # Runtime Socket
 INTERNAL_MYSQL_ERROR_LOG = LOG_DIR / 'mysql_error.log'
 # --- End MySQL Section ---
 
-# --- PostgreSQL Specific Paths
+# --- PostgreSQL Specific Paths (NOW TEMPLATIZED) ---
 POSTGRES_BUNDLES_DIR = BUNDLES_DIR / 'postgres'
-POSTGRES_BINARY_DIR = POSTGRES_BUNDLES_DIR / 'bin'
-POSTGRES_BINARY = POSTGRES_BINARY_DIR / 'postgres'
-POSTGRES_INITDB_BINARY = POSTGRES_BINARY_DIR / 'initdb'
-POSTGRES_PGCTL_BINARY = POSTGRES_BINARY_DIR / 'pg_ctl'
-POSTGRES_PSQL_BINARY = POSTGRES_BINARY_DIR / 'psql'
-POSTGRES_LIB_DIR = POSTGRES_BUNDLES_DIR / 'lib'
-POSTGRES_SHARE_DIR = POSTGRES_BUNDLES_DIR / 'share'
-INTERNAL_POSTGRES_CONF_DIR = CONFIG_DIR / 'postgres'
-INTERNAL_POSTGRES_CONF_FILE = INTERNAL_POSTGRES_CONF_DIR / 'postgresql.conf'
-INTERNAL_POSTGRES_HBA_FILE = INTERNAL_POSTGRES_CONF_DIR / 'pg_hba.conf'
-INTERNAL_POSTGRES_DATA_DIR = DATA_DIR / 'postgres_data'
-# Define PID file relative to data dir <<< CHANGED
-INTERNAL_POSTGRES_PID_FILE = INTERNAL_POSTGRES_DATA_DIR / "postmaster.pid"
-INTERNAL_POSTGRES_SOCK_DIR = RUN_DIR # Socket still goes in RUN_DIR
-INTERNAL_POSTGRES_LOG = LOG_DIR / 'postgres.log'
+POSTGRES_BINARY_DIR_NAME = 'bin'
+
+POSTGRES_BUNDLE_PATH_TEMPLATE = str(POSTGRES_BUNDLES_DIR / "{version_full}")
+POSTGRES_BINARY_TEMPLATE = str(Path(POSTGRES_BUNDLE_PATH_TEMPLATE) / POSTGRES_BINARY_DIR_NAME / "{binary_name}")
+POSTGRES_LIB_DIR_TEMPLATE = str(Path(POSTGRES_BUNDLE_PATH_TEMPLATE) / 'lib')
+POSTGRES_SHARE_DIR_TEMPLATE = str(Path(POSTGRES_BUNDLE_PATH_TEMPLATE) / 'share')
+
+INTERNAL_POSTGRES_INSTANCE_CONFIG_DIR_TEMPLATE = str(CONFIG_DIR / 'postgres' / '{instance_id}')
+INTERNAL_POSTGRES_INSTANCE_CONF_FILE_TEMPLATE = str(Path(INTERNAL_POSTGRES_INSTANCE_CONFIG_DIR_TEMPLATE) / 'postgresql.conf')
+INTERNAL_POSTGRES_INSTANCE_HBA_FILE_TEMPLATE = str(Path(INTERNAL_POSTGRES_INSTANCE_CONFIG_DIR_TEMPLATE) / 'pg_hba.conf')
+INTERNAL_POSTGRES_INSTANCE_DATA_DIR_TEMPLATE = str(DATA_DIR / 'postgres_data' / '{instance_id}')
+INTERNAL_POSTGRES_INSTANCE_PID_TEMPLATE = str(Path(INTERNAL_POSTGRES_INSTANCE_DATA_DIR_TEMPLATE) / "postmaster.pid")
+INTERNAL_POSTGRES_INSTANCE_LOG_TEMPLATE = str(LOG_DIR / 'postgres-{instance_id}.log')
+INTERNAL_POSTGRES_INSTANCE_SOCK_DIR_TEMPLATE = str(RUN_DIR / 'postgres_sock_{instance_id}')
+
 POSTGRES_DEFAULT_PORT = 5432
-POSTGRES_DEFAULT_USER = "postgres"
+POSTGRES_DEFAULT_USER_VAR = os.getlogin() if hasattr(os, 'getlogin') else "postgres"
 POSTGRES_DEFAULT_DB = "postgres"
-# --- End PostgreSQL Section ---
 
 # --- Redis Specific Paths
 REDIS_BUNDLES_DIR = BUNDLES_DIR / 'redis'
@@ -228,7 +294,6 @@ PHP_FPM_PROCESS_ID_TEMPLATE = "php-fpm-{version}"
 MYSQL_PROCESS_ID = "internal-mysql"
 REDIS_PROCESS_ID = "internal-redis"
 MINIO_PROCESS_ID = "internal-minio"
-POSTGRES_PROCESS_ID = "internal-postgres"
 
 # --- System Interaction Paths ---
 SYSTEMCTL_PATH = "/usr/bin/systemctl"
@@ -260,23 +325,12 @@ def ensure_dir(path: Path):
 
 # --- Ensure base directories exist on config load ---
 def ensure_base_dirs():
-    """Ensures all base directories defined in config are created."""
-    base_dirs_to_ensure = [
-        CONFIG_DIR, DATA_DIR, BUNDLES_DIR, RUN_DIR, LOG_DIR, CERT_DIR,
-        INTERNAL_NGINX_TEMP_DIR, PHP_CONFIG_DIR, PHP_BUNDLES_DIR, # PHP_BUNDLES_DIR is under BUNDLES_DIR
-        MYSQL_BUNDLES_DIR, INTERNAL_MYSQL_CONF_DIR, INTERNAL_MYSQL_DATA_DIR,
-        POSTGRES_BUNDLES_DIR, INTERNAL_POSTGRES_CONF_DIR, INTERNAL_POSTGRES_DATA_DIR, INTERNAL_POSTGRES_SOCK_DIR,
-        REDIS_BUNDLES_DIR, INTERNAL_REDIS_CONF_DIR, INTERNAL_REDIS_DATA_DIR,
-        MINIO_BUNDLES_DIR, INTERNAL_MINIO_DATA_DIR, INTERNAL_MINIO_CONFIG_DIR,
-        NVM_BUNDLES_DIR, NVM_MANAGED_NODE_DIR,
-        MKCERT_BUNDLES_DIR
-    ]
+    base_dirs_to_ensure = [ CONFIG_DIR, DATA_DIR, BUNDLES_DIR, RUN_DIR, LOG_DIR, CERT_DIR, INTERNAL_NGINX_TEMP_DIR, PHP_CONFIG_DIR, PHP_BUNDLES_DIR, MYSQL_BUNDLES_DIR, INTERNAL_MYSQL_CONF_DIR, INTERNAL_MYSQL_DATA_DIR, POSTGRES_BUNDLES_DIR, # INTERNAL_POSTGRES_CONF_DIR, INTERNAL_POSTGRES_DATA_DIR, # These are now instance specific
+                           REDIS_BUNDLES_DIR, INTERNAL_REDIS_CONF_DIR, INTERNAL_REDIS_DATA_DIR, MINIO_BUNDLES_DIR, INTERNAL_MINIO_DATA_DIR, INTERNAL_MINIO_CONFIG_DIR, NVM_BUNDLES_DIR, NVM_MANAGED_NODE_DIR, MKCERT_BUNDLES_DIR ]
     all_ok = True
     for d_path in base_dirs_to_ensure:
-        if not ensure_dir(d_path):
-            all_ok = False
-    if not all_ok:
-        print("CONFIG_WARNING: Some base directories could not be created. Check permissions or logs.")
+        if d_path and not ensure_dir(d_path): all_ok = False # Check if d_path is not None
+    if not all_ok: print("CONFIG_WARNING: Some base directories could not be created.")
     return all_ok
 
 if not ensure_base_dirs():
