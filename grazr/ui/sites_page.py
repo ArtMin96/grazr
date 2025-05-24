@@ -712,7 +712,7 @@ class SitesPage(QWidget):
                 try:
                     item_widget = SiteListItemWidget(site_info, parent=self.site_list_widget)  # Pass parent
                     # Connect its favorite toggle signal to our slot
-                    item_widget.favoriteToggled.connect(self.on_favorite_toggled)
+                    item_widget.toggleFavoriteClicked.connect(self.on_favorite_toggled)
                     # Set the custom widget for the list item
                     list_item.setSizeHint(item_widget.sizeHint())  # Set size hint based on widget
                     self.site_list_widget.setItemWidget(list_item, item_widget)

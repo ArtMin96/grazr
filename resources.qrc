@@ -19,5 +19,6 @@
         <file alias="star-filled.svg">assets/icons/star-filled.svg</file>
         <file alias="star-empty.svg">assets/icons/star-empty.svg</file>
         <file alias="refresh.svg">assets/icons/refresh.svg</file>
+        <file alias="folder.svg">assets/icons/folder.svg</file>
     </qresource>
 </RCC>

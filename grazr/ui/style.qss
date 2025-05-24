@@ -303,7 +303,6 @@ QPushButton#OpenButton { /* Set objectName in _create_detail_widget */
 QPushButton#OpenButton:hover { background-color: #DEE2E6; border-color: #CED4DA; }
 QPushButton#OpenButton:pressed { background-color: #CED4DA; }
 
-
 /* Inputs */
 QLineEdit, QSpinBox, QComboBox { padding: 6px 8px; border: 1px solid #CED4DA; border-radius: 4px; background-color: #FFFFFF; min-height: 1.8em; color: #212529; }
 QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border: 1px solid #007AFF; }
