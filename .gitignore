@@ -6,8 +6,11 @@ env/
 .venv/
 
 # Build artifacts
+deb_build/
 build/
 dist/
+mkcert_bundle_output/
+*.deb
 *.egg-info/
 *.pyc
 __pycache__/
