@@ -13,14 +13,12 @@ MAINTAINER_NAME="Arthur Minasyan"
 MAINTAINER_EMAIL="arthur.minasyan.dev@gmail.com"
 DESCRIPTION_SHORT="A Laravel Herd alternative for Linux (Ubuntu)"
 
-# Define the multi-line description with explicit leading spaces for continuation lines
-# The first line (synopsis) is part of the Description field and does not get an extra leading space here.
-# Subsequent lines of the long description MUST start with a space.
 DESCRIPTION_LONG_FORMATTED=" Grazr provides a local development environment for PHP projects,
  managing PHP versions, Nginx, and other services in a bundled way.
  It simplifies site setup, SSL management, and version switching."
 
-RUNTIME_DEPENDENCIES="python3, python3-pyside6, libnss3-tools, policykit-1"
+# Updated RUNTIME_DEPENDENCIES to be more explicit with PySide6 modules
+RUNTIME_DEPENDENCIES="python3, python3-pyside6.qtcore, python3-pyside6.qtgui, python3-pyside6.qtwidgets, python3-pyside6.qtsvg, libnss3-tools, policykit-1"
 
 # --- Paths ---
 PROJECT_ROOT_DIR=$(pwd)
@@ -57,10 +55,6 @@ mkdir -p "${BUILD_DIR}"
 echo_green "2. Creating DEBIAN control files..."
 mkdir -p "${BUILD_DIR}/DEBIAN"
 
-# Create DEBIAN/control file
-# Using printf for more control over formatting, especially for the Description field.
-# The synopsis (short description) is the first line of the Description field's value.
-# Subsequent lines of the long description must be indented with a space.
 printf "Package: %s\n" "${APP_NAME}" > "${BUILD_DIR}/DEBIAN/control"
 printf "Version: %s\n" "${APP_VERSION}" >> "${BUILD_DIR}/DEBIAN/control"
 printf "Architecture: %s\n" "${ARCHITECTURE}" >> "${BUILD_DIR}/DEBIAN/control"
@@ -69,15 +63,13 @@ printf "Depends: %s\n" "${RUNTIME_DEPENDENCIES}" >> "${BUILD_DIR}/DEBIAN/control
 printf "Section: devel\n" >> "${BUILD_DIR}/DEBIAN/control"
 printf "Priority: optional\n" >> "${BUILD_DIR}/DEBIAN/control"
 printf "Description: %s\n%s\n" "${DESCRIPTION_SHORT}" "${DESCRIPTION_LONG_FORMATTED}" >> "${BUILD_DIR}/DEBIAN/control"
-
 echo_yellow "  DEBIAN/control created."
 
-# Create DEBIAN/postinst script
 cat << EOI > "${BUILD_DIR}/DEBIAN/postinst"
 #!/bin/bash
 set -e
 echo "Grazr: Running post-installation script..."
-GRAZR_MKCERT_INSTALLED_PATH="/usr/local/bin/grazr-mkcert" # Ensure this matches where you install it
+GRAZR_MKCERT_INSTALLED_PATH="/usr/local/bin/grazr-mkcert"
 if [ -f "/usr/local/bin/grazr_root_helper.py" ]; then chmod 0755 /usr/local/bin/grazr_root_helper.py; chown root:root /usr/local/bin/grazr_root_helper.py; fi
 if [ -f "/usr/local/bin/php" ]; then chmod 0755 /usr/local/bin/php; chown root:root /usr/local/bin/php; fi
 if [ -f "/usr/local/bin/node" ]; then chmod 0755 /usr/local/bin/node; chown root:root /usr/local/bin/node; fi
@@ -92,23 +84,17 @@ EOI
 chmod 0755 "${BUILD_DIR}/DEBIAN/postinst"
 echo_yellow "  DEBIAN/postinst created."
 
-# Create DEBIAN/prerm script
 cat << EOR > "${BUILD_DIR}/DEBIAN/prerm"
 #!/bin/bash
 set -e
 echo "Grazr: Running pre-removal script..."
-rm -f /usr/local/bin/grazr_root_helper.py
-rm -f /usr/local/bin/php
-rm -f /usr/local/bin/node
-rm -f /usr/local/bin/grazr-mkcert # Ensure this matches where you install it
-# Main launcher /usr/bin/grazr will be removed by dpkg as it's part of the package files
+rm -f /usr/local/bin/grazr_root_helper.py; rm -f /usr/local/bin/php; rm -f /usr/local/bin/node; rm -f /usr/local/bin/grazr-mkcert
 echo "Grazr pre-removal cleanup finished."
 exit 0
 EOR
 chmod 0755 "${BUILD_DIR}/DEBIAN/prerm"
 echo_yellow "  DEBIAN/prerm created."
 
-# ... (rest of the script: Steps 3, 4, 5, 6 as in response #81) ...
 echo_green "3. Creating application file structure in build directory..."
 mkdir -p "${BUILD_DIR}${INSTALL_DIR_PYTHON_PKG}"
 mkdir -p "${BUILD_DIR}${INSTALL_DIR_BIN}"
