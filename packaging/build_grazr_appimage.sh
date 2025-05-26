@@ -80,7 +80,7 @@ StartupNotify=true
 EOF
 # Copy icon to AppDir root (appimage-builder expects it there based on Icon= entry)
 # The icon name in .desktop should match the filename copied here.
-cp "${PROJECT_ROOT_DIR}/grazr/assets/icons/logo.png" "${APPDIR}/${APP_NAME}.png"
+cp "${PROJECT_ROOT_DIR}/assets/icons/logo.png" "${APPDIR}/${APP_NAME}.png"
 
 
 # 3. Create the appimage-builder recipe (AppImageBuilder.yml)
