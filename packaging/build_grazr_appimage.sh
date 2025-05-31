@@ -1,57 +1,114 @@
 #!/bin/bash
 
 # build_grazr_appimage.sh
-# Conceptual script to build an AppImage for Grazr using appimage-builder.
+# Script to build an AppImage for Grazr using appimage-builder.
+# Enhanced for compatibility and best practices.
 
 set -e
 
 APP_NAME="Grazr"
-APP_VERSION="0.1.0" # Match your app version
-APP_ID="com.github.artmin96.grazr" # A unique ID for your app
+APP_VERSION="0.1.0"
+APP_ID="com.github.artmin96.grazr"
 
-# Project root directory (where this script is run from)
 PROJECT_ROOT_DIR=$(pwd)
-
-# AppDir: where the AppImage contents will be assembled
 APPDIR="${PROJECT_ROOT_DIR}/${APP_NAME}.AppDir"
-
-# Output directory for the final AppImage
 OUTPUT_DIR="${PROJECT_ROOT_DIR}/dist_appimage"
-
-# Path to your application icon (e.g., 256x256 PNG)
-APP_ICON="${PROJECT_ROOT_DIR}/assets/icons/logo.png" # Adjust path and name
-
-# Path to your .desktop file (template)
-DESKTOP_FILE_TEMPLATE="${PROJECT_ROOT_DIR}/packaging/grazr.desktop.template" # You'll create this
-
-# Path to mkcert binary (assuming it's downloaded by bundle_mkcert.sh)
+APP_ICON_SOURCE_PATH="${PROJECT_ROOT_DIR}/assets/icons/app.png"
 MKCERT_SOURCE_BINARY="${PROJECT_ROOT_DIR}/mkcert_bundle_output/mkcert"
+PACKAGING_SOURCE_DIR="${PROJECT_ROOT_DIR}/packaging"
 
-# --- Helper Functions ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m';
 echo_green() { echo -e "${GREEN}$1${NC}"; }
 echo_yellow() { echo -e "${YELLOW}$1${NC}"; }
 echo_red() { echo -e "${RED}$1${NC}"; }
 
-# --- Main ---
 echo_green "Starting Grazr AppImage build process..."
+
+# Function to install appimagetool
+install_appimagetool() {
+    echo_yellow "Installing appimagetool..."
+
+    # Create directory if it doesn't exist
+    mkdir -p ~/.local/bin
+
+    # Download appimagetool
+    echo_yellow "  Downloading appimagetool..."
+    if wget -O ~/.local/bin/appimagetool \
+        "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"; then
+
+        # Make it executable
+        chmod +x ~/.local/bin/appimagetool
+        echo_green "  appimagetool installed successfully at ~/.local/bin/appimagetool"
+
+        # Add to PATH if not already there
+        if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+            export PATH="$HOME/.local/bin:$PATH"
+            echo_yellow "  Added ~/.local/bin to PATH for this session"
+        fi
+
+        return 0
+    else
+        echo_red "  Failed to download appimagetool"
+        return 1
+    fi
+}
 
 # 0. Prerequisites check
 if ! command -v appimage-builder &> /dev/null; then
-    echo_red "appimage-builder not found. Please install it first."
-    echo_red "e.g., sudo apt install appimage-builder"
+    echo_red "appimage-builder not found. Please install it first:"
+    echo_red "  pip install appimage-builder"
+    echo_red "  or: pipx install appimage-builder"
     exit 1
-fi
-if [ ! -f "$MKCERT_SOURCE_BINARY" ]; then
-    echo_red "mkcert binary not found at $MKCERT_SOURCE_BINARY. Run packaging/bundling/bundle_mkcert.sh first."
-    exit 1
-fi
-if [ ! -f "$APP_ICON_SOURCE_PATH" ]; then # Assuming APP_ICON_SOURCE_PATH is defined for your main icon
-    echo_red "Application icon not found at $APP_ICON_SOURCE_PATH. Please check the path."
-    # For this script, let's use a generic name for the icon to be placed.
-    # This script will assume you have an icon named grazr-logo.png for the .desktop file.
 fi
 
+# Check for appimagetool and install if not found
+if ! command -v appimagetool &> /dev/null; then
+    echo_yellow "appimagetool not found. Installing automatically..."
+    if ! install_appimagetool; then
+        echo_red "Failed to install appimagetool. Please install it manually:"
+        echo_red "  wget -O ~/.local/bin/appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+        echo_red "  chmod +x ~/.local/bin/appimagetool"
+        echo_red "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+        exit 1
+    fi
+else
+    echo_green "appimagetool found: $(which appimagetool)"
+fi
+
+# Check for required system dependencies
+REQUIRED_DEPS=("patchelf" "desktop-file-install" "mksquashfs" "fakeroot" "wget")
+MISSING_DEPS=()
+
+for dep in "${REQUIRED_DEPS[@]}"; do
+    if ! command -v "$dep" &> /dev/null; then
+        MISSING_DEPS+=("$dep")
+    fi
+done
+
+if [ ${#MISSING_DEPS[@]} -ne 0 ]; then
+    echo_red "Missing required system dependencies: ${MISSING_DEPS[*]}"
+    echo_red "Install them with:"
+    echo_red "  sudo apt install -y binutils coreutils desktop-file-utils fakeroot fuse libgdk-pixbuf2.0-dev patchelf python3-pip python3-setuptools squashfs-tools strace util-linux zsync"
+    exit 1
+fi
+
+if [ ! -f "$MKCERT_SOURCE_BINARY" ]; then
+    echo_red "mkcert binary not found at $MKCERT_SOURCE_BINARY"
+    echo_red "Run packaging/bundling/bundle_mkcert.sh first."
+    exit 1
+fi
+
+if [ ! -f "$APP_ICON_SOURCE_PATH" ]; then
+    echo_red "Application icon not found at $APP_ICON_SOURCE_PATH"
+    echo_red "Please check the path."
+    exit 1
+fi
+
+if [ ! -f "${PROJECT_ROOT_DIR}/requirements.txt" ]; then
+    echo_red "requirements.txt not found in project root."
+    echo_red "Please ensure requirements.txt exists for Python dependencies."
+    exit 1
+fi
 
 # 1. Clean up previous build
 echo_green "1. Cleaning up previous AppDir and output..."
@@ -60,215 +117,406 @@ rm -rf "${OUTPUT_DIR}"
 mkdir -p "${APPDIR}"
 mkdir -p "${OUTPUT_DIR}"
 
-# 2. Create a .desktop file template if it doesn't exist (for appimage-builder to use)
-# This .desktop file will be placed at the root of the AppDir for desktop integration.
-APP_DESKTOP_FILE="${APPDIR}/${APP_NAME}.desktop"
-echo_green "2. Preparing .desktop file..."
-cat << EOF > "${APP_DESKTOP_FILE}"
+# Ensure appimage-builder sees AppDir where it expects
+ln -sfn "${APPDIR}" "${PROJECT_ROOT_DIR}/AppDir"
+
+# Clean up any previous AppImageBuilder.yml
+rm -f "${PROJECT_ROOT_DIR}/AppImageBuilder.yml"
+
+# 2. Prepare AppDir structure
+echo_green "2. Preparing AppDir structure and copying application files..."
+mkdir -p "${APPDIR}/usr/bin"
+mkdir -p "${APPDIR}/usr/lib/python3.10/site-packages"
+mkdir -p "${APPDIR}/usr/opt/${APP_NAME}"
+mkdir -p "${APPDIR}/usr/share/applications"
+mkdir -p "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+
+echo_yellow "  Copying Grazr Python package to ${APPDIR}/usr/opt/${APP_NAME}..."
+if [ ! -d "${PROJECT_ROOT_DIR}/grazr" ]; then
+    echo_red "Grazr source directory not found at ${PROJECT_ROOT_DIR}/grazr"
+    exit 1
+fi
+
+cp -r "${PROJECT_ROOT_DIR}/grazr/"* "${APPDIR}/usr/opt/${APP_NAME}/"
+
+echo_yellow "  Copying mkcert to ${APPDIR}/usr/bin/grazr-mkcert..."
+cp "${MKCERT_SOURCE_BINARY}" "${APPDIR}/usr/bin/grazr-mkcert"
+chmod +x "${APPDIR}/usr/bin/grazr-mkcert"
+
+# Copy helper scripts if they exist
+if [ -f "${PACKAGING_SOURCE_DIR}/grazr_root_helper.py" ]; then
+    echo_yellow "  Copying helper scripts to ${APPDIR}/usr/bin..."
+    cp "${PACKAGING_SOURCE_DIR}/grazr_root_helper.py" "${APPDIR}/usr/bin/grazr_root_helper.py"
+    chmod +x "${APPDIR}/usr/bin/grazr_root_helper.py"
+fi
+
+if [ -f "${PACKAGING_SOURCE_DIR}/php-shim.sh" ]; then
+    cp "${PACKAGING_SOURCE_DIR}/php-shim.sh" "${APPDIR}/usr/bin/php"
+    chmod +x "${APPDIR}/usr/bin/php"
+fi
+
+if [ -f "${PACKAGING_SOURCE_DIR}/node-shim.sh" ]; then
+    cp "${PACKAGING_SOURCE_DIR}/node-shim.sh" "${APPDIR}/usr/bin/node"
+    chmod +x "${APPDIR}/usr/bin/node"
+fi
+
+# 3. Create Python wrapper script instead of bash launcher
+PYTHON_WRAPPER_PATH="${APPDIR}/usr/bin/grazr_wrapper.py"
+echo_green "3. Creating Python wrapper script at ${PYTHON_WRAPPER_PATH}..."
+
+cat << 'EOF' > "${PYTHON_WRAPPER_PATH}"
+#!/usr/bin/env python3
+"""
+Grazr AppImage Python Wrapper
+This wrapper sets up the environment and launches the main Grazr application.
+"""
+import os
+import sys
+from pathlib import Path
+
+def main():
+    # Get the AppImage mount point
+    appdir = os.environ.get('APPDIR')
+    if not appdir:
+        # Fallback: calculate from script location
+        script_path = Path(__file__).resolve()
+        appdir = str(script_path.parent.parent.parent)
+
+    appdir_path = Path(appdir)
+
+    # Set up Python environment
+    python_home = appdir_path / "usr"
+    os.environ["PYTHONHOME"] = str(python_home)
+
+    # Set up Python path
+    python_paths = [
+        str(appdir_path / "usr" / "opt" / "Grazr"),
+        str(appdir_path / "usr" / "lib" / "python3.10" / "site-packages"),
+    ]
+
+    existing_pythonpath = os.environ.get("PYTHONPATH", "")
+    if existing_pythonpath:
+        python_paths.append(existing_pythonpath)
+
+    os.environ["PYTHONPATH"] = ":".join(python_paths)
+
+    # Set up PATH
+    current_path = os.environ.get("PATH", "")
+    new_path = str(appdir_path / "usr" / "bin")
+    if current_path:
+        os.environ["PATH"] = f"{new_path}:{current_path}"
+    else:
+        os.environ["PATH"] = new_path
+
+    # Set up library paths
+    lib_paths = [
+        str(appdir_path / "usr" / "lib"),
+        str(appdir_path / "usr" / "lib" / "x86_64-linux-gnu"),
+    ]
+    existing_ld_path = os.environ.get("LD_LIBRARY_PATH", "")
+    if existing_ld_path:
+        lib_paths.append(existing_ld_path)
+
+    os.environ["LD_LIBRARY_PATH"] = ":".join(lib_paths)
+
+    # Qt/GUI environment
+    qt_plugin_paths = [
+        str(appdir_path / "usr" / "lib" / "python3.10" / "site-packages" / "PySide6" / "Qt" / "plugins"),
+        str(appdir_path / "usr" / "lib" / "qt6" / "plugins"),
+        str(appdir_path / "usr" / "lib" / "x86_64-linux-gnu" / "qt6" / "plugins"),
+    ]
+    existing_qt_path = os.environ.get("QT_PLUGIN_PATH", "")
+    if existing_qt_path:
+        qt_plugin_paths.append(existing_qt_path)
+
+    os.environ["QT_PLUGIN_PATH"] = ":".join(qt_plugin_paths)
+
+    # Mark as running in AppImage
+    os.environ["GRAZR_RUNNING_AS_APPIMAGE"] = "true"
+
+    # Change to application directory
+    app_dir = appdir_path / "usr" / "opt" / "Grazr"
+    os.chdir(str(app_dir))
+
+    # Import and run the main module
+    try:
+        # Add the grazr directory to sys.path if not already there
+        grazr_path = str(app_dir)
+        if grazr_path not in sys.path:
+            sys.path.insert(0, grazr_path)
+
+        # Import and run the main module
+        from grazr import main as grazr_main
+
+        # Pass command line arguments
+        sys.argv[0] = "grazr"  # Set proper program name
+        grazr_main.main()  # Assuming your main function is called main()
+
+    except ImportError as e:
+        print(f"Error importing grazr module: {e}", file=sys.stderr)
+        print(f"Python path: {sys.path}", file=sys.stderr)
+        print(f"Current directory: {os.getcwd()}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error running grazr: {e}", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+EOF
+
+chmod +x "${PYTHON_WRAPPER_PATH}"
+echo_yellow "  Python wrapper script created and made executable."
+
+# 4. Create desktop file
+APP_DESKTOP_FILE_DEST="${APPDIR}/usr/share/applications/${APP_ID}.desktop"
+echo_yellow "  Creating .desktop file at ${APP_DESKTOP_FILE_DEST}..."
+cat << EOF > "${APP_DESKTOP_FILE_DEST}"
 [Desktop Entry]
-Version=0.1.0
+Version=1.0
 Name=${APP_NAME}
 GenericName=Local Development Environment
 Comment=A Laravel Herd alternative for Linux. Manage PHP, Nginx, and sites.
-Exec=grazr-launcher.sh %U 
-Icon=${APP_NAME} 
+Exec=grazr_wrapper.py
+Icon=${APP_NAME}
 Terminal=false
 Type=Application
 Categories=Development;WebDevelopment;
 Keywords=php;laravel;nginx;web;development;
 StartupNotify=true
+MimeType=x-scheme-handler/http;x-scheme-handler/https;
 EOF
-# Copy icon to AppDir root (appimage-builder expects it there based on Icon= entry)
-# The icon name in .desktop should match the filename copied here.
-cp "${PROJECT_ROOT_DIR}/assets/icons/logo.png" "${APPDIR}/${APP_NAME}.png"
 
+# Also create in AppDir root for appimage-builder compatibility
+cp "${APP_DESKTOP_FILE_DEST}" "${APPDIR}/${APP_NAME}.desktop"
 
-# 3. Create the appimage-builder recipe (AppImageBuilder.yml)
-echo_green "3. Creating AppImageBuilder.yml recipe..."
+echo_yellow "  Copying icon files..."
+cp "${APP_ICON_SOURCE_PATH}" "${APPDIR}/${APP_NAME}.png"
+cp "${APP_ICON_SOURCE_PATH}" "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png"
+
+# 5. Create the appimage-builder recipe (AppImageBuilder.yml)
+echo_green "5. Creating AppImageBuilder.yml recipe..."
 cat << EOF > "${PROJECT_ROOT_DIR}/AppImageBuilder.yml"
 version: 1
 
 script:
-  # Commands to run before AppDir generation (e.g., to ensure project is built if needed)
-  # - pip install . # If you have a setup.py and want to install the package
+  # Ensure proper permissions
+  - find ${APPDIR} -name "*.py" -exec chmod 644 {} \;
+  - find ${APPDIR} -name "*.sh" -exec chmod 755 {} \;
+  - chmod +x ${APPDIR}/usr/bin/grazr_wrapper.py
 
 AppDir:
-  path: ${APPDIR} # Must be an absolute path for appimage-builder
+  path: ${APPDIR}
 
   app_info:
     id: ${APP_ID}
     name: ${APP_NAME}
-    icon: ${APP_NAME} # Matches the icon filename in AppDir root (e.g., Grazr.png)
+    icon: ${APP_NAME}
     version: ${APP_VERSION}
-    # 'exec' should be a path relative to AppDir/usr/bin/ or a script in AppDir root
-    # This will be the AppRun script eventually.
-    # For now, let's assume a launcher script will be created by appimage-builder
-    # or we specify our custom AppRun.
-    exec: usr/bin/grazr-launcher.sh 
-    exec_args: "\$@" # Pass arguments to the launcher
+    exec: usr/bin/python3.10
+    exec_args: "usr/bin/grazr_wrapper.py \$@"
 
   apt:
     arch: amd64
-    # Use a stable base like Ubuntu 22.04 (jammy) for better compatibility
-    # Or 'focal' (20.04) for even wider compatibility if PySide6 versions allow
     sources:
-      - sourceline: "deb http://archive.ubuntu.com/ubuntu/ jammy main universe"
-      - sourceline: "deb http://archive.ubuntu.com/ubuntu/ jammy-updates main universe"
-    include:
-      - python3         # Bundled Python
-      - python3-pip
-      - python3-venv
-      # Minimal set of PySide6 runtime libraries (appimage-builder might fetch these via pip)
-      # Or rely on pip to get them. For Qt, often linuxdeployqt handles this better.
-      # Let's assume pip handles PySide6 for now based on requirements.txt
-      - libnss3-tools   # For mkcert
-      - policykit-1     # For pkexec (Polkit policy itself needs manual install or post-AppImage script)
-      # Add other critical system libraries that your Python code or bundled mkcert might link against
-      # and are not typically part of the core OS (e.g., libfuse2 for some AppImage tools if not present)
-    exclude:
-      - ".*-dev" # Exclude development packages
+      - sourceline: 'deb http://archive.ubuntu.com/ubuntu/ jammy main universe'
+        key_url: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C
+      - sourceline: 'deb http://archive.ubuntu.com/ubuntu/ jammy-updates main universe'
+        key_url: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C
 
-  python:
-    version: "3.10" # Specify Python version to bundle
-    # appimage-builder will create a venv and install requirements into it within AppDir
-    requirements:
-      - ${PROJECT_ROOT_DIR}/requirements.txt # Path to your requirements file
+    include:
+      # Core system libraries
+      - libc6
+      - libgcc-s1
+      - libstdc++6
+
+      # Python runtime
+      - python3.10
+      - python3.10-minimal
+      - libpython3.10-minimal
+      - libpython3.10-stdlib
+      - python3-pip
+      - python3-minimal
+
+      # Essential GUI libraries
+      - libx11-6
+      - libxcb1
+      - libglib2.0-0
+      - libfontconfig1
+
+      # Basic tools
+      - bash
+      - dash
+      - perl
+      - ca-certificates
+      - coreutils
+
+      # GStreamer for media support (required by QtMultimedia or PySide6.QtMultimedia)
+      - gstreamer1.0-tools
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-good
+      - libgstreamer1.0-0
+      - libgstreamer-plugins-base1.0-0
+
+    exclude: []
 
   files:
-    # Include your application's Python package
-    # The source is your project's 'grazr' directory.
-    # The destination is relative to AppDir/usr/
-    # e.g., AppDir/usr/opt/grazr or AppDir/usr/lib/pythonX.Y/site-packages/grazr
-    # appimage-builder usually handles Python package placement well.
     include:
-      - ${PROJECT_ROOT_DIR}/grazr # Source directory
-    map:
-      ${PROJECT_ROOT_DIR}/grazr: usr/opt/grazr # Example: install 'grazr' package to AppDir/usr/opt/grazr
-                                             # Python path will need to include this.
-
-    # Include bundled mkcert (it will be copied to AppDir/usr/bin)
-    include:
-      - ${MKCERT_SOURCE_BINARY}
-    map:
-      ${MKCERT_SOURCE_BINARY}: usr/bin/grazr-mkcert
-
-    # Include helper scripts and shims (they will be copied to AppDir/usr/bin)
-    # These shims WILL NEED MODIFICATION to work inside an AppImage environment
-    # (e.g., finding the AppDir's Python, NVM, etc.)
-    include:
-      - ${PACKAGING_SOURCE_DIR}/grazr_root_helper.py
-      - ${PACKAGING_SOURCE_DIR}/php-shim.sh
-      - ${PACKAGING_SOURCE_DIR}/node-shim.sh
-    map:
-      ${PACKAGING_SOURCE_DIR}/grazr_root_helper.py: usr/bin/grazr_root_helper.py
-      ${PACKAGING_SOURCE_DIR}/php-shim.sh: usr/bin/php
-      ${PACKAGING_SOURCE_DIR}/node-shim.sh: usr/bin/node
-    
-    # The .desktop file and icon (copied earlier to AppDir root)
-    # appimage-builder should pick these up automatically if named correctly
-    # based on app_info.name and app_info.icon.
-    # Or you can explicitly include them:
-    # include:
-    #  - ${APPDIR}/${APP_NAME}.desktop
-    #  - ${APPDIR}/${APP_NAME}.png
+      - usr/opt/${APP_NAME}/
+      - usr/bin/grazr_wrapper.py
+      - usr/bin/grazr-mkcert
+      - usr/share/applications/${APP_NAME}.desktop
+      - usr/share/icons/
+      - ${APP_NAME}.desktop
+      - ${APP_NAME}.png
 
     exclude:
       - "*.pyc"
       - "__pycache__/"
-      - "venv/"
+      - "**/__pycache__/"
+      - "runtime/"
+      - "*.pyo"
       - ".git/"
+      - ".gitignore"
+      - "venv/"
+      - "env/"
+      - ".env"
       - "deb_build/"
-      - "mkcert_bundle_output/" # This should be handled by copying the binary
+      - "mkcert_bundle_output/"
       - "dist_appimage/"
       - "*.AppImage"
       - "AppImageBuilder.yml"
+      - "build/"
+      - "dist/"
+      - "*.egg-info/"
+      - "usr/share/doc/"
+      - "usr/share/man/"
+      - "usr/lib/ocaml"
 
   runtime:
-    # Environment variables to be set by the AppRun script
-    # These paths are relative to the AppImage mount point ($APPDIR)
     env:
-      # Point to the bundled Python and its libraries
-      PYTHONHOME: "\${APPDIR}/usr"
-      # Ensure Grazr's Python code is findable
-      PYTHONPATH: "\${APPDIR}/usr/opt:\${APPDIR}/usr/lib/python3.10/site-packages:\${PYTHONPATH}" # Adjust python version
-      # Ensure bundled binaries are in PATH
-      PATH: "\${APPDIR}/usr/bin:\${APPDIR}/opt/grazr/bin:\${PATH}" # Example if you put mkcert in /opt/grazr/bin
-      # For PySide6/Qt to find plugins if they are bundled
-      QT_PLUGIN_PATH: "\${APPDIR}/usr/lib/qt6/plugins:\${APPDIR}/usr/lib/x86_64-linux-gnu/qt6/plugins" # Example paths
-      LD_LIBRARY_PATH: "\${APPDIR}/usr/lib:\${APPDIR}/usr/lib/x86_64-linux-gnu:\${APPDIR}/opt/grazr/lib:\${LD_LIBRARY_PATH}"
-      # Critical for Grazr: Define where user-specific data should go.
-      # AppImages are read-only, so it can't write to $APPDIR.
-      # It should use standard XDG dirs (~/.config/grazr, ~/.local/share/grazr)
-      # These are already handled by your config.py, which is good.
-      # GRAZR_APPIMAGE_MODE: "1" # Optional: Your app can check this to know it's running as AppImage
+      GRAZR_RUNNING_AS_APPIMAGE: "true"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
 
-  # Hook to create a custom launcher script if appimage-builder's default isn't enough
-  # For example, to ensure environment variables are set correctly before running python
-  # For a Python app, appimage-builder often creates a suitable launcher.
-  # If not, you'd create AppDir/usr/bin/grazr-launcher.sh manually and make it executable.
-  # This launcher would be the target of AppDir.app_info.exec.
-  # It would set up env vars then run: $APPDIR/usr/bin/python3 -m grazr.main "$@"
+  test:
+    fedora-30:
+      image: appimagecrafters/tests-env:fedora-30
+      command: ./AppRun --help
+      use_host_x: true
+    debian-stable:
+      image: appimagecrafters/tests-env:debian-stable
+      command: ./AppRun --help
+      use_host_x: true
+    ubuntu-xenial:
+      image: appimagecrafters/tests-env:ubuntu-xenial
+      command: ./AppRun --help
+      use_host_x: true
 
 AppImage:
+  update-information: guess
+  sign-key: None
   arch: x86_64
-  # Name of the final AppImage file
-  path: ${OUTPUT_DIR}/${APP_NAME}-${APP_VERSION}-${ARCHITECTURE}.AppImage
-  
-  # Optional: Update information for appimagetool to embed for auto-updates
-  # update-information: "gh-releases-zsync|YourGitHubUser|YourRepo|latest|YourApp-*-x86_64.AppImage.zsync"
-  
-  # Optional: Signing key
-  # sign-key: None
 EOF
 echo_yellow "  AppImageBuilder.yml created."
 
+# 6. Install Python dependencies into AppDir
+echo_green "6. Installing Python dependencies..."
+if [ -f "${PROJECT_ROOT_DIR}/requirements.txt" ]; then
+    echo_yellow "  Installing Python packages from requirements.txt..."
 
-# 4. Create a simple launcher script (AppRun / grazr-launcher.sh)
-#    appimage-builder might create one, but having an explicit one can be useful.
-#    This script will be set as the 'exec' in the .desktop file and AppImageBuilder.yml.
-LAUNCHER_SCRIPT_PATH="${APPDIR}/usr/bin/grazr-launcher.sh"
-echo_green "4. Creating launcher script at ${LAUNCHER_SCRIPT_PATH}..."
-mkdir -p "${APPDIR}/usr/bin"
-cat << EOF > "${LAUNCHER_SCRIPT_PATH}"
-#!/bin/bash
-# AppRun / Launcher script for Grazr AppImage
+    # Create Python site-packages directory
+    mkdir -p "${APPDIR}/usr/lib/python3.10/site-packages"
 
-# The APPDIR environment variable is set by the AppImage runtime
-# It points to the root of the mounted AppImage filesystem.
-export APPDIR=\$(dirname "\$(readlink -f "\$0")")/.. # Go up two levels from usr/bin
+    # Install dependencies using pip with proper target
+    if python3 -m pip install --target="${APPDIR}/usr/lib/python3.10/site-packages" --no-deps -r "${PROJECT_ROOT_DIR}/requirements.txt"; then
+        echo_yellow "  Python dependencies installed successfully."
+    else
+        echo_yellow "  Warning: Could not pre-install all Python dependencies."
+        echo_yellow "  appimage-builder will handle them during the build process."
+    fi
+fi
 
-# Set up environment for Python and bundled libraries
-export PYTHONHOME="\${APPDIR}/usr"
-# Adjust based on where appimage-builder installs your package and its deps
-export PYTHONPATH="\${APPDIR}/usr/opt:\${APPDIR}/usr/lib/python3.10/site-packages:\${PYTHONPATH}"
-export PATH="\${APPDIR}/usr/bin:\${PATH}"
-export LD_LIBRARY_PATH="\${APPDIR}/usr/lib:\${APPDIR}/usr/lib/x86_64-linux-gnu:\${APPDIR}/opt/grazr/lib:\${LD_LIBRARY_PATH}"
-export QT_PLUGIN_PATH="\${APPDIR}/usr/lib/qt6/plugins:\${APPDIR}/usr/lib/x86_64-linux-gnu/qt6/plugins:\${QT_PLUGIN_PATH}"
-
-# Optional: Let Grazr know it's running as an AppImage
-export GRAZR_RUNNING_AS_APPIMAGE="true"
-
-# Execute the main Python application
-# Ensure the python binary used is the one bundled in the AppImage
-cd "\${APPDIR}/usr/opt/grazr" # Or wherever your grazr.main can be found relative to bundled python
-exec "\${APPDIR}/usr/bin/python3.10" -m grazr.main "\$@" # Adjust python version
-EOF
-chmod +x "${LAUNCHER_SCRIPT_PATH}"
-echo_yellow "  Launcher script created."
-
-
-# 5. Run appimage-builder
-echo_green "5. Running appimage-builder..."
-# The recipe file is in the project root, and paths within it are absolute
-# or relative to where appimage-builder is run if not careful.
-# It's often best to cd into the project root if recipe uses relative paths like './grazr'.
-cd "${PROJECT_ROOT_DIR}"
-if appimage-builder --recipe AppImageBuilder.yml --skip-test; then # --skip-test can be removed for CI
-    echo_green "AppImage build successful!"
-    echo_green "Output: ${OUTPUT_DIR}/${APP_NAME}-${APP_VERSION}-${ARCHITECTURE}.AppImage"
+# 7. Final verification before building
+echo_green "7. Verifying AppDir structure..."
+if [ -f "${PYTHON_WRAPPER_PATH}" ]; then
+    echo_yellow "  ✓ Python wrapper script exists and is executable"
 else
-    echo_red "AppImage build failed."
+    echo_red "  ✗ Python wrapper script missing!"
     exit 1
 fi
 
-echo_green "Grazr AppImage build process finished."
+# 8. Run appimage-builder
+echo_green "8. Running appimage-builder..."
+cd "${PROJECT_ROOT_DIR}"
+
+# Set some environment variables for the build
+export ARCH=x86_64
+export VERSION="${APP_VERSION}"
+
+# Validate desktop file before building
+echo_yellow "  Validating desktop file..."
+if command -v desktop-file-validate &> /dev/null; then
+    if ! desktop-file-validate "${APPDIR}/${APP_NAME}.desktop" 2>/dev/null; then
+        echo_yellow "  Warning: Desktop file validation failed, but continuing..."
+    else
+        echo_green "  ✓ Desktop file is valid"
+    fi
+fi
+
+if appimage-builder --recipe AppImageBuilder.yml --skip-test; then
+    echo_green "AppImage build successful!"
+
+    # Find the generated AppImage file
+    GENERATED_APPIMAGE=$(find "${PROJECT_ROOT_DIR}" -maxdepth 1 -name "*.AppImage" -type f -newer "${PROJECT_ROOT_DIR}/AppImageBuilder.yml" | head -1)
+
+    if [ -n "$GENERATED_APPIMAGE" ] && [ -f "$GENERATED_APPIMAGE" ]; then
+        echo_green "✓ Generated AppImage: $(basename "$GENERATED_APPIMAGE")"
+
+        # Move to output directory if specified
+        if [ -d "$OUTPUT_DIR" ]; then
+            mv "$GENERATED_APPIMAGE" "$OUTPUT_DIR/"
+            echo_green "✓ Moved AppImage to: ${OUTPUT_DIR}/$(basename "$GENERATED_APPIMAGE")"
+        fi
+
+        # Make executable
+        chmod +x "${OUTPUT_DIR}/$(basename "$GENERATED_APPIMAGE")" 2>/dev/null || chmod +x "$GENERATED_APPIMAGE"
+
+        echo_yellow "To test the AppImage:"
+        echo_yellow "  ${OUTPUT_DIR}/$(basename "$GENERATED_APPIMAGE") --help"
+
+        # Verify the AppImage works
+        FINAL_APPIMAGE="${OUTPUT_DIR}/$(basename "$GENERATED_APPIMAGE")"
+        if [ -f "$FINAL_APPIMAGE" ]; then
+            echo_green "✓ AppImage build successful!"
+        else
+            echo_red "✗ AppImage was not created properly"
+            exit 1
+        fi
+    else
+        echo_red "✗ AppImage file not found or build failed!"
+        echo_red "The appimage-builder command completed but no valid AppImage was generated."
+        ls -la "${PROJECT_ROOT_DIR}"/*.AppImage 2>/dev/null || echo_red "No .AppImage files found"
+        exit 1
+    fi
+
+else
+    echo_red "AppImage build failed."
+    echo_red "Check the output above for specific error messages."
+
+    # Provide some troubleshooting hints
+    echo_yellow "Common issues and solutions:"
+    echo_yellow "  1. Missing dependencies: Check that all required system packages are available"
+    echo_yellow "  2. Permission issues: Ensure the script has write access to the build directory"
+    echo_yellow "  3. Python path issues: Verify that grazr module can be imported"
+    echo_yellow "  4. Network issues: Some packages may need to be downloaded during build"
+
+    exit 1
+fi
+
+# 9. Cleanup
+echo_green "9. Cleaning up temporary files..."
+rm -f "${PROJECT_ROOT_DIR}/AppImageBuilder.yml"
+
+echo_green "Grazr AppImage build process finished successfully!"
+echo_yellow "Your AppImage is ready to distribute and should work on most Linux distributions."

@@ -10,6 +10,9 @@ deb_build/
 build/
 dist/
 mkcert_bundle_output/
+dist_appimage/
+Grazr.AppDir/
+AppDir
 *.deb
 *.egg-info/
 *.pyc
