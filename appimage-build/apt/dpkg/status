@@ -1,16 +1,96 @@
-Package: libgbm-dev
+Package: mesa-vdpau-drivers
+Status: install ok installed
+Version: 23.2.1-1ubuntu3.1~22.04.3
+Architecture: amd64
+
+Package: util-linux
+Status: install ok installed
+Version: 2.37.2-4ubuntu3
+Architecture: amd64
+
+Package: libgles2-mesa-dev
 Status: install ok installed
 Version: 22.0.1-1ubuntu2
 Architecture: amd64
 
-Package: libdrm-common
+Package: libglvnd0
 Status: install ok installed
-Version: 2.4.110-1ubuntu1
-Architecture: all
+Version: 1.4.0-1
+Architecture: amd64
 
-Package: libgl1-mesa-dri
+Package: libgl1-amber-dri
+Status: install ok installed
+Version: 21.3.7-0ubuntu1
+Architecture: amd64
+
+Package: mesa-va-drivers
 Status: install ok installed
 Version: 23.2.1-1ubuntu3.1~22.04.3
+Architecture: amd64
+
+Package: libx11-keyboard-perl
+Status: install ok installed
+Version: 1.4-7
+Architecture: all
+
+Package: libgbm1
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: libdrmaa1.0-java
+Status: install ok installed
+Version: 8.1.9+dfsg-10build1
+Architecture: all
+
+Package: libgles2-mesa
+Status: install ok installed
+Version: 23.0.4-0ubuntu1~22.04.1
+Architecture: amd64
+
+Package: debianutils
+Status: install ok installed
+Version: 5.5-1ubuntu2
+Architecture: amd64
+
+Package: libegl-mesa0
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: libx11-xcb-dev
+Status: install ok installed
+Version: 2:1.7.5-1
+Architecture: amd64
+
+Package: libglx-amber0
+Status: install ok installed
+Version: 21.3.7-0ubuntu1
+Architecture: amd64
+
+Package: libglx-amber0
+Status: install ok installed
+Version: 21.3.9-0ubuntu1~22.04.1
+Architecture: amd64
+
+Package: libx11-doc
+Status: install ok installed
+Version: 2:1.7.5-1ubuntu0.3
+Architecture: all
+
+Package: libglx-mesa0
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: shared-mime-info
+Status: install ok installed
+Version: 2.1-2
+Architecture: amd64
+
+Package: avahi-daemon
+Status: install ok installed
+Version: 0.8-5ubuntu5.2
 Architecture: amd64
 
 Package: libx11-xcb-perl
@@ -18,19 +98,9 @@ Status: install ok installed
 Version: 0.19-1build1
 Architecture: amd64
 
-Package: libdrm-radeon1
+Package: mount
 Status: install ok installed
-Version: 2.4.110-1ubuntu1
-Architecture: amd64
-
-Package: mesa-common-dev
-Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: libdrm-intel1
-Status: install ok installed
-Version: 2.4.110-1ubuntu1
+Version: 2.37.2-4ubuntu3
 Architecture: amd64
 
 Package: x11-common
@@ -38,14 +108,49 @@ Status: install ok installed
 Version: 1:7.7+23ubuntu2
 Architecture: all
 
-Package: debianutils
+Package: libxcb-present0
 Status: install ok installed
-Version: 5.5-1ubuntu2
+Version: 1.14-3ubuntu3
 Architecture: amd64
 
-Package: avahi-daemon
+Package: libdrm-common
 Status: install ok installed
-Version: 0.8-5ubuntu5
+Version: 2.4.113-2~ubuntu0.22.04.1
+Architecture: all
+
+Package: libgles-dev
+Status: install ok installed
+Version: 1.4.0-1
+Architecture: amd64
+
+Package: mesa-utils-bin
+Status: install ok installed
+Version: 8.4.0-1ubuntu1
+Architecture: amd64
+
+Package: mesa-vulkan-drivers
+Status: install ok installed
+Version: 23.2.1-1ubuntu3.1~22.04.3
+Architecture: amd64
+
+Package: libglvnd-core-dev
+Status: install ok installed
+Version: 1.4.0-1
+Architecture: amd64
+
+Package: libx11-data
+Status: install ok installed
+Version: 2:1.7.5-1ubuntu0.3
+Architecture: all
+
+Package: libgl1-mesa-glx
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: libdrm-radeon1
+Status: install ok installed
+Version: 2.4.113-2~ubuntu0.22.04.1
 Architecture: amd64
 
 Package: mesa-drm-shim
@@ -58,32 +163,47 @@ Status: install ok installed
 Version: 1.4.0-11ubuntu2
 Architecture: all
 
-Package: shared-mime-info
+Package: libgl1-amber-dri
 Status: install ok installed
-Version: 2.1-2
+Version: 21.3.9-0ubuntu1~22.04.1
 Architecture: amd64
 
-Package: libx11-data
+Package: libinput-bin
 Status: install ok installed
-Version: 2:1.7.5-1ubuntu0.3
+Version: 1.20.0-1
+Architecture: amd64
+
+Package: libx11-doc
+Status: install ok installed
+Version: 2:1.7.5-1
 Architecture: all
 
-Package: libx11-guitest-perl
+Package: libglvnd-dev
 Status: install ok installed
-Version: 0.28-2build4
+Version: 1.4.0-1
 Architecture: amd64
 
-Package: systemd-sysv
+Package: libdrm-radeon1
 Status: install ok installed
-Version: 249.11-0ubuntu3.15
+Version: 2.4.110-1ubuntu1
 Architecture: amd64
 
-Package: libglx-mesa0
+Package: apt
+Status: install ok installed
+Version: 2.4.14
+Architecture: amd64
+
+Package: libgl1-mesa-dri
 Status: install ok installed
 Version: 22.0.1-1ubuntu2
 Architecture: amd64
 
-Package: libgl1-mesa-dev
+Package: libgles2-mesa
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: libgl1-mesa-dri
 Status: install ok installed
 Version: 23.2.1-1ubuntu3.1~22.04.3
 Architecture: amd64
@@ -93,149 +213,79 @@ Status: install ok installed
 Version: 1.4.0-1
 Architecture: amd64
 
-Package: libx11-xcb1
-Status: install ok installed
-Version: 2:1.7.5-1
-Architecture: amd64
-
-Package: mesa-va-drivers
+Package: libegl-mesa0
 Status: install ok installed
 Version: 23.2.1-1ubuntu3.1~22.04.3
 Architecture: amd64
 
-Package: libx11-data
+Package: mesa-utils
 Status: install ok installed
-Version: 2:1.7.5-1
-Architecture: all
+Version: 8.4.0-1ubuntu1
+Architecture: amd64
+
+Package: base-files
+Status: install ok installed
+Version: 12ubuntu4
+Architecture: amd64
 
 Package: dbus
 Status: install ok installed
 Version: 1.12.20-2ubuntu4.1
 Architecture: amd64
 
-Package: base-files
+Package: libx11-freedesktop-desktopentry-perl
 Status: install ok installed
-Version: 12ubuntu4.7
-Architecture: amd64
-
-Package: dbus
-Status: install ok installed
-Version: 1.12.20-2ubuntu4
-Architecture: amd64
-
-Package: libxcb-render0
-Status: install ok installed
-Version: 1.14-3ubuntu3
-Architecture: amd64
-
-Package: libxcb-dri2-0
-Status: install ok installed
-Version: 1.14-3ubuntu3
-Architecture: amd64
-
-Package: libgbm1
-Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: libxcb-shm0
-Status: install ok installed
-Version: 1.14-3ubuntu3
-Architecture: amd64
-
-Package: mount
-Status: install ok installed
-Version: 2.37.2-4ubuntu3.4
-Architecture: amd64
-
-Package: mesa-common-dev
-Status: install ok installed
-Version: 23.2.1-1ubuntu3.1~22.04.3
-Architecture: amd64
-
-Package: ucf
-Status: install ok installed
-Version: 3.0043
+Version: 0.04-4.1
 Architecture: all
 
-Package: libdrmaa1.0-ruby
+Package: libcap2-bin
 Status: install ok installed
-Version: 8.1.9+dfsg-10build1
+Version: 1:2.44-1ubuntu0.22.04.2
+Architecture: amd64
+
+Package: systemd-sysv
+Status: install ok installed
+Version: 249.11-0ubuntu3.15
+Architecture: amd64
+
+Package: iso-codes
+Status: install ok installed
+Version: 4.9.0-1
 Architecture: all
 
-Package: libdrm-nouveau2
-Status: install ok installed
-Version: 2.4.110-1ubuntu1
-Architecture: amd64
-
-Package: libxcb-xfixes0
-Status: install ok installed
-Version: 1.14-3ubuntu3
-Architecture: amd64
-
-Package: libgl1-mesa-glx
-Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: libgl1
+Package: libglx0
 Status: install ok installed
 Version: 1.4.0-1
 Architecture: amd64
 
-Package: libegl1-mesa
-Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: fdisk
-Status: install ok installed
-Version: 2.37.2-4ubuntu3.4
-Architecture: amd64
-
-Package: dpkg
-Status: install ok installed
-Version: 1.21.1ubuntu2
-Architecture: amd64
-
-Package: libpam-modules-bin
-Status: install ok installed
-Version: 1.4.0-11ubuntu2
-Architecture: amd64
-
-Package: libegl1-mesa
-Status: install ok installed
-Version: 23.0.4-0ubuntu1~22.04.1
-Architecture: amd64
-
-Package: passwd
-Status: install ok installed
-Version: 1:4.8.1-2ubuntu2
-Architecture: amd64
-
-Package: libglapi-mesa
+Package: mesa-opencl-icd
 Status: install ok installed
 Version: 23.2.1-1ubuntu3.1~22.04.3
 Architecture: amd64
 
-Package: dpkg
-Status: install ok installed
-Version: 1.21.1ubuntu2.3
-Architecture: amd64
-
-Package: libglvnd-core-dev
+Package: libegl1
 Status: install ok installed
 Version: 1.4.0-1
 Architecture: amd64
 
-Package: mount
+Package: sysvinit-utils
 Status: install ok installed
-Version: 2.37.2-4ubuntu3
+Version: 3.01-1ubuntu1
 Architecture: amd64
 
-Package: libdrm-amdgpu1
+Package: libx11-dev
 Status: install ok installed
-Version: 2.4.110-1ubuntu1
+Version: 2:1.7.5-1ubuntu0.3
+Architecture: amd64
+
+Package: libglx-mesa0
+Status: install ok installed
+Version: 23.2.1-1ubuntu3.1~22.04.3
+Architecture: amd64
+
+Package: libegl-amber0
+Status: install ok installed
+Version: 21.3.7-0ubuntu1
 Architecture: amd64
 
 Package: libdrm-dev
@@ -248,129 +298,9 @@ Status: install ok installed
 Version: 249.11-0ubuntu3
 Architecture: amd64
 
-Package: fontconfig
+Package: systemd
 Status: install ok installed
-Version: 2.13.1-4.2ubuntu5
-Architecture: amd64
-
-Package: libdrm-tests
-Status: install ok installed
-Version: 2.4.113-2~ubuntu0.22.04.1
-Architecture: amd64
-
-Package: libx11-freedesktop-desktopentry-perl
-Status: install ok installed
-Version: 0.04-4.1
-Architecture: all
-
-Package: libx11-xcb-dev
-Status: install ok installed
-Version: 2:1.7.5-1ubuntu0.3
-Architecture: amd64
-
-Package: libdrm-tests
-Status: install ok installed
-Version: 2.4.110-1ubuntu1
-Architecture: amd64
-
-Package: libxcb-shape0
-Status: install ok installed
-Version: 1.14-3ubuntu3
-Architecture: amd64
-
-Package: libgl1-mesa-glx
-Status: install ok installed
-Version: 23.0.4-0ubuntu1~22.04.1
-Architecture: amd64
-
-Package: util-linux
-Status: install ok installed
-Version: 2.37.2-4ubuntu3
-Architecture: amd64
-
-Package: mesa-vdpau-drivers
-Status: install ok installed
-Version: 23.2.1-1ubuntu3.1~22.04.3
-Architecture: amd64
-
-Package: lsb-base
-Status: install ok installed
-Version: 11.1.0ubuntu4
-Architecture: all
-
-Package: sysvinit-utils
-Status: install ok installed
-Version: 3.01-1ubuntu1
-Architecture: amd64
-
-Package: libgles2-mesa-dev
-Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: libglx-dev
-Status: install ok installed
-Version: 1.4.0-1
-Architecture: amd64
-
-Package: libegl-mesa0
-Status: install ok installed
-Version: 23.2.1-1ubuntu3.1~22.04.3
-Architecture: amd64
-
-Package: libgles-dev
-Status: install ok installed
-Version: 1.4.0-1
-Architecture: amd64
-
-Package: passwd
-Status: install ok installed
-Version: 1:4.8.1-2ubuntu2.2
-Architecture: amd64
-
-Package: libglx0
-Status: install ok installed
-Version: 1.4.0-1
-Architecture: amd64
-
-Package: libdrm-common
-Status: install ok installed
-Version: 2.4.113-2~ubuntu0.22.04.1
-Architecture: all
-
-Package: libx11-keyboard-perl
-Status: install ok installed
-Version: 1.4-7
-Architecture: all
-
-Package: libgles1
-Status: install ok installed
-Version: 1.4.0-1
-Architecture: amd64
-
-Package: libdrm-amdgpu1
-Status: install ok installed
-Version: 2.4.113-2~ubuntu0.22.04.1
-Architecture: amd64
-
-Package: libx11-windowhierarchy-perl
-Status: install ok installed
-Version: 0.004-1.1
-Architecture: all
-
-Package: libdrm2
-Status: install ok installed
-Version: 2.4.110-1ubuntu1
-Architecture: amd64
-
-Package: systemd-sysv
-Status: install ok installed
-Version: 249.11-0ubuntu3
-Architecture: amd64
-
-Package: mesa-vulkan-drivers
-Status: install ok installed
-Version: 23.2.1-1ubuntu3.1~22.04.3
+Version: 249.11-0ubuntu3.15
 Architecture: amd64
 
 Package: xdg-user-dirs
@@ -378,69 +308,9 @@ Status: install ok installed
 Version: 0.17-2ubuntu4
 Architecture: amd64
 
-Package: libgl1-mesa-dri
+Package: fontconfig-config
 Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: bind9-host
-Status: install ok installed
-Version: 1:9.18.1-1ubuntu1
-Architecture: amd64
-
-Package: base-files
-Status: install ok installed
-Version: 12ubuntu4
-Architecture: amd64
-
-Package: libx11-xcb-dev
-Status: install ok installed
-Version: 2:1.7.5-1
-Architecture: amd64
-
-Package: libdrm-dev
-Status: install ok installed
-Version: 2.4.110-1ubuntu1
-Architecture: amd64
-
-Package: libegl-mesa0
-Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: libgbm1
-Status: install ok installed
-Version: 23.2.1-1ubuntu3.1~22.04.3
-Architecture: amd64
-
-Package: libegl1-mesa-dev
-Status: install ok installed
-Version: 23.2.1-1ubuntu3.1~22.04.3
-Architecture: amd64
-
-Package: libegl-amber0
-Status: install ok installed
-Version: 21.3.9-0ubuntu1~22.04.1
-Architecture: amd64
-
-Package: libcap2-bin
-Status: install ok installed
-Version: 1:2.44-1ubuntu0.22.04.2
-Architecture: amd64
-
-Package: libpam-runtime
-Status: install ok installed
-Version: 1.4.0-11ubuntu2.5
-Architecture: all
-
-Package: mesa-va-drivers
-Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: libx11-doc
-Status: install ok installed
-Version: 2:1.7.5-1
+Version: 2.13.1-4.2ubuntu5
 Architecture: all
 
 Package: libdrm-intel1
@@ -448,49 +318,14 @@ Status: install ok installed
 Version: 2.4.113-2~ubuntu0.22.04.1
 Architecture: amd64
 
-Package: util-linux
+Package: libdrm-tests
 Status: install ok installed
-Version: 2.37.2-4ubuntu3.4
+Version: 2.4.113-2~ubuntu0.22.04.1
 Architecture: amd64
 
-Package: bind9-host
+Package: libxcb-shape0
 Status: install ok installed
-Version: 1:9.18.30-0ubuntu0.22.04.2
-Architecture: amd64
-
-Package: libgl1-amber-dri
-Status: install ok installed
-Version: 21.3.7-0ubuntu1
-Architecture: amd64
-
-Package: libx11-dev
-Status: install ok installed
-Version: 2:1.7.5-1ubuntu0.3
-Architecture: amd64
-
-Package: libcap2-bin
-Status: install ok installed
-Version: 1:2.44-1build3
-Architecture: amd64
-
-Package: libglvnd0
-Status: install ok installed
-Version: 1.4.0-1
-Architecture: amd64
-
-Package: libglapi-mesa
-Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: libegl-amber0
-Status: install ok installed
-Version: 21.3.7-0ubuntu1
-Architecture: amd64
-
-Package: mesa-opencl-icd
-Status: install ok installed
-Version: 23.2.1-1ubuntu3.1~22.04.3
+Version: 1.14-3ubuntu3
 Architecture: amd64
 
 Package: libgl1-mesa-dev
@@ -498,12 +333,42 @@ Status: install ok installed
 Version: 22.0.1-1ubuntu2
 Architecture: amd64
 
-Package: libinput-bin
+Package: fdisk
 Status: install ok installed
-Version: 1.20.0-1
+Version: 2.37.2-4ubuntu3
 Architecture: amd64
 
-Package: libglvnd-dev
+Package: libdrm2
+Status: install ok installed
+Version: 2.4.113-2~ubuntu0.22.04.1
+Architecture: amd64
+
+Package: libdrm-common
+Status: install ok installed
+Version: 2.4.110-1ubuntu1
+Architecture: all
+
+Package: libdrm-dev
+Status: install ok installed
+Version: 2.4.110-1ubuntu1
+Architecture: amd64
+
+Package: bind9-host
+Status: install ok installed
+Version: 1:9.18.30-0ubuntu0.22.04.2
+Architecture: amd64
+
+Package: libdrm-nouveau2
+Status: install ok installed
+Version: 2.4.110-1ubuntu1
+Architecture: amd64
+
+Package: bind9-host
+Status: install ok installed
+Version: 1:9.18.1-1ubuntu1
+Architecture: amd64
+
+Package: libglx-dev
 Status: install ok installed
 Version: 1.4.0-1
 Architecture: amd64
@@ -513,157 +378,17 @@ Status: install ok installed
 Version: 3.118ubuntu5
 Architecture: all
 
-Package: libinput-bin
-Status: install ok installed
-Version: 1.20.0-1ubuntu0.3
-Architecture: amd64
-
-Package: libgles2-mesa-dev
-Status: install ok installed
-Version: 23.2.1-1ubuntu3.1~22.04.3
-Architecture: amd64
-
-Package: libx11-protocol-perl
-Status: install ok installed
-Version: 0.56-7.1
-Architecture: all
-
-Package: iso-codes
-Status: install ok installed
-Version: 4.9.0-1
-Architecture: all
-
-Package: libx11-dev
-Status: install ok installed
-Version: 2:1.7.5-1
-Architecture: amd64
-
-Package: libdrm-radeon1
-Status: install ok installed
-Version: 2.4.113-2~ubuntu0.22.04.1
-Architecture: amd64
-
-Package: libxcb-present0
+Package: libxcb-xfixes0
 Status: install ok installed
 Version: 1.14-3ubuntu3
 Architecture: amd64
 
-Package: libxcb-dri3-0
-Status: install ok installed
-Version: 1.14-3ubuntu3
-Architecture: amd64
-
-Package: libpam-modules-bin
+Package: libpam-runtime
 Status: install ok installed
 Version: 1.4.0-11ubuntu2.5
-Architecture: amd64
-
-Package: libdrm-nouveau2
-Status: install ok installed
-Version: 2.4.113-2~ubuntu0.22.04.1
-Architecture: amd64
-
-Package: mesa-vulkan-drivers
-Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: avahi-daemon
-Status: install ok installed
-Version: 0.8-5ubuntu5.2
-Architecture: amd64
-
-Package: libgles2
-Status: install ok installed
-Version: 1.4.0-1
-Architecture: amd64
-
-Package: libxcb-glx0
-Status: install ok installed
-Version: 1.14-3ubuntu3
-Architecture: amd64
-
-Package: libdrm2
-Status: install ok installed
-Version: 2.4.113-2~ubuntu0.22.04.1
-Architecture: amd64
-
-Package: fdisk
-Status: install ok installed
-Version: 2.37.2-4ubuntu3
-Architecture: amd64
+Architecture: all
 
 Package: mesa-vdpau-drivers
-Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: libglx-amber0
-Status: install ok installed
-Version: 21.3.7-0ubuntu1
-Architecture: amd64
-
-Package: libgles2-mesa
-Status: install ok installed
-Version: 23.0.4-0ubuntu1~22.04.1
-Architecture: amd64
-
-Package: libglx-amber0
-Status: install ok installed
-Version: 21.3.9-0ubuntu1~22.04.1
-Architecture: amd64
-
-Package: mesa-utils-bin
-Status: install ok installed
-Version: 8.4.0-1ubuntu1
-Architecture: amd64
-
-Package: init-system-helpers
-Status: install ok installed
-Version: 1.62
-Architecture: all
-
-Package: apt
-Status: install ok installed
-Version: 2.4.5
-Architecture: amd64
-
-Package: mesa-utils
-Status: install ok installed
-Version: 8.4.0-1ubuntu1
-Architecture: amd64
-
-Package: fontconfig-config
-Status: install ok installed
-Version: 2.13.1-4.2ubuntu5
-Architecture: all
-
-Package: libx11-doc
-Status: install ok installed
-Version: 2:1.7.5-1ubuntu0.3
-Architecture: all
-
-Package: libx11-protocol-other-perl
-Status: install ok installed
-Version: 31-1
-Architecture: all
-
-Package: libgles2-mesa
-Status: install ok installed
-Version: 22.0.1-1ubuntu2
-Architecture: amd64
-
-Package: libx11-xcb1
-Status: install ok installed
-Version: 2:1.7.5-1ubuntu0.3
-Architecture: amd64
-
-Package: apt
-Status: install ok installed
-Version: 2.4.14
-Architecture: amd64
-
-Package: mesa-opencl-icd
 Status: install ok installed
 Version: 22.0.1-1ubuntu2
 Architecture: amd64
@@ -673,9 +398,169 @@ Status: install ok installed
 Version: 1.5.79ubuntu1
 Architecture: all
 
-Package: libdrmaa1.0-java
+Package: util-linux
+Status: install ok installed
+Version: 2.37.2-4ubuntu3.4
+Architecture: amd64
+
+Package: passwd
+Status: install ok installed
+Version: 1:4.8.1-2ubuntu2.2
+Architecture: amd64
+
+Package: libgl1-mesa-glx
+Status: install ok installed
+Version: 23.0.4-0ubuntu1~22.04.1
+Architecture: amd64
+
+Package: libgles1
+Status: install ok installed
+Version: 1.4.0-1
+Architecture: amd64
+
+Package: libgles2-mesa-dev
+Status: install ok installed
+Version: 23.2.1-1ubuntu3.1~22.04.3
+Architecture: amd64
+
+Package: libegl1-mesa-dev
+Status: install ok installed
+Version: 23.2.1-1ubuntu3.1~22.04.3
+Architecture: amd64
+
+Package: libpam-modules-bin
+Status: install ok installed
+Version: 1.4.0-11ubuntu2
+Architecture: amd64
+
+Package: libegl-amber0
+Status: install ok installed
+Version: 21.3.9-0ubuntu1~22.04.1
+Architecture: amd64
+
+Package: systemd-sysv
+Status: install ok installed
+Version: 249.11-0ubuntu3
+Architecture: amd64
+
+Package: libdrm-amdgpu1
+Status: install ok installed
+Version: 2.4.113-2~ubuntu0.22.04.1
+Architecture: amd64
+
+Package: libegl1-mesa
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: libgl1-mesa-dev
+Status: install ok installed
+Version: 23.2.1-1ubuntu3.1~22.04.3
+Architecture: amd64
+
+Package: libx11-dev
+Status: install ok installed
+Version: 2:1.7.5-1
+Architecture: amd64
+
+Package: libgbm-dev
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: mesa-common-dev
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: libxcb-dri2-0
+Status: install ok installed
+Version: 1.14-3ubuntu3
+Architecture: amd64
+
+Package: base-files
+Status: install ok installed
+Version: 12ubuntu4.7
+Architecture: amd64
+
+Package: avahi-daemon
+Status: install ok installed
+Version: 0.8-5ubuntu5
+Architecture: amd64
+
+Package: libcap2-bin
+Status: install ok installed
+Version: 1:2.44-1build3
+Architecture: amd64
+
+Package: libinput-bin
+Status: install ok installed
+Version: 1.20.0-1ubuntu0.3
+Architecture: amd64
+
+Package: libpam-modules-bin
+Status: install ok installed
+Version: 1.4.0-11ubuntu2.5
+Architecture: amd64
+
+Package: libegl1-mesa
+Status: install ok installed
+Version: 23.0.4-0ubuntu1~22.04.1
+Architecture: amd64
+
+Package: mesa-common-dev
+Status: install ok installed
+Version: 23.2.1-1ubuntu3.1~22.04.3
+Architecture: amd64
+
+Package: mesa-opencl-icd
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: libdrmaa1.0-ruby
 Status: install ok installed
 Version: 8.1.9+dfsg-10build1
+Architecture: all
+
+Package: libxcb-dri3-0
+Status: install ok installed
+Version: 1.14-3ubuntu3
+Architecture: amd64
+
+Package: apt
+Status: install ok installed
+Version: 2.4.5
+Architecture: amd64
+
+Package: libxcb-glx0
+Status: install ok installed
+Version: 1.14-3ubuntu3
+Architecture: amd64
+
+Package: libx11-protocol-perl
+Status: install ok installed
+Version: 0.56-7.1
+Architecture: all
+
+Package: passwd
+Status: install ok installed
+Version: 1:4.8.1-2ubuntu2
+Architecture: amd64
+
+Package: init-system-helpers
+Status: install ok installed
+Version: 1.62
+Architecture: all
+
+Package: libdrm2
+Status: install ok installed
+Version: 2.4.110-1ubuntu1
+Architecture: amd64
+
+Package: libx11-protocol-other-perl
+Status: install ok installed
+Version: 31-1
 Architecture: all
 
 Package: libdrmaa1.0-java-doc
@@ -683,9 +568,39 @@ Status: install ok installed
 Version: 8.1.9+dfsg-10build1
 Architecture: all
 
-Package: libegl1
+Package: fdisk
 Status: install ok installed
-Version: 1.4.0-1
+Version: 2.37.2-4ubuntu3.4
+Architecture: amd64
+
+Package: mesa-vulkan-drivers
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: libgbm1
+Status: install ok installed
+Version: 23.2.1-1ubuntu3.1~22.04.3
+Architecture: amd64
+
+Package: libglapi-mesa
+Status: install ok installed
+Version: 23.2.1-1ubuntu3.1~22.04.3
+Architecture: amd64
+
+Package: libdrm-intel1
+Status: install ok installed
+Version: 2.4.110-1ubuntu1
+Architecture: amd64
+
+Package: libx11-guitest-perl
+Status: install ok installed
+Version: 0.28-2build4
+Architecture: amd64
+
+Package: libgbm-dev
+Status: install ok installed
+Version: 23.2.1-1ubuntu3.1~22.04.3
 Architecture: amd64
 
 Package: libegl1-mesa-dev
@@ -693,23 +608,108 @@ Status: install ok installed
 Version: 22.0.1-1ubuntu2
 Architecture: amd64
 
-Package: libgl1-amber-dri
+Package: libgl1
 Status: install ok installed
-Version: 21.3.9-0ubuntu1~22.04.1
+Version: 1.4.0-1
 Architecture: amd64
 
-Package: libglx-mesa0
+Package: libx11-xcb1
 Status: install ok installed
-Version: 23.2.1-1ubuntu3.1~22.04.3
+Version: 2:1.7.5-1ubuntu0.3
 Architecture: amd64
 
-Package: systemd
+Package: dpkg
 Status: install ok installed
-Version: 249.11-0ubuntu3.15
+Version: 1.21.1ubuntu2
 Architecture: amd64
 
-Package: libgbm-dev
+Package: libxcb-render0
 Status: install ok installed
-Version: 23.2.1-1ubuntu3.1~22.04.3
+Version: 1.14-3ubuntu3
+Architecture: amd64
+
+Package: ucf
+Status: install ok installed
+Version: 3.0043
+Architecture: all
+
+Package: libdrm-nouveau2
+Status: install ok installed
+Version: 2.4.113-2~ubuntu0.22.04.1
+Architecture: amd64
+
+Package: dbus
+Status: install ok installed
+Version: 1.12.20-2ubuntu4
+Architecture: amd64
+
+Package: libx11-xcb1
+Status: install ok installed
+Version: 2:1.7.5-1
+Architecture: amd64
+
+Package: mount
+Status: install ok installed
+Version: 2.37.2-4ubuntu3.4
+Architecture: amd64
+
+Package: dpkg
+Status: install ok installed
+Version: 1.21.1ubuntu2.3
+Architecture: amd64
+
+Package: libglapi-mesa
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: libx11-windowhierarchy-perl
+Status: install ok installed
+Version: 0.004-1.1
+Architecture: all
+
+Package: libx11-xcb-dev
+Status: install ok installed
+Version: 2:1.7.5-1ubuntu0.3
+Architecture: amd64
+
+Package: libxcb-shm0
+Status: install ok installed
+Version: 1.14-3ubuntu3
+Architecture: amd64
+
+Package: libgles2
+Status: install ok installed
+Version: 1.4.0-1
+Architecture: amd64
+
+Package: libdrm-amdgpu1
+Status: install ok installed
+Version: 2.4.110-1ubuntu1
+Architecture: amd64
+
+Package: fontconfig
+Status: install ok installed
+Version: 2.13.1-4.2ubuntu5
+Architecture: amd64
+
+Package: libx11-data
+Status: install ok installed
+Version: 2:1.7.5-1
+Architecture: all
+
+Package: lsb-base
+Status: install ok installed
+Version: 11.1.0ubuntu4
+Architecture: all
+
+Package: mesa-va-drivers
+Status: install ok installed
+Version: 22.0.1-1ubuntu2
+Architecture: amd64
+
+Package: libdrm-tests
+Status: install ok installed
+Version: 2.4.110-1ubuntu1
 Architecture: amd64
 

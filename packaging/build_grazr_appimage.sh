@@ -160,112 +160,64 @@ if [ -f "${PACKAGING_SOURCE_DIR}/node-shim.sh" ]; then
     chmod +x "${APPDIR}/usr/bin/node"
 fi
 
-# 3. Create Python wrapper script instead of bash launcher
-PYTHON_WRAPPER_PATH="${APPDIR}/usr/bin/grazr_wrapper.py"
-echo_green "3. Creating Python wrapper script at ${PYTHON_WRAPPER_PATH}..."
+# 3. Create Python entry script (this will be called by AppRun)
+PYTHON_ENTRY_SCRIPT_NAME="grazr_python_entry.py"
+PYTHON_ENTRY_SCRIPT_PATH="${APPDIR}/usr/bin/${PYTHON_ENTRY_SCRIPT_NAME}"
+echo_green "3. Creating Python entry script at ${PYTHON_ENTRY_SCRIPT_PATH}..."
 
-cat << 'EOF' > "${PYTHON_WRAPPER_PATH}"
+cat << 'EOF' > "${PYTHON_ENTRY_SCRIPT_PATH}"
 #!/usr/bin/env python3
 """
-Grazr AppImage Python Wrapper
-This wrapper sets up the environment and launches the main Grazr application.
+Grazr AppImage Python Entry Point
+This entry point sets up the environment and launches the main Grazr application.
 """
 import os
 import sys
+import site
+import traceback
 from pathlib import Path
 
 def main():
-    # Get the AppImage mount point
+    # APPDIR is set by the AppRun script (which is the AppImage runtime entry point)
     appdir = os.environ.get('APPDIR')
     if not appdir:
-        # Fallback: calculate from script location
-        script_path = Path(__file__).resolve()
-        appdir = str(script_path.parent.parent.parent)
+        print("CRITICAL: APPDIR environment variable not set. Cannot run.", file=sys.stderr)
+        sys.exit(1)
 
     appdir_path = Path(appdir)
 
-    # Set up Python environment
-    python_home = appdir_path / "usr"
-    os.environ["PYTHONHOME"] = str(python_home)
+    # This venv path is created by appimage-builder's script section
+    python_venv_path = appdir_path / "usr" / "opt" / "python-venv"
 
-    # Set up Python path
-    python_paths = [
-        str(appdir_path / "usr" / "opt" / "Grazr"),
-        str(appdir_path / "usr" / "lib" / "python3.10" / "site-packages"),
-    ]
+    # Environment variables are set by AppRun before this script is called.
+    # This script assumes PYTHONHOME, PYTHONPATH, PATH, LD_LIBRARY_PATH are already configured.
 
-    existing_pythonpath = os.environ.get("PYTHONPATH", "")
-    if existing_pythonpath:
-        python_paths.append(existing_pythonpath)
+    app_code_path = appdir_path / "usr" / "opt" / "Grazr" # Match APP_NAME
+    os.environ["GRAZR_RUNNING_AS_APPIMAGE"] = "true" # Already set by AppRun, but good to be explicit
 
-    os.environ["PYTHONPATH"] = ":".join(python_paths)
+    # Change to app's directory if main.py expects to run from there
+    # os.chdir(str(app_code_path)) # AppRun already does this
 
-    # Set up PATH
-    current_path = os.environ.get("PATH", "")
-    new_path = str(appdir_path / "usr" / "bin")
-    if current_path:
-        os.environ["PATH"] = f"{new_path}:{current_path}"
-    else:
-        os.environ["PATH"] = new_path
-
-    # Set up library paths
-    lib_paths = [
-        str(appdir_path / "usr" / "lib"),
-        str(appdir_path / "usr" / "lib" / "x86_64-linux-gnu"),
-    ]
-    existing_ld_path = os.environ.get("LD_LIBRARY_PATH", "")
-    if existing_ld_path:
-        lib_paths.append(existing_ld_path)
-
-    os.environ["LD_LIBRARY_PATH"] = ":".join(lib_paths)
-
-    # Qt/GUI environment
-    qt_plugin_paths = [
-        str(appdir_path / "usr" / "lib" / "python3.10" / "site-packages" / "PySide6" / "Qt" / "plugins"),
-        str(appdir_path / "usr" / "lib" / "qt6" / "plugins"),
-        str(appdir_path / "usr" / "lib" / "x86_64-linux-gnu" / "qt6" / "plugins"),
-    ]
-    existing_qt_path = os.environ.get("QT_PLUGIN_PATH", "")
-    if existing_qt_path:
-        qt_plugin_paths.append(existing_qt_path)
-
-    os.environ["QT_PLUGIN_PATH"] = ":".join(qt_plugin_paths)
-
-    # Mark as running in AppImage
-    os.environ["GRAZR_RUNNING_AS_APPIMAGE"] = "true"
-
-    # Change to application directory
-    app_dir = appdir_path / "usr" / "opt" / "Grazr"
-    os.chdir(str(app_dir))
-
-    # Import and run the main module
     try:
-        # Add the grazr directory to sys.path if not already there
-        grazr_path = str(app_dir)
-        if grazr_path not in sys.path:
-            sys.path.insert(0, grazr_path)
-
-        # Import and run the main module
         from grazr import main as grazr_main
-
-        # Pass command line arguments
-        sys.argv[0] = "grazr"  # Set proper program name
-        grazr_main.main()  # Assuming your main function is called main()
-
+        sys.argv[0] = "grazr" # Set a nice program name
+        grazr_main.main()
     except ImportError as e:
-        print(f"Error importing grazr module: {e}", file=sys.stderr)
-        print(f"Python path: {sys.path}", file=sys.stderr)
-        print(f"Current directory: {os.getcwd()}", file=sys.stderr)
+        print(f"CRITICAL: Error importing grazr module: {e}", file=sys.stderr)
+        print(f"  PYTHONPATH: {os.environ.get('PYTHONPATH')}", file=sys.stderr)
+        print(f"  sys.path: {sys.path}", file=sys.stderr)
+        print(f"  Current dir: {os.getcwd()}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(f"Error running grazr: {e}", file=sys.stderr)
+        print(f"CRITICAL: Error running grazr: {e}", file=sys.stderr)
+        traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":
     main()
 EOF
 
-chmod +x "${PYTHON_WRAPPER_PATH}"
+chmod +x "${PYTHON_ENTRY_SCRIPT_PATH}"
 echo_yellow "  Python wrapper script created and made executable."
 
 # 4. Create desktop file
@@ -277,7 +229,7 @@ Version=1.0
 Name=${APP_NAME}
 GenericName=Local Development Environment
 Comment=A Laravel Herd alternative for Linux. Manage PHP, Nginx, and sites.
-Exec=grazr_wrapper.py
+Exec=${PYTHON_ENTRY_SCRIPT_NAME}
 Icon=${APP_NAME}
 Terminal=false
 Type=Application
@@ -303,7 +255,7 @@ script:
   # Ensure proper permissions
   - find ${APPDIR} -name "*.py" -exec chmod 644 {} \;
   - find ${APPDIR} -name "*.sh" -exec chmod 755 {} \;
-  - chmod +x ${APPDIR}/usr/bin/grazr_wrapper.py
+  - chmod +x ${APPDIR}/usr/bin/grazr_python_entry.py
 
 AppDir:
   path: ${APPDIR}
@@ -314,7 +266,7 @@ AppDir:
     icon: ${APP_NAME}
     version: ${APP_VERSION}
     exec: usr/bin/python3.10
-    exec_args: "usr/bin/grazr_wrapper.py \$@"
+    exec_args: "usr/bin/grazr_python_entry.py \$@"
 
   apt:
     arch: amd64
@@ -363,7 +315,7 @@ AppDir:
   files:
     include:
       - usr/opt/${APP_NAME}/
-      - usr/bin/grazr_wrapper.py
+      - usr/bin/grazr_python_entry.py
       - usr/bin/grazr-mkcert
       - usr/share/applications/${APP_NAME}.desktop
       - usr/share/icons/
@@ -439,7 +391,7 @@ fi
 
 # 7. Final verification before building
 echo_green "7. Verifying AppDir structure..."
-if [ -f "${PYTHON_WRAPPER_PATH}" ]; then
+if [ -f "${PYTHON_ENTRY_SCRIPT_PATH}" ]; then
     echo_yellow "  ✓ Python wrapper script exists and is executable"
 else
     echo_red "  ✗ Python wrapper script missing!"
