@@ -21,8 +21,9 @@ try:
     from ..managers.php_manager import detect_bundled_php_versions, get_default_php_version, get_php_ini_path
     from ..managers.node_manager import list_installed_node_versions
     from .widgets.site_list_item_widget import SiteListItemWidget
+    from .site_detail_widget import SiteDetailWidget # Import the new detail widget
 except ImportError as e:
-    print(f"ERROR in sites_page.py: Could not import core/manager modules: {e}")
+    logger.critical(f"SITES_PAGE_IMPORT_ERROR: Could not import dependencies: {e}", exc_info=True) # Use logger
     # Define dummy functions/constants if import fails
     class ConfigDummy:
         SITE_TLD = "test"; DEFAULT_PHP = "default";
@@ -67,11 +68,9 @@ class SitesPage(QWidget):
         self._main_window = parent
         self.current_site_info = None
         self._available_php_versions = []
-        self._ignore_https_toggle = False
-        self._cached_installed_node_versions = None
-        # Cache for detail widgets (keyed by site ID?) - might not be needed if rebuilt each time
-        self._detail_widgets_cache = {}
-        self._header_widgets = []
+        self._cached_installed_node_versions = None # Cache this at SitesPage level
+        # self._ignore_https_toggle = False # This logic will move to SiteConfigPanel
+        # self._detail_widgets_cache = {} # This will be managed by SiteDetailWidget internals
 
         # --- Main Layout (Horizontal Splitter: List | Details) ---
         main_layout = QHBoxLayout(self)
@@ -126,41 +125,58 @@ class SitesPage(QWidget):
         # Create a container widget for the actual details layout
         self.details_container_widget = QWidget()
         self.details_container_widget.setObjectName("SiteDetailsContainer")
-        self.details_scroll_area.setWidget(self.details_container_widget)
-        # The layout for the details goes INSIDE the container widget
-        self.details_layout = QVBoxLayout(self.details_container_widget)  # Store reference
-        self.details_layout.setContentsMargins(25, 20, 25, 20)  # Padding for details
-        self.details_layout.setSpacing(25)  # Spacing between sections
+        self.details_scroll_area.setWidget(self.details_container_widget) # Keep scroll area
 
-        # Initial placeholder
-        self.placeholder_label = QLabel("Select a site from the list on the left.")
-        self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.placeholder_label.setStyleSheet("color: grey;")
+        # Instantiate SiteDetailWidget and make it the content of details_container_widget
+        # It will manage its own internal layout.
+        self.site_detail_widget = SiteDetailWidget(
+            available_php_versions=self._available_php_versions,
+            installed_node_versions=self._cached_installed_node_versions
+        )
+        details_container_layout = QVBoxLayout(self.details_container_widget)
+        details_container_layout.setContentsMargins(0,0,0,0)
+        details_container_layout.addWidget(self.site_detail_widget)
 
-        self.splitter.addWidget(self.details_scroll_area)  # Add scroll area to splitter
-        self.splitter.setSizes([250, 600])  # Initial sizes
+        # Initial placeholder managed by SiteDetailWidget or by hiding it
+        # For now, SiteDetailWidget might show its own placeholder or be empty.
+        # We will call update_details(None) to show placeholder initially.
+
+        self.splitter.addWidget(self.details_scroll_area)
+        self.splitter.setSizes([250, 600])
 
         # --- Connect Signals ---
         self.site_list_widget.currentItemChanged.connect(self.on_site_selection_changed)
+
+        # Connect signals from SiteDetailWidget to SitesPage slots or MainWindow via re-emitting
+        self.site_detail_widget.openTerminalRequested.connect(self.on_open_terminal_clicked)
+        self.site_detail_widget.openEditorRequested.connect(self.on_open_editor_clicked)
+        self.site_detail_widget.openTinkerRequested.connect(self.on_open_tinker_clicked)
+        self.site_detail_widget.openDbGuiRequested.connect(self.on_open_db_gui_clicked)
+        self.site_detail_widget.phpVersionChangeForSiteRequested.connect(self._on_php_version_change_from_detail)
+        self.site_detail_widget.nodeVersionChangeForSiteRequested.connect(self._on_node_version_change_from_detail)
+        self.site_detail_widget.httpsToggleForSiteRequested.connect(self._on_https_toggle_from_detail)
+        self.site_detail_widget.domainSaveForSiteRequested.connect(self._on_domain_save_from_detail)
+        self.site_detail_widget.openPathForSiteRequested.connect(self.on_open_path_clicked)
+
+
         # --- Initial State ---
-        self.display_site_details(None)
+        self._fetch_initial_versions() # Fetch PHP and Node versions once
+        self.display_site_details(None) # Show placeholder
 
     # --- Header Action Methods ---
-    def add_header_actions(self, main_window):
+    def add_header_actions(self, header_widget):
         """
-        Adds page-specific actions to the main window header.
-        Now accepts main_window instead of layout.
+        Adds page-specific actions to the HeaderWidget.
         """
         self.log_to_main("SitesPage: Adding header actions...")
 
-        main_window.add_header_action(self.link_button, "sites_page")
-        main_window.add_header_action(self.search_input, "sites_page")
+        header_widget.add_action_widget(self.search_input) # Add search first
+        header_widget.add_action_widget(self.link_button)   # Then add button
 
-        if self.link_button.parent():
-            self.link_button.parent().layout().removeWidget(self.link_button)
-
-        if self.search_input.parent():
-            self.search_input.parent().layout().removeWidget(self.search_input)
+        # The buttons are created in __init__ and are members of SitesPage.
+        # HeaderWidget's add_action_widget should handle reparenting if they were previously in a layout.
+        # If they are not in any layout yet (which is typical if created in __init__ and only added here),
+        # no explicit removal is needed.
 
     def remove_header_actions(self, layout=None):
         """
@@ -209,134 +225,69 @@ class SitesPage(QWidget):
     def on_site_selection_changed(self, current_item, previous_item):
         self.display_site_details(current_item)
 
-    def display_site_details(self, selected_item):
-        """Clears and populates the right pane with preview, actions, and info."""
-        self._clear_details_layout()
-        self.current_site_info = None
-        self._detail_widgets_cache = {}
+    def display_site_details(self, selected_item: QListWidgetItem = None):
+        """Updates the SiteDetailWidget with the selected site's information."""
+        if not hasattr(self, 'site_detail_widget'): # Should exist if __init__ ran
+            logger.error("SiteDetailWidget not initialized in SitesPage.")
+            return
 
         if not selected_item:
-            self._show_details_placeholder("Select a site from the list on the left.")
+            self.current_site_info = None
+            # Tell SiteDetailWidget to show its placeholder or clear details
+            self.site_detail_widget.update_details(None, self._available_php_versions, self._cached_installed_node_versions)
+            # Optionally, hide the detail widget if no item is selected, though its internal placeholder might be enough.
+            # self.placeholder_label.setVisible(True) # If using a SitesPage level placeholder
+            # self.details_scroll_area.setVisible(False)
             return
 
         site_info = selected_item.data(Qt.ItemDataRole.UserRole)
-        if not site_info or 'path' not in site_info or 'domain' not in site_info:
-             self._show_details_placeholder("Error loading site details."); return
+        if not site_info or not isinstance(site_info, dict) or 'path' not in site_info or 'domain' not in site_info:
+            logger.error(f"Invalid site_info data for selected item: {site_info}")
+            self.current_site_info = None
+            self.site_detail_widget.update_details(None, self._available_php_versions, self._cached_installed_node_versions)
+            return
 
         self.current_site_info = site_info
-        details_font = QFont("Sans Serif", 10); label_font = QFont("Sans Serif", 10, QFont.Weight.Bold)
+        # self.details_scroll_area.setVisible(True) # Ensure it's visible
+        # self.placeholder_label.setVisible(False) # Hide placeholder
 
-        # --- Populate Details Layout ---
+        # Pass necessary data to the SiteDetailWidget
+        self.site_detail_widget.update_details(
+            self.current_site_info,
+            self._available_php_versions,
+            self._cached_installed_node_versions
+        )
+        # The old logic for creating preview, action buttons, form layout, etc.,
+        # is now encapsulated within SiteDetailWidget and its child panels.
+        # The _clear_details_layout and _show_details_placeholder methods are no longer needed here.
+        # The _create_action_row is also now internal to SiteActionsPanel.
 
-        # --- Top Section: Preview & Actions (Unchanged) ---
-        top_section_layout = QHBoxLayout(); top_section_layout.setSpacing(30); top_section_layout.setContentsMargins(0,0,0,0); preview_widget = QWidget(); preview_widget.setObjectName("SitePreviewWidget"); preview_layout = QVBoxLayout(preview_widget); preview_layout.setSpacing(10); preview_layout.setContentsMargins(0,0,0,0); self.preview_image_label = QLabel("Preview Loading..."); self.preview_image_label.setObjectName("SitePreviewLabel"); self.preview_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter); self.preview_image_label.setMinimumSize(240, 150); self.preview_image_label.setMaximumSize(300, 188); self.preview_image_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred); self.preview_image_label.setStyleSheet("..."); self.update_site_preview(site_info.get('domain', '')); preview_layout.addWidget(self.preview_image_label); preview_button = QPushButton("Preview"); preview_button.setObjectName("OpenButton"); preview_button.setToolTip("Open site in browser"); preview_button.clicked.connect(self.on_open_site_clicked); preview_layout.addWidget(preview_button, 0, Qt.AlignmentFlag.AlignCenter); preview_layout.addStretch(); top_section_layout.addWidget(preview_widget, 0); actions_widget = QWidget(); actions_widget.setObjectName("SiteActionsWidget"); actions_layout = QVBoxLayout(actions_widget); actions_layout.setSpacing(12); actions_layout.setContentsMargins(0,0,0,0); actions_layout.addLayout(self._create_action_row("Terminal", self.on_open_terminal_clicked)); actions_layout.addLayout(self._create_action_row("Editor", self.on_open_editor_clicked)); actions_layout.addLayout(self._create_action_row("Tinker", self.on_open_tinker_clicked, enabled=(site_info.get('framework_type') == 'Laravel'))); actions_layout.addLayout(self._create_action_row("Database", self.on_open_db_gui_clicked)); actions_layout.addStretch(); top_section_layout.addWidget(actions_widget, 1); self.details_layout.addLayout(top_section_layout)
+    def _fetch_initial_versions(self):
+        """Fetches PHP and Node versions once."""
+        if not self._available_php_versions: # Fetch only if not already fetched
+            try:
+                self._available_php_versions = detect_bundled_php_versions()
+                logger.debug(f"Fetched available PHP versions: {self._available_php_versions}")
+            except Exception as e:
+                logger.error(f"Error fetching available PHP versions: {e}", exc_info=True)
+                self._available_php_versions = []
 
-        # --- Separator ---
-        separator = QFrame(); separator.setFrameShape(QFrame.Shape.HLine); separator.setFrameShadow(QFrame.Shadow.Sunken); separator.setStyleSheet("border-color: #E9ECEF;");
-        self.details_layout.addWidget(separator)
+        if self._cached_installed_node_versions is None: # Fetch only if not already fetched
+            try:
+                self._cached_installed_node_versions = list_installed_node_versions()
+                logger.debug(f"Fetched installed Node versions: {self._cached_installed_node_versions}")
+            except Exception as e:
+                logger.error(f"Error fetching installed Node versions: {e}", exc_info=True)
+                self._cached_installed_node_versions = []
 
-        # --- Bottom Section: General Info & Config <<< RESTRUCTURED ---
-        # Title Row (Title + Unlink Button)
-        bottom_title_layout = QHBoxLayout(); bottom_title_layout.setContentsMargins(0,0,0,5)
-        bottom_title = QLabel("General"); bottom_title.setFont(label_font)
-        unlink_site_button = QPushButton("Unlink Site"); unlink_site_button.setObjectName("UnlinkSiteButton"); unlink_site_button.setToolTip("Remove this site link")
-        unlink_site_button.clicked.connect(self.on_unlink_internal_click)
-        bottom_title_layout.addWidget(bottom_title); bottom_title_layout.addStretch(); bottom_title_layout.addWidget(unlink_site_button)
-        self.details_layout.addLayout(bottom_title_layout)
 
-        # Use a single FormLayout for all general fields
-        general_form_layout = QFormLayout()
-        general_form_layout.setSpacing(10)
-        general_form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft) # Labels on left
-        general_form_layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        general_form_layout.setContentsMargins(0, 10, 0, 0) # Add top margin
-
-        # --- PHP Version ---
-        php_version_combo=QComboBox(); php_version_combo.setFont(details_font); self._available_php_versions = detect_bundled_php_versions(); php_version_combo.addItem("Default");
-        if self._available_php_versions: php_version_combo.addItems(self._available_php_versions);
-        stored_php = site_info.get('php_version', config.DEFAULT_PHP);
-        if stored_php == config.DEFAULT_PHP: php_version_combo.setCurrentText("Default")
-        else: php_version_combo.setCurrentText(stored_php)
-        php_version_combo.currentTextChanged.connect(self.on_php_version_changed_for_site);
-        general_form_layout.addRow("PHP Version:", php_version_combo)
-        self._detail_widgets_cache['php_version_combo'] = php_version_combo
-
-        # --- Node Version (Conditional) ---
-        if site_info.get('needs_node', False):
-            node_version_combo = QComboBox()
-            node_version_combo.setFont(details_font)
-            node_version_combo.setToolTip("Select Node.js version for this site")
-            node_version_combo.addItem("System")
-
-            # --- Use Cache or Fetch ---
-            if self._cached_installed_node_versions is None:
-                self.log_to_main("Fetching installed Node versions for dropdown...")
-                try:
-                    self._cached_installed_node_versions = list_installed_node_versions()
-                except Exception as e:
-                    self.log_to_main(f"Error getting installed Node versions: {e}")
-                    self._cached_installed_node_versions = []  # Store empty list on error
-            # --- Populate from Cache ---
-            if self._cached_installed_node_versions:
-                node_version_combo.addItems(self._cached_installed_node_versions)
-
-            # Set current value
-            stored_node = site_info.get('node_version', config.DEFAULT_NODE)
-            if stored_node == config.DEFAULT_NODE:
-                node_version_combo.setCurrentText("System")
-            else:
-                node_version_combo.setCurrentText(stored_node)
-
-            # Connect signal
-            node_version_combo.currentTextChanged.connect(self.on_node_version_changed_for_site)
-
-            # Add Refresh button next to combo box
-            refresh_node_button = QPushButton("🔄");  # Use refresh icon/symbol
-            refresh_node_button.setToolTip("Refresh installed Node version list")
-            refresh_node_button.setObjectName("RefreshNodeButton")  # For styling
-            refresh_node_button.setFixedSize(QSize(28, 28))  # Small button
-            refresh_node_button.clicked.connect(self._refresh_node_list_for_site)
-
-            node_row_layout = QHBoxLayout();
-            node_row_layout.setContentsMargins(0, 0, 0, 0)
-            node_row_layout.addWidget(node_version_combo, 1)  # Combo takes stretch
-            node_row_layout.addWidget(refresh_node_button)  # Add refresh button
-            general_form_layout.addRow("Node Version:", node_row_layout)  # Add HBox layout as row widget
-            self._detail_widgets_cache['node_version_combo'] = node_version_combo  # Cache reference
-            self._detail_widgets_cache['refresh_node_button'] = refresh_node_button
-        # --- End Node Version ---
-
-        # --- HTTPS ---
-        https_checkbox = QCheckBox(); https_checkbox.setToolTip("Enable HTTPS"); self._ignore_https_toggle=True; https_checkbox.setChecked(site_info.get('https',False)); self._ignore_https_toggle=False; https_checkbox.stateChanged.connect(self.on_https_toggled);
-        general_form_layout.addRow("HTTPS:", https_checkbox)
-        self._detail_widgets_cache['https_checkbox'] = https_checkbox
-
-        # Path Row (Clickable Button)
-        site_path_str = site_info.get('path','N/A')
-        path_button = QPushButton(site_path_str); path_button.setFont(details_font); path_button.setToolTip("Click to open directory"); path_button.setObjectName("PathButton"); path_button.setFlat(True); path_button.setStyleSheet("text-align: left; border: none; color: #007AFF; padding: 0; margin: 0;"); path_button.setCursor(Qt.CursorShape.PointingHandCursor); path_button.clicked.connect(self.on_open_path_clicked);
-        general_form_layout.addRow("Path:", path_button)
-        self._detail_widgets_cache['path_button'] = path_button
-
-        # URL Row (Domain Edit + Save)
-        url_edit=QLineEdit(site_info.get('domain','')); url_edit.setFont(details_font); url_edit.setPlaceholderText(f"site.{config.SITE_TLD}"); regex=QRegularExpression(f"^[a-zA-Z0-9-]+(\\.{config.SITE_TLD})$"); validator=QRegularExpressionValidator(regex, url_edit); url_edit.setValidator(validator); url_edit.textChanged.connect(self.on_url_text_changed);
-        save_url_button=QPushButton("Save"); save_url_button.setObjectName("SaveUrlButton"); save_url_button.setEnabled(False); save_url_button.clicked.connect(self.on_save_url_internal_click);
-        url_hbox = QHBoxLayout(); url_hbox.addWidget(url_edit, 1); url_hbox.addWidget(save_url_button); url_hbox.setContentsMargins(0,0,0,0) # No extra margins for hbox
-        general_form_layout.addRow("URL:", url_hbox)
-        self._detail_widgets_cache['url_edit'] = url_edit; self._detail_widgets_cache['save_url_button'] = save_url_button;
-
-        # Add the single form layout to the main details layout
-        self.details_layout.addLayout(general_form_layout)
-        # --- End Bottom Section ---
-
-        self.details_layout.addStretch(1) # Push everything up
-
-    # --- Action Button Slots
+    # --- Slots for signals from SiteDetailWidget (or its child panels) ---
     @Slot()
-    def on_open_terminal_clicked(self):
-        # ... (Implementation as before) ...
-        if not self.current_site_info or not self.current_site_info.get('path'): self.log_to_main(
-            "Error: No site selected for terminal."); return
-        site_path = self.current_site_info['path'];
+    def on_open_terminal_clicked(self): # Connected to SiteDetailWidget.openTerminalRequested
+        if not self.current_site_info or not self.current_site_info.get('path'):
+            self.log_to_main("SitesPage: Error - No site selected or path missing for 'Open Terminal'.")
+            return
+        site_path = self.current_site_info['path']
         self.log_to_main(f"Opening terminal in: {site_path}")
         try:
             terminal = None;
@@ -363,11 +314,12 @@ class SitesPage(QWidget):
             self.log_to_main(f"Error opening terminal: {e}"); QMessageBox.critical(self, "Error", f"Failed:\n{e}")
 
     @Slot()
-    def on_open_editor_clicked(self):
-        """Opens the site directory in a preferred editor (PhpStorm, VS Code)."""
-        if not self.current_site_info or not self.current_site_info.get('path'): return
+    def on_open_editor_clicked(self): # Connected to SiteDetailWidget.openEditorRequested
+        if not self.current_site_info or not self.current_site_info.get('path'):
+            self.log_to_main("SitesPage: Error - No site selected or path missing for 'Open Editor'.")
+            return
         site_path = self.current_site_info['path']
-        editor_cmd_path = None
+        editor_cmd_path = None # Logic to find editor remains the same
         editor_name = "editor"
         # Prioritize PhpStorm, then VS Code
         for cmd_name in ["phpstorm", "code"]:
@@ -388,10 +340,9 @@ class SitesPage(QWidget):
             self.log_to_main(f"Error opening {editor_name}: {e}"); QMessageBox.critical(self, "Error", f"Failed:\n{e}")
 
     @Slot()
-    def on_open_db_gui_clicked(self):
-        """Opens a preferred database GUI tool (TablePlus, DBeaver, Workbench)."""
-        self.log_to_main("Attempting to open Database GUI...")
-        db_gui_cmd_path = None
+    def on_open_db_gui_clicked(self): # Connected to SiteDetailWidget.openDbGuiRequested
+        self.log_to_main("SitesPage: Attempting to open Database GUI...")
+        db_gui_cmd_path = None # Logic to find DB GUI remains the same
         db_gui_name = "DB GUI"
         # Prioritize TablePlus, then DBeaver, then Workbench
         for cmd_name in ["tableplus", "dbeaver", "mysql-workbench"]:
@@ -410,160 +361,91 @@ class SitesPage(QWidget):
             self.log_to_main(f"Error opening {db_gui_name}: {e}"); QMessageBox.critical(self, "Error", f"Failed:\n{e}")
 
     @Slot()
-    def on_open_site_clicked(self):
-        """Opens the site's URL (HTTP or HTTPS) in the default web browser."""
+    def on_open_site_clicked(self): # This slot will be connected to SiteDetailWidget.previewRequested or similar
         if not self.current_site_info or not self.current_site_info.get('domain'):
-            self.log_to_main("Error: No site selected or domain missing for opening site.")
+            self.log_to_main("SitesPage: Error - No site selected or domain missing for 'Open Site'.")
             return
-
         domain = self.current_site_info['domain']
         use_https = self.current_site_info.get('https', False)
         protocol = "https" if use_https else "http"
-        url_str = f"{protocol}://{domain}"
-        url = QUrl(url_str)
-
-        self.log_to_main(f"Attempting to open URL: {url.toString()}")
+        url = QUrl(f"{protocol}://{domain}")
+        self.log_to_main(f"SitesPage: Attempting to open URL: {url.toString()}")
         if not QDesktopServices.openUrl(url):
-            self.log_to_main(f"Error: Failed to open URL {url.toString()}")
-            QMessageBox.warning(self, "Cannot Open URL",
-                                f"Could not open the URL:\n{url.toString()}\n\nIs a default browser configured?")
+            self.log_to_main(f"SitesPage: Error - Failed to open URL {url.toString()}")
+            QMessageBox.warning(self, "Cannot Open URL", f"Could not open the URL:\n{url.toString()}")
 
-    def _add_section_separator(self):
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        separator.setProperty("class", "section-separator")
-        return separator
-
-    def _clear_details_layout(self):
-         """Removes all widgets from the details layout."""
-         # Corrected version
-         while self.details_layout.count():
-            item = self.details_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None: widget.deleteLater()
-            else: layout_item = item.layout(); self._clear_nested_layout(layout_item)
-         self._detail_widgets = {}
-
-    def _clear_nested_layout(self, layout): # Helper for clearing layouts
-         """Recursively clears widgets from a nested layout."""
-         if layout is None: return
-         while layout.count():
-             item = layout.takeAt(0); widget = item.widget()
-             if widget: widget.deleteLater()
-             else: self._clear_nested_layout(item.layout()) # Recurse
-
-    def _show_details_placeholder(self, text):
-        """Shows a placeholder message in the details area."""
-        self._clear_details_layout()
-
-        # Create a new placeholder label each time instead of reusing the existing one
-        self.placeholder_label = QLabel(text)
-        self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.placeholder_label.setStyleSheet("color: grey;")
-
-        self.details_layout.addWidget(self.placeholder_label)
-        self.details_layout.addStretch()
-        self._detail_widgets_cache['placeholder'] = self.placeholder_label
-
-    def _create_action_row(self, label_text, slot_to_connect, enabled=True, tooltip=None):
-        """Creates a QHBoxLayout with Label, Stretch, and Open Button."""
-        layout = QHBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)  # No margins for inner row layout
-        label = QLabel(label_text)
-        button = QPushButton("Open")
-        button.setObjectName("OpenButton")  # Use consistent style name
-        button.clicked.connect(slot_to_connect)
-        button.setEnabled(enabled)
-        if tooltip: button.setToolTip(tooltip)
-        layout.addWidget(label)
-        layout.addStretch()
-        layout.addWidget(button)
-        return layout
+    # Methods like _add_section_separator, _clear_details_layout, _show_details_placeholder,
+    # _create_action_row are now part of SiteDetailWidget or its sub-panels.
+    # Slots like on_url_text_changed, on_save_url_internal_click,
+    # on_php_version_changed_for_site, on_node_version_changed_for_site, on_https_toggled
+    # will now be replaced by slots connected to signals from SiteDetailWidget.
 
     @Slot(str)
-    def on_url_text_changed(self, new_text):  # (Unchanged)
-        if not self.current_site_info: return;
-        save_btn = self._detail_widgets_cache.get('save_url_button'); url_edit = self._detail_widgets_cache.get('url_edit');
-        if not save_btn or not url_edit: return;
-        original = self.current_site_info.get('domain', '')
-        is_valid = url_edit.hasAcceptableInput()
-        is_changed = (new_text != original); save_btn.setEnabled(is_valid and is_changed)
-
-    @Slot()
-    def on_save_url_internal_click(self):
-        """Validates and emits signal to save the new domain."""
-        # Corrected multi-line version
-        if not self.current_site_info: return
-        url_edit = self._detail_widgets_cache.get('url_edit'); save_btn = self._detail_widgets_cache.get('save_url_button')
-        if not url_edit or not save_btn: return
-        if not url_edit.hasAcceptableInput(): self.log_to_main("Error: Invalid domain format."); return
-        new_domain = url_edit.text(); original = self.current_site_info.get('domain', '')
-        if new_domain == original: return
-        self.log_to_main(f"Request domain change '{self.current_site_info['path']}' -> '{new_domain}'");
-        save_btn.setEnabled(False); self.saveSiteDomainClicked.emit(self.current_site_info, new_domain)
+    def _on_domain_save_from_detail(self, new_domain: str):
+        if not self.current_site_info:
+            logger.error("SitesPage: Cannot save domain, current_site_info is not set.")
+            return
+        logger.info(f"SitesPage: Domain save requested for site '{self.current_site_info.get('path')}' -> '{new_domain}'")
+        # Potentially disable parts of SiteDetailWidget or show loading indicator
+        self.set_controls_enabled(False) # Disable whole page for now
+        self.saveSiteDomainClicked.emit(self.current_site_info, new_domain)
 
     @Slot(str)
-    def on_php_version_changed_for_site(self, selected_text):
-        """Triggers saving the new PHP version for the current site."""
-        if not self.current_site_info: return
-        php_combo = self._detail_widgets_cache.get('php_version_combo')
-        if not php_combo: return
-
-        stored_version = self.current_site_info.get('php_version', config.DEFAULT_PHP)
-        current_selection = config.DEFAULT_PHP if selected_text == "Default" else selected_text
-        stored_ui_value = config.DEFAULT_PHP if stored_version == config.DEFAULT_PHP else stored_version
-
-        if current_selection != stored_ui_value:
-             self.log_to_main(f"Request PHP change for site '{self.current_site_info['domain']}' -> '{current_selection}'")
-             # Disable combo temporarily? Or rely on MainWindow disabling page?
-             # php_combo.setEnabled(False)
-             self.setSitePhpVersionClicked.emit(self.current_site_info, current_selection)
+    def _on_php_version_change_from_detail(self, new_php_version: str):
+        if not self.current_site_info:
+            logger.error("SitesPage: Cannot change PHP version, current_site_info is not set.")
+            return
+        logger.info(f"SitesPage: PHP version change requested for site '{self.current_site_info.get('domain')}' -> '{new_php_version}'")
+        self.set_controls_enabled(False)
+        self.setSitePhpVersionClicked.emit(self.current_site_info, new_php_version)
 
     @Slot(str)
-    def on_node_version_changed_for_site(self, selected_text):
-        """Triggers saving the new Node version for the current site."""
-        if not self.current_site_info: return
-        node_combo = self._detail_widgets_cache.get('node_version_combo')
-        if not node_combo: return
+    def _on_node_version_change_from_detail(self, new_node_version: str):
+        if not self.current_site_info:
+            logger.error("SitesPage: Cannot change Node version, current_site_info is not set.")
+            return
+        logger.info(f"SitesPage: Node version change requested for site '{self.current_site_info.get('domain')}' -> '{new_node_version}'")
+        self.set_controls_enabled(False)
+        self.setSiteNodeVersionClicked.emit(self.current_site_info, new_node_version)
 
-        stored_version = self.current_site_info.get('node_version', config.DEFAULT_NODE)
-        # Map "System" UI text back to the internal default value
-        current_selection = config.DEFAULT_NODE if selected_text == "System" else selected_text
+    @Slot(bool)
+    def _on_https_toggle_from_detail(self, enabled: bool):
+        if not self.current_site_info:
+            logger.error("SitesPage: Cannot toggle HTTPS, current_site_info is not set.")
+            return
+        logger.info(f"SitesPage: HTTPS toggle requested for site '{self.current_site_info.get('domain')}': {enabled}")
+        self.set_controls_enabled(False)
+        if enabled:
+            self.enableSiteSslClicked.emit(self.current_site_info)
+        else:
+            self.disableSiteSslClicked.emit(self.current_site_info)
 
-        if current_selection != stored_version:
-            self.log_to_main(
-                f"Request Node change for site '{self.current_site_info['domain']}' -> '{current_selection}'")
-            # Disable combo temporarily? Or rely on MainWindow disabling page?
-            # node_combo.setEnabled(False)
-            self.setSiteNodeVersionClicked.emit(self.current_site_info, current_selection)
+    @Slot(str)
+    def on_open_path_clicked(self, site_path: str = None): # Can be called by SiteDetailWidget or directly
+        path_to_open = site_path
+        if not path_to_open and self.current_site_info: # Fallback if called without arg but site selected
+            path_to_open = self.current_site_info.get('path')
+
+        if not path_to_open:
+            self.log_to_main("SitesPage: Error - No site path available for 'Open Path'.")
+            return
+
+        self.log_to_main(f"SitesPage: Attempting to open path: {path_to_open}")
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(path_to_open)):
+            self.log_to_main(f"SitesPage: Error - Failed to open path {path_to_open}")
+            # Fallback attempt with xdg-open for Linux, or similar for other OS
+            if sys.platform == "linux":
+                xdg_open = shutil.which('xdg-open')
+                if xdg_open:
+                    logger.info(f"Attempting fallback with xdg-open {path_to_open}")
+                    try: subprocess.Popen([xdg_open, path_to_open])
+                    except Exception as e_xdg: logger.error(f"xdg-open fallback failed: {e_xdg}")
+                else: QMessageBox.warning(self, "Cannot Open Path", f"Could not open the directory:\n{path_to_open}")
+            else: QMessageBox.warning(self, "Cannot Open Path", f"Could not open the directory:\n{path_to_open}")
+
 
     @Slot()
-    def on_set_php_internal_click(self):
-        """Emits signal to tell MainWindow to save the new PHP version."""
-        # Corrected multi-line version
-        if not self.current_site_info: return
-        combo = self._detail_widgets_cache.get('php_version_combo'); set_btn = self._detail_widgets_cache.get('set_php_button')
-        if not combo or not set_btn: return
-        selected = combo.currentText(); version_to_save = config.DEFAULT_PHP if selected == "Default" else selected # Use imported constant
-        stored = self.current_site_info.get('php_version', config.DEFAULT_PHP)
-        if version_to_save == stored: return # Should be disabled, but check
-        self.log_to_main(f"Request PHP change '{self.current_site_info['path']}' -> '{version_to_save}'"); set_btn.setEnabled(False)
-        self.setSitePhpVersionClicked.emit(self.current_site_info, version_to_save)
-
-    @Slot(int)
-    def on_https_toggled(self, state): # (Unchanged)
-        if self._ignore_https_toggle or not self.current_site_info: return
-        is_enabled = (state == Qt.CheckState.Checked.value); currently_saved = self.current_site_info.get('https', False)
-        if is_enabled != currently_saved:
-            self.log_to_main(f"HTTPS toggled {'ON' if is_enabled else 'OFF'} for {self.current_site_info['domain']}")
-            https_checkbox = self._detail_widgets_cache.get('https_checkbox')
-            if https_checkbox: https_checkbox.setEnabled(False) # Disable temporarily
-            if is_enabled: self.enableSiteSslClicked.emit(self.current_site_info)
-            else: self.disableSiteSslClicked.emit(self.current_site_info)
-
-    @Slot()
-    def on_open_tinker_clicked(self):
+    def on_open_tinker_clicked(self): # Connected to SiteDetailWidget.openTinkerRequested
         """Opens Laravel Tinker in a new terminal."""
         if not self.current_site_info or not self.current_site_info.get('path'):
             self.log_to_main("Error: No site selected or path missing for Tinker.")
@@ -607,30 +489,34 @@ class SitesPage(QWidget):
             self.log_to_main(f"Error opening Tinker: {e}"); QMessageBox.critical(self, "Error", f"Failed:\n{e}")
 
     @Slot()
-    def on_open_path_clicked(self):
-        """Opens the site's directory in the default file manager."""
-        if not self.current_site_info or not self.current_site_info.get('path'):
-            self.log_to_main("Error: No site selected or path missing for opening path.")
+    def on_open_path_clicked(self, site_path: str = None): # Can be called by SiteDetailWidget or directly
+        path_to_open = site_path
+        if not path_to_open and self.current_site_info: # Fallback if called without arg but site selected
+            path_to_open = self.current_site_info.get('path')
+
+        if not path_to_open:
+            self.log_to_main("SitesPage: Error - No site path available for 'Open Path'.")
             return
-        site_path = self.current_site_info['path']
-        self.log_to_main(f"Attempting to open path: {site_path}")
-        try:
-            url = QUrl.fromLocalFile(site_path)  # Convert path to URL
-            if not QDesktopServices.openUrl(url):
-                self.log_to_main(f"Error: Failed to open path {site_path} using QDesktopServices.")
-                # Fallback using xdg-open?
+
+        self.log_to_main(f"SitesPage: Attempting to open path: {path_to_open}")
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(path_to_open)):
+            self.log_to_main(f"SitesPage: Error - Failed to open path {path_to_open}")
+            # Fallback attempt with xdg-open for Linux, or similar for other OS
+            if sys.platform == "linux":
                 xdg_open = shutil.which('xdg-open')
                 if xdg_open:
-                    print(f"Attempting fallback with xdg-open {site_path}")
-                    subprocess.Popen([xdg_open, site_path])
-                else:
-                    QMessageBox.warning(self, "Cannot Open Path", f"Could not open the directory:\n{site_path}")
-        except Exception as e:
-            self.log_to_main(f"Error opening path {site_path}: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to open path:\n{e}")
+                    logger.info(f"Attempting fallback with xdg-open {path_to_open}")
+                    try: subprocess.Popen([xdg_open, path_to_open])
+                    except Exception as e_xdg: logger.error(f"xdg-open fallback failed: {e_xdg}")
+                else: QMessageBox.warning(self, "Cannot Open Path", f"Could not open the directory:\n{path_to_open}")
+            else: QMessageBox.warning(self, "Cannot Open Path", f"Could not open the directory:\n{path_to_open}")
+
 
     @Slot()
-    def _refresh_node_list_for_site(self):
+    def _refresh_node_list_for_site(self): # This is now internal to SiteConfigPanel if called from there
+                                         # Or SitesPage can call it on SiteConfigPanel instance.
+                                         # For now, let's assume SiteConfigPanel handles its own refresh button.
+                                         # This method might be removed if SiteConfigPanel fully encapsulates this.
         """Clears the node version cache and refreshes the dropdown for the current site."""
         self.log_to_main("SitesPage: Refreshing Node version list for dropdown...")
         self.clear_node_cache()  # Clear the cache
@@ -750,21 +636,19 @@ class SitesPage(QWidget):
             print(f"Error in SitesPage.refresh_data: {e}")
             traceback.print_exc()
 
-            # Attempt to show placeholder as fallback
-            try:
-                self._show_details_placeholder("Error loading site details. Please try again.")
-            except Exception:
-                pass  # Last resort - if even showing placeholder fails, just continue
+            # Attempt to show placeholder as fallback if SiteDetailWidget fails to render
+            if hasattr(self, 'site_detail_widget') and self.site_detail_widget:
+                 self.site_detail_widget.update_details(None, [], []) # Clear it
+            logger.error(f"Error in SitesPage.refresh_data, attempting to clear details: {e}", exc_info=True)
+
 
     @Slot(str)
-    def on_favorite_toggled(self, site_id):
+    def on_favorite_toggled(self, site_id: str): # site_id comes from SiteListItemWidget
         """Emits signal to MainWindow when a site's favorite status is toggled."""
         self.log_to_main(f"SitesPage: Favorite toggled for site ID: {site_id}")
-        # Add debug print right before emitting
-        print(f"DEBUG SitesPage: Emitting toggleSiteFavoriteRequested with ID: '{site_id}' (type: {type(site_id)})")
         self.toggleSiteFavoriteRequested.emit(site_id)
 
-    def clear_node_cache(self):
+    def clear_node_cache(self): # This might be called by MainWindow after Node installs
         """Clears the cached list of installed node versions."""
         self.log_to_main("SitesPage: Clearing installed Node version cache.")
         self._cached_installed_node_versions = None
@@ -773,44 +657,22 @@ class SitesPage(QWidget):
     def set_controls_enabled(self, enabled):
         """Enable/disable controls on this page."""
         self.log_to_main(f"SitesPage: Setting controls enabled state: {enabled}")
-        self.site_list_widget.setEnabled(enabled);
-        # Enable/disable widgets in the details pane based on cache
-        for key, widget in self._detail_widgets_cache.items():  # <<< Use cache
-            if key != 'placeholder':  # Don't disable placeholder
-                # Check if widget still exists before enabling/disabling
-                try:
-                    if widget and hasattr(widget, 'setEnabled'):
-                        widget.setEnabled(enabled)
-                except RuntimeError:  # Catch if widget was deleted
-                    self.log_to_main(f"Warn: Widget for key '{key}' deleted during set_controls_enabled.")
-                    continue  # Skip to next widget
+        self.site_list_widget.setEnabled(enabled)
+        if hasattr(self, 'link_button'): self.link_button.setEnabled(enabled) # If it's still a member
+        if hasattr(self, 'search_input'): self.search_input.setEnabled(enabled) # If it's still a member
 
-        # Re-evaluate save button state if enabling
-        if enabled and 'url_edit' in self._detail_widgets_cache:  # <<< Use cache
-            try:
-                self.on_url_text_changed(self._detail_widgets_cache['url_edit'].text())
-            except RuntimeError:
-                pass  # Ignore if url_edit deleted
+        if hasattr(self, 'site_detail_widget') and self.site_detail_widget:
+            self.site_detail_widget.set_controls_enabled(enabled)
 
-    def _set_detail_widget_enabled(self, widget_key, enabled, check_condition=None):
-        """Helper to enable/disable a specific widget in the details cache."""
-        widget = self._detail_widgets_cache.get(widget_key)  # <<< Use cache
-        if not widget: return
-        try:  # Add try-except for safety
-            if not enabled:
-                widget.setEnabled(False)
-            elif check_condition and callable(check_condition):
-                if widget_key == 'save_url_button':
-                    self.on_url_text_changed(self._detail_widgets_cache.get('url_edit').text())  # <<< Use cache
-                # Add other condition checks if needed
-                else:
-                    widget.setEnabled(True)
-            else:
-                widget.setEnabled(True)
-        except RuntimeError:
-            pass  # Ignore if widget deleted
+        # If enabling, refresh data to ensure states are correct
+        if enabled:
+            self.refresh_data() # This will also call update_details on SiteDetailWidget
+
+    # _set_detail_widget_enabled is no longer needed as SiteDetailWidget/SiteConfigPanel manage their own internal states.
 
     # Helper to log messages via MainWindow
-    def log_to_main(self, message): # (Unchanged)
-        if self._main_window and hasattr(self._main_window, 'log_message'): self._main_window.log_message(message)
-        else: print(f"SitesPage Log: {message}")
+    def log_to_main(self, message):
+        if self._main_window and hasattr(self._main_window, 'log_message'):
+             self._main_window.log_message(message)
+        else: # Fallback if no main window or log_message method (e.g. testing)
+            logger.info(f"SitesPage Log (fallback): {message}")

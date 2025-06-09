@@ -125,15 +125,19 @@ class NodePage(QWidget):
         # QTimer.singleShot(100, self.refresh_data) # Trigger initial load slightly delayed
 
     # --- Header Action Methods ---
-    def add_header_actions(self, main_window):
+    def add_header_actions(self, header_widget): # Changed parameter
         """
-        Add page-specific action buttons to the main window's header.
+        Add page-specific action buttons to the HeaderWidget.
         Called by MainWindow when this page is activated.
         """
-        main_window.add_header_action(self.refresh_button, "node_page")
+        logger.debug("NodePage: Adding header actions...") # Added logger
+        header_widget.add_action_widget(self.refresh_button)
 
-        if self.refresh_button.parent():
-            self.refresh_button.parent().layout().removeWidget(self.refresh_button)
+        # The refresh_button is created in __init__.
+        # HeaderWidget's add_action_widget should handle reparenting.
+        # The old logic of removing from parent is implicitly handled if it was in a layout
+        # and HeaderWidget.add_action_widget correctly reparents it.
+        # If it wasn't in a layout previously, no removal is needed.
 
     # --- Slots for Buttons ---
     @Slot()

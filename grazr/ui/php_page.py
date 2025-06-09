@@ -3,10 +3,10 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QHeaderView, QApplication, QAbstractItemView,
                                QGroupBox, QSpinBox, QSpacerItem, QSizePolicy,
                                QMenu, QAbstractButton, QListWidget, QFormLayout, QListWidgetItem)
-from PySide6.QtCore import Signal, Slot, Qt, QTimer, QRegularExpression, QPoint # Keep QRegularExpression if used here
-from PySide6.QtGui import QFont, QRegularExpressionValidator, QScreen # Keep QRegularExpressionValidator if used here
+from PySide6.QtCore import Signal, Slot, Qt, QTimer, QPoint # Removed QRegularExpression
+from PySide6.QtGui import QFont, QScreen # Removed QRegularExpressionValidator
 
-import re
+# import re # No longer needed in this file after refactor
 import subprocess
 import shutil
 import os
@@ -19,17 +19,18 @@ try:
     from ..managers.php_manager import (detect_bundled_php_versions,
                                         get_php_fpm_status,
                                         get_default_php_version,
-                                        get_ini_value,
-                                        get_php_ini_path
+                                        # get_ini_value, # Now used by CommonPhpIniSettingsWidget
+                                        # get_php_ini_path # Now used by CommonPhpIniSettingsWidget (indirectly via php_manager)
                                         )
     from .widgets.php_version_item_widget import PhpVersionItemWidget
+    from .common_php_ini_settings_widget import CommonPhpIniSettingsWidget # Import new widget
 except ImportError as e:
-    print(f"ERROR in php_page.py: Could not import from core/managers: {e}")
+    print(f"ERROR in php_page.py: Could not import from core/managers or local widgets: {e}")
     # Define dummy functions/constants
     def detect_bundled_php_versions(): return ["?.?(ImportErr)"]
     def get_php_fpm_status(v): return "unknown"
-    def get_ini_value(v, k, s='PHP'): return None
-    def get_php_ini_path(v): return Path(f"/tmp/error_php_{v}.ini")
+    # def get_ini_value(v, k, s='PHP'): return None # Dummy no longer needed here
+    # def get_php_ini_path(v): return Path(f"/tmp/error_php_{v}.ini") # Dummy no longer needed here
 
 
     class PhpVersionItemWidget(QWidget):
@@ -52,9 +53,8 @@ class PhpPage(QWidget):
         self._main_window = parent
         # Key: version string, Value: PhpVersionItemWidget instance
         self.version_widgets = {}
-        # Store INI values for change detection
-        self._current_ini_version = None  # Track which version INI settings are for
-        self._initial_ini_values = {}
+    # self._current_ini_version = None # Managed by CommonPhpIniSettingsWidget
+    # self._initial_ini_values = {} # Managed by CommonPhpIniSettingsWidget
 
         # --- Main Layout ---
         main_layout = QVBoxLayout(self)
@@ -81,49 +81,37 @@ class PhpPage(QWidget):
         # Apply basic style, can be overridden by global QSS
         self.version_list_widget.setStyleSheet(
             "QListWidget { border: none; border-top: 1px solid #E9ECEF; } QListWidget::item { border-bottom: 1px solid #E9ECEF; padding: 0; margin: 0; }")
-        main_layout.addWidget(self.version_list_widget)  # Let list take default space
+        main_layout.addWidget(self.version_list_widget)
 
-        # --- Common PHP INI Settings Section --- (Keep as before)
-        self.ini_group_box = QGroupBox("Common PHP INI Settings")  # Title set later
-        self.ini_group_box.setObjectName("PhpIniGroup")
-        self.ini_group_box.setFont(QFont("Sans Serif", 10, QFont.Bold))  # Set font if needed
-        ini_layout = QFormLayout(self.ini_group_box)
-        ini_layout.setContentsMargins(15, 20, 15, 15)  # Padding inside box
-        ini_layout.setSpacing(10)
-        ini_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-
-        # Upload Max Filesize
-        self.upload_spinbox = QSpinBox()
-        self.upload_spinbox.setRange(2, 2048);
-        self.upload_spinbox.setSuffix(" MB");
-        self.upload_spinbox.setToolTip("Sets 'upload_max_filesize' and 'post_max_size'")
-        self.upload_spinbox.valueChanged.connect(self.on_ini_value_changed)
-        ini_layout.addRow("Max File Upload Size:", self.upload_spinbox)
-
-        # Memory Limit
-        self.memory_spinbox = QSpinBox()
-        self.memory_spinbox.setRange(-1, 4096);
-        self.memory_spinbox.setSpecialValueText("Unlimited (-1)");
-        self.memory_spinbox.setSuffix(" MB");
-        self.memory_spinbox.setToolTip("Sets 'memory_limit'")
-        self.memory_spinbox.valueChanged.connect(self.on_ini_value_changed)
-        ini_layout.addRow("Memory Limit:", self.memory_spinbox)
-
-        # Save Button
-        self.save_ini_button = QPushButton("Save INI Settings")
-        self.save_ini_button.setObjectName("SaveIniButton")
-        self.save_ini_button.setEnabled(False)
-        self.save_ini_button.setToolTip("Save common INI changes for the displayed PHP version")
-        self.save_ini_button.clicked.connect(self.on_save_ini_internal_click)
-        button_hbox = QHBoxLayout();
-        button_hbox.addStretch();
-        button_hbox.addWidget(self.save_ini_button)
-        ini_layout.addRow(button_hbox)
-
-        main_layout.addWidget(self.ini_group_box)  # Add group box below list
+        # --- Common PHP INI Settings Section (using new widget) ---
+        self.common_ini_settings_widget = CommonPhpIniSettingsWidget()
+        self.common_ini_settings_widget.saveIniSettingsClicked.connect(
+            self.on_save_common_ini_settings_from_widget
+        )
+        main_layout.addWidget(self.common_ini_settings_widget)
         # --- End INI Settings Section ---
 
-        main_layout.addStretch(1)
+        main_layout.addStretch(1) # Add stretch after all content widgets
+
+    # --- Header Action Methods ---
+    def add_header_actions(self, header_widget):
+        """Adds page-specific actions to the HeaderWidget."""
+        logger.debug("PhpPage: Adding header actions...")
+        # self.install_button is created in __init__
+        # If the button was part of a layout in PhpPage, it needs to be removed from there first.
+        # However, looking at __init__, it's added to top_bar_layout which is part of main_layout.
+        # For componentization, it's better if this button is not added to PhpPage's own layout
+        # if it's meant to be in the main header.
+        # For now, assume it might be in a layout and try to remove it.
+        if self.install_button.parentWidget(): # Check if it has a parent widget (hence in a layout)
+            current_parent_layout = self.install_button.parentWidget().layout()
+            if current_parent_layout:
+                current_parent_layout.removeWidget(self.install_button)
+                # self.install_button.setParent(None) # HeaderWidget.add_action_widget should handle reparenting
+
+        header_widget.add_action_widget(self.install_button)
+        logger.debug("PhpPage: Added install_button to header.")
+
 
     @Slot(str, str)
     def on_fpm_action_clicked(self, version, action):
@@ -140,41 +128,20 @@ class PhpPage(QWidget):
         # This dialog will contain INI details AND extension management
         self.configurePhpVersionClicked.emit(version)
 
-    @Slot()
-    def on_ini_value_changed(self):
-        """Enables Save button if current values differ from initial."""
-        if not self._current_ini_version: return
-        changed = False
-        try:  # Add checks for widget existence
-            if hasattr(self, 'upload_spinbox') and self.upload_spinbox.value() != self._initial_ini_values.get(
-                    'upload_max_filesize'):
-                changed = True
-            if hasattr(self, 'memory_spinbox') and self.memory_spinbox.value() != self._initial_ini_values.get(
-                    'memory_limit'):
-                changed = True
-        except Exception as e:
-            self.log_to_main(f"Error checking INI value change: {e}"); changed = False
-        if hasattr(self, 'save_ini_button'): self.save_ini_button.setEnabled(changed)
+    # Removed on_ini_value_changed and on_save_ini_internal_click
+    # New slot for CommonPhpIniSettingsWidget's signal
+    @Slot(str, dict)
+    def on_save_common_ini_settings_from_widget(self, php_version: str, settings_dict: dict):
+        """
+        Handles the saveIniSettingsClicked signal from CommonPhpIniSettingsWidget.
+        Emits PhpPage's own signal for MainWindow to handle the actual saving.
+        """
+        self.log_to_main(f"PhpPage: Forwarding INI update for PHP {php_version}: {settings_dict}")
+        self.set_controls_enabled(False) # Disable controls on this page (and by extension, the common widget)
+        # Note: CommonPhpIniSettingsWidget already disables its own save button upon clicking save.
+        # Disabling all controls here prevents further interaction during the save operation.
+        self.saveIniSettingsClicked.emit(php_version, settings_dict)
 
-    @Slot()
-    def on_save_ini_internal_click(self):
-        """Reads UI values, formats them, and emits signal to MainWindow."""
-        if not self._current_ini_version: self.log_to_main(
-            "PhpPage Error: Cannot save INI, no current version context."); return
-        if not hasattr(self, 'upload_spinbox') or not hasattr(self, 'memory_spinbox'): self.log_to_main(
-            "PhpPage Error: INI input widgets not found."); return
-
-        upload_mb = self.upload_spinbox.value()
-        memory_mb = self.memory_spinbox.value()
-        settings_to_save = {
-            'upload_max_filesize': f"{upload_mb}M",
-            'post_max_size': f"{upload_mb}M",  # Set post_max same as upload
-            'memory_limit': "-1" if memory_mb == -1 else f"{memory_mb}M"
-        }
-        self.log_to_main(f"PhpPage: Requesting INI update for PHP {self._current_ini_version}: {settings_to_save}")
-        self.set_controls_enabled(False)  # Disable controls while saving
-        if hasattr(self, 'save_ini_button'): self.save_ini_button.setEnabled(False)
-        self.saveIniSettingsClicked.emit(self._current_ini_version, settings_to_save)
 
     def refresh_data(self):
         """Called by MainWindow to reload PHP version data and status."""
@@ -198,10 +165,10 @@ class PhpPage(QWidget):
         # --- Repopulate List ---
         if not available_versions:
             self.version_list_widget.addItem(QListWidgetItem("No bundled PHP versions found."))
-            if hasattr(self, 'ini_group_box'): self.ini_group_box.setEnabled(False)
-            self._current_ini_version = None;
+            self.common_ini_settings_widget.update_settings_for_version(None) # Clear/disable INI widget
+            self.common_ini_settings_widget.setEnabled(False)
         else:
-            if hasattr(self, 'ini_group_box'): self.ini_group_box.setEnabled(True)
+            self.common_ini_settings_widget.setEnabled(True)
             # Populate list with NEW widgets
             for version in available_versions:
                 if default_version_for_ini is None: default_version_for_ini = version
@@ -224,66 +191,51 @@ class PhpPage(QWidget):
                 self.version_list_widget.setItemWidget(item, widget)
 
             # Load INI values for the default/first version
-            if default_version_for_ini: self._load_ini_values_for_display(default_version_for_ini)
-            else:
-                if hasattr(self, 'ini_group_box'): self.ini_group_box.setEnabled(False)
-                self._current_ini_version = None;
+            if default_version_for_ini:
+                self._load_ini_values_for_display(default_version_for_ini)
+            else: # Should not happen if available_versions is not empty
+                self.common_ini_settings_widget.update_settings_for_version(None)
+                self.common_ini_settings_widget.setEnabled(False)
 
-    def _load_ini_values_for_display(self, version):
-        """Loads common INI values for the given version into the UI."""
+
+    def _load_ini_values_for_display(self, version: str | None):
+        """Updates the CommonPhpIniSettingsWidget for the given PHP version."""
         if not version:
-             if hasattr(self, 'ini_group_box'): self.ini_group_box.setTitle("Common PHP INI Settings"); self.ini_group_box.setEnabled(False);
-             return
+            self.log_to_main("PhpPage: No PHP version provided to load INI values for.")
+            self.common_ini_settings_widget.update_settings_for_version(None)
+            self.common_ini_settings_widget.setEnabled(False)
+            return
 
-        self.log_to_main(f"PhpPage: Loading INI values for PHP {version}")
-        self._current_ini_version = version
-        if hasattr(self, 'ini_group_box'):
-             self.ini_group_box.setTitle(f"Common PHP INI Settings (PHP {version})")
-             self.ini_group_box.setEnabled(True)
-        self._initial_ini_values = {}
+        self.log_to_main(f"PhpPage: Updating common INI settings display for PHP {version}")
+        self.common_ini_settings_widget.update_settings_for_version(version)
+        self.common_ini_settings_widget.setEnabled(True) # Ensure it's enabled if a version is selected
 
-        upload_str = get_ini_value(version, 'upload_max_filesize'); upload_mb = self._parse_mb_value(upload_str)
-        mem_str = get_ini_value(version, 'memory_limit'); mem_mb = self._parse_mb_value(mem_str, allow_unlimited=-1)
-
-        if hasattr(self, 'upload_spinbox'): self.upload_spinbox.setValue(upload_mb if upload_mb is not None else 2); self._initial_ini_values['upload_max_filesize'] = self.upload_spinbox.value()
-        if hasattr(self, 'memory_spinbox'): self.memory_spinbox.setValue(mem_mb if mem_mb is not None else 128); self._initial_ini_values['memory_limit'] = self.memory_spinbox.value()
-        if hasattr(self, 'save_ini_button'): self.save_ini_button.setEnabled(False)
-
-    def _parse_mb_value(self, value_str, allow_unlimited=None):
-        """Parses strings like '128M' or '-1' into integer MB."""
-        if value_str is None: return None
-        value_str = str(value_str).strip().upper()
-        if allow_unlimited is not None and value_str == str(allow_unlimited): return allow_unlimited
-        m = re.match(r'^(\d+)\s*M$', value_str)
-        if m: return int(m.group(1))
-        try: return int(value_str)
-        except ValueError: return None
+    # Removed _parse_mb_value, it's now in CommonPhpIniSettingsWidget
 
     @Slot(bool)
-    def set_controls_enabled(self, enabled):
-        """Enable/disable controls on all version items and INI section."""
+    def set_controls_enabled(self, enabled: bool):
+        """Enable/disable controls on all version items and the common INI settings widget."""
         self.log_to_main(f"PhpPage: Setting controls enabled state: {enabled}")
-        is_enabling = enabled
-        # Iterate through tracked widgets
+        # Iterate through tracked version item widgets
         for version, widget in self.version_widgets.items():
             if hasattr(widget, 'set_controls_enabled'):
                 widget.set_controls_enabled(enabled)
             else:
                 widget.setEnabled(enabled)  # Fallback
 
-        # INI Section
-        if hasattr(self, 'ini_group_box'): self.ini_group_box.setEnabled(enabled)
-        # Install button
-        # self.install_button.setEnabled(enabled) # Keep install disabled
+        # Enable/disable the common INI settings widget
+        self.common_ini_settings_widget.set_controls_enabled(enabled)
+        # The install button is managed by MainWindow or Header, so not handled here directly.
+        # self.install_button.setEnabled(enabled) # If it were part of this page's direct controls
 
-        if is_enabling:
-            self.on_ini_value_changed()  # Re-check save button state
-            # Refresh data might cause loop if called directly? Use timer.
-            QTimer.singleShot(10, self.refresh_data)  # Refresh list states after enable
-        else:
-            if hasattr(self, 'save_ini_button'): self.save_ini_button.setEnabled(False)
+        if enabled:
+            # If enabling controls, refresh data to get latest statuses.
+            # CommonPhpIniSettingsWidget handles its own save button state based on changes.
+            QTimer.singleShot(10, self.refresh_data)
+        # No specific action for save button here; CommonPhpIniSettingsWidget manages it.
+
 
     # Helper to log messages via MainWindow
-    def log_to_main(self, message): # (Unchanged)
+    def log_to_main(self, message):
         if self._main_window and hasattr(self._main_window, 'log_message'): self._main_window.log_message(message)
         else: print(f"PhpPage Log: {message}")
