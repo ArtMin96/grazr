@@ -11,53 +11,63 @@ logger = logging.getLogger(__name__)
 # Import config to get available services and their defaults
 try:
     from ..core import config
-except ImportError:
-    logger.error(f"ADD_SERVICE_DIALOG: Could not import core.config: {e}", exc_info=True)
+    from ..core.config import ServiceDefinition # Import ServiceDefinition for type hinting
+except ImportError as e: # Make sure 'e' is defined in the except block if used in logger
+    logger.error(f"ADD_SERVICE_DIALOG: Could not import core.config or ServiceDefinition: {e}", exc_info=True)
 
     # Define dummy available services for basic loading
+    class ServiceDefinition: # Dummy for type hinting
+        def __init__(self, service_id, display_name, category, default_port=0, **kwargs):
+            self.service_id = service_id
+            self.display_name = display_name
+            self.category = category
+            self.default_port = default_port
+            # Add other attributes if AddServiceDialog uses them directly from ServiceDefinition
+            # e.g. self.bundle_version_full = kwargs.get('bundle_version_full')
+
     class ConfigDummy:
         AVAILABLE_BUNDLED_SERVICES = {
-            "mysql": {"display_name": "MySQL", "category": "Database", "default_port": 3306},
-            "postgres16": {"display_name": "PostgreSQL 16", "category": "Database", "default_port": 5432,
-                           "bundle_version_full": "16.2"},
-            "redis": {"display_name": "Redis", "category": "Cache & Queue", "default_port": 6379},
-            "minio": {"display_name": "MinIO", "category": "Storage", "default_port": 9000, "console_port": 9001},
+            "mysql": ServiceDefinition(service_id="mysql", display_name="MySQL (Dummy)", category="Database", default_port=3306),
+            "postgres16": ServiceDefinition(service_id="postgres16", display_name="PostgreSQL 16 (Dummy)", category="Database", default_port=5432),
+            "redis": ServiceDefinition(service_id="redis", display_name="Redis (Dummy)", category="Cache & Queue", default_port=6379),
+            "minio": ServiceDefinition(service_id="minio", display_name="MinIO (Dummy)", category="Storage", default_port=9000),
         }
-        # Ensure dummy config has ensure_dir if other parts of this module might call it indirectly
-        CONFIG_DIR = Path(".")  # Dummy
+        CONFIG_DIR = Path(".")
+        def ensure_dir(self, p: Path): # Added self and type hint
+             os.makedirs(p, exist_ok=True); return True
 
-        def ensure_dir(p): os.makedirs(p, exist_ok=True); return True
-
-    config = ConfigDummy()
-    from pathlib import Path  # For dummy config Path
-    import os  # For dummy ensure_dir
+    config = ConfigDummy() # type: ignore
+    # from pathlib import Path already imported by main QDialog
+    import os
 
 class AddServiceDialog(QDialog):
     """Dialog for selecting and configuring a new bundled service."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget = None): # Added type hint for parent
         super().__init__(parent)
         self.setWindowTitle("Add New Service")
         self.setMinimumWidth(450)
         self.setObjectName("AddServiceDialog")
 
         # --- Internal Data ---
-        self._available_services = config.AVAILABLE_BUNDLED_SERVICES
+        # Assuming AVAILABLE_BUNDLED_SERVICES holds ServiceDefinition objects
+        self._available_services: dict[str, ServiceDefinition] = getattr(config, 'AVAILABLE_BUNDLED_SERVICES', {})
 
-        # Get unique categories, ensuring 'category' key exists and handling potential errors
-        self._categories = []
-        if hasattr(config, 'AVAILABLE_BUNDLED_SERVICES') and isinstance(config.AVAILABLE_BUNDLED_SERVICES, dict):
+        self._categories: list[str] = []
+        if self._available_services:
             try:
+                # Access attributes like .category directly if items are ServiceDefinition objects
                 self._categories = sorted(list(set(
-                    details['category']
-                    for details in self._available_services.values()
-                    if isinstance(details, dict) and 'category' in details
+                    service_def.category
+                    for service_def in self._available_services.values()
+                    if hasattr(service_def, 'category')
                 )))
             except Exception as e_cat:
-                logger.error(f"ADD_SERVICE_DIALOG: Error processing categories from config: {e_cat}")
-                self._categories = ["Database", "Cache & Queue", "Storage"]  # Fallback categories
+                logger.error(f"ADD_SERVICE_DIALOG: Error processing categories from service definitions: {e_cat}", exc_info=True)
+                # Fallback categories are less useful than an empty list and an error message
+                # Consider showing an error to the user or disabling the dialog if this fails.
 
-        self._selected_service_type = None  # Internal key like 'mysql', 'postgres16'
+        self._selected_service_type: Optional[str] = None # Internal key like 'mysql', 'postgres16'
 
         # --- Layouts ---
         main_layout = QVBoxLayout(self)
@@ -131,21 +141,22 @@ class AddServiceDialog(QDialog):
         self.service_combo.clear()
         self.service_combo.addItem("")  # Add blank placeholder first
 
-        services_in_selected_category = []
-        if selected_category and hasattr(config, 'AVAILABLE_BUNDLED_SERVICES'):
-            for svc_type, details in config.AVAILABLE_BUNDLED_SERVICES.items():
-                if isinstance(details, dict) and details.get('category') == selected_category:
-                    display_name = details.get('display_name', svc_type)
-                    services_in_selected_category.append((display_name, svc_type))
+        services_in_selected_category: list[tuple[str, str]] = []
+        if selected_category and self._available_services:
+            for service_type_key, service_def in self._available_services.items():
+                # Assuming service_def is a ServiceDefinition object
+                if hasattr(service_def, 'category') and service_def.category == selected_category:
+                    display_name = getattr(service_def, 'display_name', service_type_key.capitalize())
+                    services_in_selected_category.append((display_name, service_type_key))
 
         # Sort services within the category by display name for consistent order
         services_in_selected_category.sort(key=lambda item: item[0])
 
-        first_service_type_in_list = None
-        for display_name, service_type in services_in_selected_category:
-            self.service_combo.addItem(display_name, userData=service_type)
+        first_service_type_in_list: Optional[str] = None
+        for display_name, service_type_key in services_in_selected_category:
+            self.service_combo.addItem(display_name, userData=service_type_key)
             if first_service_type_in_list is None:
-                first_service_type_in_list = service_type
+                first_service_type_in_list = service_type_key
 
         self.service_combo.setEnabled(bool(services_in_selected_category))
 
@@ -172,19 +183,33 @@ class AddServiceDialog(QDialog):
             self.save_button.setEnabled(False)
             return
 
-        service_type = self.service_combo.itemData(index)  # Get internal type (e.g., 'mysql', 'postgres16')
-        if not service_type or not hasattr(config, 'AVAILABLE_BUNDLED_SERVICES'):
+        service_type_key = self.service_combo.itemData(index)  # Get internal type (e.g., 'mysql', 'postgres16')
+        if not service_type_key or not self._available_services:
             self._clear_details()
             self.save_button.setEnabled(False)
             return
 
-        self._selected_service_type = service_type
-        service_details = config.AVAILABLE_BUNDLED_SERVICES.get(service_type, {})
+        self._selected_service_type = service_type_key
+        # Assuming self._available_services stores ServiceDefinition objects
+        service_def = self._available_services.get(service_type_key)
 
-        self.name_edit.setText(service_details.get('display_name', service_type.capitalize()))
-        default_port = service_details.get('default_port', 0)
-        self.port_spinbox.setValue(default_port if default_port >= 1025 else (
-            1025 if default_port == 0 else default_port))  # Ensure valid range start
+        if not service_def:
+            logger.error(f"Service definition not found for type '{service_type_key}' during service change.")
+            self._clear_details()
+            self.save_button.setEnabled(False)
+            return
+
+        self.name_edit.setText(getattr(service_def, 'display_name', service_type_key.capitalize()))
+        default_port = getattr(service_def, 'default_port', 0)
+        # Ensure port is within spinbox range, adjust if necessary or log warning
+        if 1025 <= default_port <= 65535:
+            self.port_spinbox.setValue(default_port)
+        elif default_port == 0 : # Common placeholder for "no specific default"
+            self.port_spinbox.setValue(self.port_spinbox.minimum()) # Or a common starting point like 8080, 3000 etc.
+        else: # Port out of typical user range, might be a system port or unassigned
+            logger.warning(f"Default port {default_port} for {service_type_key} is outside standard spinbox range (1025-65535). Setting to minimum.")
+            self.port_spinbox.setValue(self.port_spinbox.minimum())
+
 
         self.name_edit.setEnabled(True)
         self.port_spinbox.setEnabled(True)
@@ -201,17 +226,21 @@ class AddServiceDialog(QDialog):
         self.autostart_checkbox.setChecked(False)
         self.autostart_checkbox.setEnabled(False)
 
-    def get_service_data(self):
+    def get_service_data(self) -> Optional[dict]:
         """Returns the configured service details as a dictionary."""
         if not self._selected_service_type:
             logger.warning("ADD_SERVICE_DIALOG: get_service_data called but no service type selected.")
             return None
 
         name = self.name_edit.text().strip()
-        # Use display_name from config as fallback if user clears the name field
-        if not name and hasattr(config, 'AVAILABLE_BUNDLED_SERVICES'):
-            service_def = config.AVAILABLE_BUNDLED_SERVICES.get(self._selected_service_type, {})
-            name = service_def.get('display_name', self._selected_service_type.capitalize())
+        # Use display_name from ServiceDefinition as fallback if user clears the name field
+        if not name and self._available_services:
+            service_def = self._available_services.get(self._selected_service_type)
+            if service_def:
+                name = getattr(service_def, 'display_name', self._selected_service_type.capitalize())
+            else: # Should not happen if _selected_service_type is valid
+                name = self._selected_service_type.capitalize()
+
 
         return {
             "service_type": self._selected_service_type,  # e.g., "mysql", "postgres16"
@@ -234,20 +263,35 @@ if __name__ == '__main__':  # pragma: no cover
     # Re-import config in case the dummy was used due to initial ImportError
     try:
         from grazr.core import config as main_config
+        from grazr.core.config import ServiceDefinition as MainServiceDefinition # Actual one
 
-        config = main_config  # Use the actual config for testing
-        # Ensure AVAILABLE_BUNDLED_SERVICES has some PG entries for testing
-        if "postgres16" not in config.AVAILABLE_BUNDLED_SERVICES:
-            config.AVAILABLE_BUNDLED_SERVICES["postgres16"] = {"display_name": "PostgreSQL 16 (Test)",
-                                                               "category": "Database", "default_port": 5432,
-                                                               "bundle_version_full": "16.2"}
-        if "postgres15" not in config.AVAILABLE_BUNDLED_SERVICES:
-            config.AVAILABLE_BUNDLED_SERVICES["postgres15"] = {"display_name": "PostgreSQL 15 (Test)",
-                                                               "category": "Database", "default_port": 5433,
-                                                               "bundle_version_full": "15.5"}
+        config = main_config # Use the actual config for testing
+        # Ensure the actual config.AVAILABLE_BUNDLED_SERVICES uses ServiceDefinition objects
+        # If not, this test block might need to adapt or use the dummy.
+        # For testing, let's assume it does. If it's empty or has dicts, this test might not fully represent.
+
+        # Example: Add a dummy service def to the actual config for testing if it's empty
+        if not hasattr(config, 'AVAILABLE_BUNDLED_SERVICES') or not config.AVAILABLE_BUNDLED_SERVICES:
+            # This part is tricky because modifying global config can affect other tests.
+            # Ideally, the main config would be populated.
+            # For this test, we rely on the dummy if main_config is problematic.
+            logger.info("Using dummy config for __main__ because main_config.AVAILABLE_BUNDLED_SERVICES is empty or missing.")
+
+            # Fallback to a local dummy config if main_config is not suitable for testing
+            class TestServiceDefinition:
+                 def __init__(self, service_id, display_name, category, default_port=0, **kwargs):
+                    self.service_id = service_id; self.display_name = display_name; self.category = category; self.default_port = default_port
+
+            class TestConfig:
+                AVAILABLE_BUNDLED_SERVICES = {
+                    "mysql_test": TestServiceDefinition(service_id="mysql_test", display_name="MySQL (Test Main)", category="Database", default_port=3307),
+                    "redis_test": TestServiceDefinition(service_id="redis_test", display_name="Redis (Test Main)", category="Cache & Queue", default_port=6380),
+                }
+            config = TestConfig() # type: ignore
 
     except ImportError:
-        print("Could not import main config for AddServiceDialog test.")
+        logger.error("Could not import main config for AddServiceDialog test. Using initial dummy config.")
+        # The initial dummy config defined at the top of the file will be used.
 
     app = QApplication(sys.argv)
     dialog = AddServiceDialog()
