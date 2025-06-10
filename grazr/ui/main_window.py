@@ -113,6 +113,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        logger.info("MainWindow.__init__: Start")
 
         self.tray_icon = None
         self.setWindowTitle(f"{getattr(config, 'APP_NAME', 'Grazr')} (Alpha)")
@@ -157,10 +158,19 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(stack_container, 1) # Stack container takes expanding space
 
         # --- Create Page Instances ---
+        logger.info("MainWindow.__init__: Creating ServicesPage...")
         self.services_page = ServicesPage(self)
+        logger.info("MainWindow.__init__: ServicesPage created.")
+        logger.info("MainWindow.__init__: Creating PhpPage...")
         self.php_page = PhpPage(self)
+        logger.info("MainWindow.__init__: PhpPage created.")
+        logger.info("MainWindow.__init__: Creating SitesPage...")
         self.sites_page = SitesPage(self)
+        logger.info("MainWindow.__init__: SitesPage created.")
+        logger.info("MainWindow.__init__: Creating NodePage...")
         self.node_page = NodePage(self)
+        logger.info("MainWindow.__init__: NodePage created.")
+
         self.stacked_widget.addWidget(self.services_page)
         self.stacked_widget.addWidget(self.php_page)
         self.stacked_widget.addWidget(self.sites_page)
@@ -220,6 +230,7 @@ class MainWindow(QMainWindow):
         self.log_message("Attempting to start bundled Nginx...")
         QTimer.singleShot(100, lambda: self.triggerWorker.emit("start_internal_nginx", {}))
         self.start_configured_autostart_services()
+        logger.info("MainWindow.__init__: End")
 
     def set_tray_icon(self, tray_icon: QSystemTrayIcon):
         self.tray_icon = tray_icon

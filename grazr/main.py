@@ -1,4 +1,13 @@
 import sys
+print(f"DEBUG: sys.executable: {sys.executable}")
+print(f"DEBUG: sys.path: {sys.path}")
+try:
+    import qtpy
+    print("DEBUG: qtpy imported successfully")
+except ImportError as e:
+    print(f"DEBUG: Failed to import qtpy: {e}")
+
+import sys
 import os
 import traceback
 from pathlib import Path
@@ -284,18 +293,19 @@ if __name__ == "__main__":
     logger.info("Applied global stylesheet.")
 
     # --- Create the Main Window ---
-    logger.info("MAIN: Creating MainWindow instance...")
+    logger.info("MAIN: MainWindow instantiation starting...") # Changed log message slightly for clarity
     window: Optional['MainWindow'] = None # Initialize with Optional and forward reference for MainWindow
     try:
         window = MainWindow() # MainWindow type hint will be resolved by linter
         main_window_instance = window
+        logger.info("MAIN: MainWindow instantiation completed.") # Added log after successful instantiation
     except Exception as e:
         logger.critical(f"MAIN: Error during MainWindow creation: {e}", exc_info=True)
         # traceback.print_exc() # logger.critical with exc_info=True already does this
         sys.exit(1) # Exit if main window can't be created
 
     if tray_icon and window: window.set_tray_icon(tray_icon) # Check window is not None
-    logger.info("MAIN: MainWindow instance created successfully.")
+    # logger.info("MAIN: MainWindow instance created successfully.") # Covered by the one in try block
 
     # --- Connect Signals Between Tray and Window ---
     if tray_icon and window: # Ensure window is not None

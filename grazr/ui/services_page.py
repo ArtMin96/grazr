@@ -94,6 +94,7 @@ class ServicesPage(QWidget):
     def __init__(self, parent=None):
         """Initializes the Services page UI - dynamically loads services."""
         super().__init__(parent)
+        logger.info(f"{self.__class__.__name__}.__init__: Start")
         self._main_window = parent
         self.setObjectName("ServicesPage")
 
@@ -179,6 +180,7 @@ class ServicesPage(QWidget):
         self.splitter.setStretchFactor(1, 1) # Right pane (details) takes available space
 
         self.service_list_widget.itemSelectionChanged.connect(self.on_selection_changed_show_details)
+        logger.info(f"{self.__class__.__name__}.__init__: End")
 
     @Slot()
     def on_selection_changed_show_details(self):
@@ -225,8 +227,10 @@ class ServicesPage(QWidget):
 
     # --- Header Action Methods ---
     def add_header_actions(self, header_widget):
-        self._main_window.add_header_action(self.add_service_button, "services_page") # F821 main_window -> self._main_window
-        self._main_window.add_header_action(self.stop_all_button, "services_page") # F821 main_window -> self._main_window
+        # Corrected to call method on header_widget, consistent with other pages
+        header_widget.add_action_widget(self.add_service_button)
+        header_widget.add_action_widget(self.stop_all_button)
+        # The removal logic below is fine, assuming add_action_widget reparents.
         if self.add_service_button.parent(): self.add_service_button.parent().layout().removeWidget(self.add_service_button)
         if self.stop_all_button.parent(): self.stop_all_button.parent().layout().removeWidget(self.stop_all_button)
 
@@ -451,9 +455,11 @@ class ServicesPage(QWidget):
                 widget.setEnabled(enabled)
         self.add_service_button.setEnabled(enabled)
         if hasattr(self, 'stop_all_button'): self.stop_all_button.setEnabled(enabled)
-        if enabled: QTimer.singleShot(10, self.refresh_data)  # Re-check states after enabling
+        # if enabled: QTimer.singleShot(10, self.refresh_data)  # Re-check states after enabling
+        logger.debug(f"{self.__class__.__name__}: set_controls_enabled called with {enabled}, refresh_data timer commented out.")
 
     def refresh_data(self):
+        logger.info(f"{self.__class__.__name__}.refresh_data: Start")
         logger.info("SERVICES_PAGE: Refreshing data - Restoring ServiceItemWidget creation and status refreshes...")
         try:
             configured_services_from_json = load_configured_services()
@@ -510,9 +516,8 @@ class ServicesPage(QWidget):
                 "display_name": display_name,
                 "service_type": service_type
             })
-        else:
-            logger.warning(
-                f"SERVICES_PAGE: Skipping service due to missing config_id or process_id_for_pm: {service_config_json}")
+        # The `else` block associated with the for-loop was removed as service_config_json would be undefined
+        # if configured_services_from_json is empty. Warnings for specific skipped services are already inside the loop.
 
         # Ensure category sorting is robust if a category from service_def_obj.category is new
         known_categories = ["Web Server", "Database", "Cache & Queue", "Storage", "Runtime"] # Define known order
@@ -610,6 +615,7 @@ class ServicesPage(QWidget):
         active_widget_keys = self.service_widgets.keys() # Define active_widget_keys
         if self.current_selected_service_id not in active_widget_keys:
             self.on_show_service_details(None)
+        logger.info(f"{self.__class__.__name__}.refresh_data: End")
 
 
     @Slot(str, str)

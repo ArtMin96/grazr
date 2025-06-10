@@ -1,5 +1,4 @@
-import logging # Added for logger
-import logging # Added for logger
+import logging # Keep one logging import
 import sys # Added for F821
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QListWidget, QListWidgetItem,
@@ -15,6 +14,8 @@ import shutil
 import shlex # Keep for terminal command quoting
 # import traceback # Removed F401
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # --- Import Core Config and Manager Modules (using new paths) ---
 try:
@@ -71,6 +72,7 @@ class SitesPage(QWidget):
     def __init__(self, parent=None):
         """Initializes the Sites page UI with master-detail layout."""
         super().__init__(parent)
+        logger.info(f"{self.__class__.__name__}.__init__: Start")
         self._main_window = parent
         self.current_site_info = None
         self._available_php_versions = []
@@ -168,6 +170,7 @@ class SitesPage(QWidget):
         # --- Initial State ---
         self._fetch_initial_versions() # Fetch PHP and Node versions once
         self.display_site_details(None) # Show placeholder
+        logger.info(f"{self.__class__.__name__}.__init__: End")
 
     # --- Header Action Methods ---
     def add_header_actions(self, header_widget):
@@ -605,6 +608,7 @@ class SitesPage(QWidget):
 
     def refresh_data(self):
         """Refresh site list and current details."""
+        logger.info(f"{self.__class__.__name__}.refresh_data: Start")
         try:
             # First refresh the sites list
             self.refresh_site_list()
@@ -614,16 +618,18 @@ class SitesPage(QWidget):
             if current_item:
                 self.display_site_details(current_item)
             else:
-                # No item selected, show placeholder
-                self._show_details_placeholder("Select a site from the list on the left.")
+                # No item selected, show placeholder (handled by display_site_details(None))
+                self.display_site_details(None) # Changed from _show_details_placeholder
         except Exception as e:
-            print(f"Error in SitesPage.refresh_data: {e}")
-            traceback.print_exc()
+            # print(f"Error in SitesPage.refresh_data: {e}") # Replaced with logger
+            # traceback.print_exc() # Replaced with logger
+            logger.error(f"Error in SitesPage.refresh_data: {e}", exc_info=True)
 
             # Attempt to show placeholder as fallback if SiteDetailWidget fails to render
             if hasattr(self, 'site_detail_widget') and self.site_detail_widget:
                  self.site_detail_widget.update_details(None, [], []) # Clear it
-            logger.error(f"Error in SitesPage.refresh_data, attempting to clear details: {e}", exc_info=True)
+            # logger.error(f"Error in SitesPage.refresh_data, attempting to clear details: {e}", exc_info=True) # Already logged above
+        logger.info(f"{self.__class__.__name__}.refresh_data: End")
 
 
     @Slot(str)
@@ -650,7 +656,8 @@ class SitesPage(QWidget):
 
         # If enabling, refresh data to ensure states are correct
         if enabled:
-            self.refresh_data() # This will also call update_details on SiteDetailWidget
+            # self.refresh_data() # This will also call update_details on SiteDetailWidget # Commented out for hang investigation
+            logger.debug(f"{self.__class__.__name__}: set_controls_enabled called with {enabled}, refresh_data timer commented out.")
 
     # _set_detail_widget_enabled is no longer needed as SiteDetailWidget/SiteConfigPanel manage their own internal states.
 
