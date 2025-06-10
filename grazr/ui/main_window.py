@@ -74,24 +74,39 @@ try:
     from .php_page import PhpPage
     from .node_page import NodePage
 
+    # Import new component widgets
+    from .sidebar import SidebarWidget
+    from .header import HeaderWidget
+    from .log_view import LogViewWidget
+
     from .add_service_dialog import AddServiceDialog
     from .php_config_dialog import PhpConfigurationDialog
 except ImportError as e:
-    logger.critical(f"MAIN_WINDOW: Could not import page widgets - {e}", exc_info=True)
+    logger.critical(f"MAIN_WINDOW: Could not import page or component widgets - {e}", exc_info=True)
 
+    # Dummy classes for basic UI loading if imports fail
     class ServicesPage(QWidget): pass
     class SitesPage(QWidget): pass
     class PhpPage(QWidget): pass
     class NodePage(QWidget): pass
+    class SidebarWidget(QWidget): navigationItemClicked = Signal(int) # Add signal for dummy
+    class HeaderWidget(QWidget):
+        def set_title(self, t): pass
+        def add_action_widget(self,w): pass
+        def clear_actions(self): pass
+    class LogViewWidget(QWidget):
+        def append_message(self,t): pass
+        def toggle_log_area(self): pass
     class AddServiceDialog(QDialog): pass
     class PhpConfigurationDialog(QDialog): pass
-    sys.exit(1)
+    sys.exit(1) # Critical failure
 
 try:
     # This import assumes resources_rc.py is in the same 'ui' directory
     from . import resources_rc
 except ImportError:
     logger.warning("MAIN_WINDOW: Could not import resources_rc.py. Icons will be missing.")
+
 
 class MainWindow(QMainWindow):
     triggerWorker = Signal(str, dict)
@@ -103,7 +118,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{getattr(config, 'APP_NAME', 'Grazr')} (Alpha)")
         self.setGeometry(100, 100, 1000, 750)
 
-        # --- Main Layout (Horizontal: Sidebar Area | Content Area) ---
         main_widget = QWidget()
         main_widget.setObjectName("main_widget")
         main_h_layout = QHBoxLayout(main_widget)
@@ -111,140 +125,38 @@ class MainWindow(QMainWindow):
         main_h_layout.setSpacing(0)
         self.setCentralWidget(main_widget)
 
-        # --- Left Pane: Sidebar Area (Vertical: Branding + List) --- <<< MODIFIED
-        sidebar_area_widget = QWidget()
-        sidebar_area_widget.setObjectName("SidebarArea")
-        sidebar_area_widget.setFixedWidth(250)
-        sidebar_layout = QVBoxLayout(sidebar_area_widget)
-        sidebar_layout.setContentsMargins(0, 0, 0, 0)
-        sidebar_layout.setSpacing(0)
+        # --- Instantiate Sidebar ---
+        self.sidebar_widget = SidebarWidget(app_name=getattr(config, 'APP_NAME', 'Grazr'))
+        main_h_layout.addWidget(self.sidebar_widget)
 
-        # Branding Section
-        branding_widget = QWidget()
-        branding_widget.setObjectName("BrandingWidget")
-        branding_layout = QHBoxLayout(branding_widget)
-        branding_layout.setContentsMargins(15, 15, 15, 15)
-        logo_label = QLabel()
-        logo_label.setObjectName("BrandLogoLabel")
-        try:
-            logo_pixmap = QPixmap(":/icons/grazr-logo.png")
-            if not logo_pixmap.isNull():
-                logo_label.setPixmap(logo_pixmap.scaled(400, 80, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-                logo_label.setMinimumWidth(150)
-            else:
-                print("Warning: Logo pixmap is null. Using text fallback.")
-                logo_label.setText(f"<b>{config.APP_NAME}</b>")
-                logo_label.setFont(QFont("Inter", 12, QFont.Bold))
-        except Exception as e:
-            print(f"Error loading logo: {e}")
-            logo_label.setText(f"<b>{config.APP_NAME}</b>")
-        branding_layout.addWidget(logo_label)
-        branding_layout.addStretch()
-        branding_widget.setFixedHeight(60)
-        sidebar_layout.addWidget(branding_widget)
-        # --- End Branding Section ---
-
-        # Separator Line (Optional)
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        line.setObjectName("SidebarSeparator")
-        sidebar_layout.addWidget(line)
-
-        self.sidebar = QListWidget()
-        self.sidebar.setObjectName("sidebar")
-        self.sidebar.setViewMode(QListWidget.ViewMode.ListMode)
-        self.sidebar.setSpacing(0)
-        self.sidebar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
-        self.sidebar.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        try:
-            # Attempt to load icons from resources
-            services_icon = QIcon(":/icons/services.svg")
-            php_icon = QIcon(":/icons/php.svg")
-            sites_icon = QIcon(":/icons/sites.svg")
-            node_icon = QIcon(":/icons/node.svg")
-            # Add fallback text or default icon if loading fails?
-            if services_icon.isNull(): print("Warning: services.svg icon failed to load from resource.")
-            if php_icon.isNull(): print("Warning: php.svg icon failed to load from resource.")
-            if sites_icon.isNull(): print("Warning: sites.svg icon failed to load from resource.")
-            if node_icon.isNull(): print("Warning: node.svg icon failed to load from resource.")
-        except NameError:  # Handle case where resources_rc failed to import
-            print("Warning: resources_rc not imported, using text-only sidebar items.")
-            services_icon = QIcon()  # Empty icon
-            php_icon = QIcon()
-            sites_icon = QIcon()
-            node_icon = QIcon()
-
-        # Create items with icons and text (add space for visual separation)
-        item_services = QListWidgetItem(services_icon, " Services")
-        item_php = QListWidgetItem(php_icon, " PHP")
-        item_sites = QListWidgetItem(sites_icon, " Sites")
-        item_node = QListWidgetItem(node_icon, " Node")
-
-        # Set icon size for the list widget items (optional, controls display size)
-        self.sidebar.setIconSize(QSize(18, 18))  # Adjust size as needed
-
-        self.sidebar.addItem(item_services)
-        self.sidebar.addItem(item_php)
-        self.sidebar.addItem(item_sites)
-        self.sidebar.addItem(item_node)
-
-        sidebar_layout.addWidget(self.sidebar, 1)
-
-        main_h_layout.addWidget(sidebar_area_widget)
-        # --- End Left Pane ---
-
-        # --- Right Pane: Content Area (Vertical: Title Header + Stack) ---
+        # --- Right Pane: Content Area (Vertical: Header + Stack + LogView) ---
         content_area_widget = QWidget()
         content_area_widget.setObjectName("ContentArea")
         content_layout = QVBoxLayout(content_area_widget)
-        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setContentsMargins(0, 0, 0, 0) # No margins for the content area itself
         content_layout.setSpacing(0)
 
-        # Content Title Header
-        title_header_widget = QWidget();
-        title_header_widget.setObjectName("TitleHeader")
-        title_header_layout = QHBoxLayout(title_header_widget);
-        title_header_layout.setContentsMargins(25, 15, 25, 15);
-        title_header_layout.setSpacing(15)
-        self.page_title_label = QLabel("Services");
-        self.page_title_label.setObjectName("PageTitleLabel");
-        self.page_title_label.setFont(QFont("Inter", 14, QFont.Weight.Bold));
-        title_header_layout.addWidget(self.page_title_label);
-        title_header_layout.addStretch()
+        # --- Instantiate Header ---
+        self.header_widget = HeaderWidget(initial_title="Services") # Default title
+        content_layout.addWidget(self.header_widget)
 
-        # --- Header Action "Slot" Layout ---
-        self.header_actions_layout = QHBoxLayout()
-        self.header_actions_layout.setContentsMargins(0, 0, 0, 0)
-        self.header_actions_layout.setSpacing(10)
-        title_header_layout.addLayout(self.header_actions_layout)
-        # --- End Header Action Slot ---
-
-        # Create a dictionary to store page-specific header widgets
-        self.page_header_widgets = {}
-
-        # Placeholder for potential header buttons later
-        title_header_widget.setFixedHeight(60)
-        content_layout.addWidget(title_header_widget)
-
-        # Separator Line (Optional)
+        # Separator Line (Optional, if still desired under new header)
         content_line = QFrame()
         content_line.setFrameShape(QFrame.Shape.HLine)
         content_line.setFrameShadow(QFrame.Shadow.Sunken)
         content_line.setObjectName("ContentSeparator")
         content_layout.addWidget(content_line)
 
-        # Stacked Widget for Pages (add padding around this)
-        stack_container = QWidget()
+        # Stacked Widget for Pages
+        stack_container = QWidget() # Create a container for padding
         stack_container.setObjectName("StackContainer")
         stack_layout = QVBoxLayout(stack_container)
-        stack_layout.setContentsMargins(10, 20, 10, 20)
+        stack_layout.setContentsMargins(10, 20, 10, 20) # Padding around the page stack
         self.stacked_widget = QStackedWidget()
         stack_layout.addWidget(self.stacked_widget)
-        content_layout.addWidget(stack_container, 1)
+        content_layout.addWidget(stack_container, 1) # Stack container takes expanding space
 
-        # --- Create Page Instances (Remove titles from them later) ---
+        # --- Create Page Instances ---
         self.services_page = ServicesPage(self)
         self.php_page = PhpPage(self)
         self.sites_page = SitesPage(self)
@@ -254,57 +166,34 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.sites_page)
         self.stacked_widget.addWidget(self.node_page)
 
-        # Log Area (Keep hidden at bottom for now)
-        self.log_frame = QFrame()
-        self.log_frame.setObjectName("log_frame")
-        self.log_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        self.log_frame.setFrameShadow(QFrame.Shadow.Sunken)
-        log_layout = QVBoxLayout(self.log_frame)
-        log_layout.setContentsMargins(5, 5, 5, 5)
-        log_label = QLabel("Log / Output:");
-        log_label.setObjectName("log_label");
-        log_layout.addWidget(log_label);
-        self.log_text_area = QTextEdit();
-        self.log_text_area.setObjectName("log_area");
-        self.log_text_area.setReadOnly(True);
-        self.log_text_area.setFixedHeight(100);
-        log_layout.addWidget(self.log_text_area);
-        self.log_frame.setVisible(False)
-        content_layout.addWidget(self.log_frame)
-        log_toggle_bar = QWidget()
-        log_toggle_layout = QHBoxLayout(log_toggle_bar)
-        log_toggle_layout.setContentsMargins(0, 5, 0, 0)  # Add some top margin
-        self.toggle_log_button = QPushButton("Show Logs ▼")  # Initial text
-        self.toggle_log_button.setObjectName("ToggleLogButton")  # For styling
-        self.toggle_log_button.setCheckable(False)  # Not checkable, just a trigger
-        self.toggle_log_button.setStyleSheet(
-            "text-align: left; border: none; font-weight: bold; color: #6C757D;")  # Simple style
-        self.toggle_log_button.clicked.connect(self.toggle_log_area)  # Connect signal
-        log_toggle_layout.addWidget(self.toggle_log_button)
-        log_toggle_layout.addStretch()
-        content_layout.addWidget(log_toggle_bar)
+        # --- Instantiate Log View ---
+        self.log_view_widget = LogViewWidget()
+        content_layout.addWidget(self.log_view_widget) # Add log view at the bottom
 
-        main_h_layout.addWidget(content_area_widget, 1)
+        main_h_layout.addWidget(content_area_widget, 1) # Content area takes expanding space
         # --- End Right Pane ---
 
-        self.current_extension_dialog = None
+        self.current_extension_dialog = None # TODO: Review if this is still needed or handled by PhpConfigurationDialog
         self.progress_dialog = None
 
         # --- Setup Worker Thread ---
-        self.thread = QThread(self);
-        self.worker = Worker();
-        self.worker.moveToThread(self.thread);
-        self.triggerWorker.connect(self.worker.doWork);
-        self.worker.resultReady.connect(self.handleWorkerResult);
-        self.thread.finished.connect(self.worker.deleteLater);
-        self.thread.finished.connect(self.thread.deleteLater);
+        self.thread = QThread(self)
+        self.worker = Worker()
+        self.worker.moveToThread(self.thread)
+        self.triggerWorker.connect(self.worker.doWork)
+        self.worker.resultReady.connect(self.handleWorkerResult)
+        self.thread.finished.connect(self.worker.deleteLater) # Clean up worker
+        self.thread.finished.connect(self.thread.deleteLater)   # Clean up thread
         self.thread.start()
-        # --- Connect Signals
-        self.sidebar.currentRowChanged.connect(self.change_page)
+
+        # --- Connect Signals ---
+        self.sidebar_widget.navigationItemClicked.connect(self.change_page) # Connect new sidebar
+
         # Services Page Signals
-        self.services_page.serviceActionTriggered.connect(self.on_service_action_triggered);
-        self.services_page.addServiceClicked.connect(self.on_add_service_button_clicked);
-        self.services_page.removeServiceRequested.connect(self.on_remove_service_config);
+        self.services_page.serviceActionTriggered.connect(self.on_service_action_triggered)
+        # addServiceClicked is now handled by the header action for ServicesPage
+        # self.services_page.addServiceClicked.connect(self.on_add_service_button_clicked)
+        self.services_page.removeServiceRequested.connect(self.on_remove_service_config)
         self.services_page.stopAllServicesClicked.connect(self.on_stop_all_services_clicked)
         # Sites Page Signals
         self.sites_page.linkDirectoryClicked.connect(self.add_site_dialog);
@@ -324,9 +213,11 @@ class MainWindow(QMainWindow):
         self.node_page.installNodeRequested.connect(self.on_install_node_requested)
         self.node_page.uninstallNodeRequested.connect(self.on_uninstall_node_requested)
         # --- Initial State Setup ---
-        self.log_message("Application starting...");
-        self.sidebar.setCurrentRow(0);
-        self.log_message("Attempting to start bundled Nginx...");
+        self.log_message("Application starting...") # Log message now uses self.log_view_widget
+        self.sidebar_widget.setCurrentRow(0) # Use new sidebar_widget
+        # Initial page change call to set up title and header actions for the first page
+        self.change_page(0)
+        self.log_message("Attempting to start bundled Nginx...")
         QTimer.singleShot(100, lambda: self.triggerWorker.emit("start_internal_nginx", {}))
         self.start_configured_autostart_services()
 
@@ -356,12 +247,16 @@ class MainWindow(QMainWindow):
             configured_services = load_configured_services()
             for svc_config in configured_services:
                 service_type = svc_config.get('service_type')
-                service_def = config.AVAILABLE_BUNDLED_SERVICES.get(service_type, {})
+                service_def = config.AVAILABLE_BUNDLED_SERVICES.get(service_type) # Returns ServiceDefinition or None
+                if not service_def:
+                    logger.warning(f"No service definition found for service_type: {service_type} during Start All.")
+                    continue
+
                 process_id_for_service = ""
-                if service_def.get('process_id'):
-                    process_id_for_service = service_def['process_id']
-                elif service_def.get('process_id_template'):
-                    process_id_for_service = service_def['process_id_template'].format(instance_id=svc_config.get('id'))
+                if service_def.process_id: # Direct attribute
+                    process_id_for_service = service_def.process_id
+                elif service_def.process_id_template: # Direct attribute
+                    process_id_for_service = service_def.process_id_template.format(instance_id=svc_config.get('id'))
 
                 if process_id_for_service and process_id_for_service not in services_to_start_ids:
                     # This needs to check status of the specific instance for PG
@@ -393,64 +288,91 @@ class MainWindow(QMainWindow):
                 task_name = "start_postgres"
                 # Find the instance_id from the process_id_to_start
                 instance_id_from_proc = process_id_to_start.split(
-                    config.AVAILABLE_BUNDLED_SERVICES.get(
-                        self._get_service_type_from_process_id(process_id_to_start),
-                        {}
-                    ).get('process_id_template', "X-").split("{")[0])[-1].split("}")[0]
-                if instance_id_from_proc:
-                    task_data = {"instance_id": instance_id_from_proc}
-                else:
-                    logger.error(f"Could not parse instance_id from {process_id_to_start}"); continue
+                    # Find the service_type corresponding to process_id_to_start
+                    service_type_for_proc_id = self._get_service_type_from_process_id(process_id_to_start)
+                    service_def_for_proc_id = config.AVAILABLE_BUNDLED_SERVICES.get(service_type_for_proc_id)
+
+                    if service_def_for_proc_id and service_def_for_proc_id.process_id_template:
+                        # Extract instance_id from process_id_to_start using the template's structure
+                        # Example: template "internal-postgres-{version}-{instance_id}"
+                        # process_id_to_start "internal-postgres-16-my_instance"
+                        # This logic is simplified; a more robust parsing based on the exact template format might be needed.
+                        # For now, assuming process_id_template ends with "{instance_id}"
+                        base_template = service_def_for_proc_id.process_id_template.split("{instance_id}")[0]
+                        if process_id_to_start.startswith(base_template):
+                            instance_id_from_proc = process_id_to_start[len(base_template):]
+                            task_data = {"instance_id": instance_id_from_proc}
+                        else:
+                            logger.error(f"Could not parse instance_id from {process_id_to_start} using template {service_def_for_proc_id.process_id_template}"); continue
+                    else:
+                         logger.error(f"No valid service definition or process_id_template found for {process_id_to_start} to extract instance_id."); continue
+                else: # Should not happen if logic is correct
+                     logger.error(f"Could not determine instance_id for Postgres task {process_id_to_start}"); continue
             if task_name:
-                logger.info(f"Triggering start task: {task_name} for {process_id_to_start}")
+                logger.info(f"Triggering start task: {task_name} for process ID {process_id_to_start} with data {task_data}")
                 self.triggerWorker.emit(task_name, task_data)
-
-    def add_header_action(self, widget, page_name=None):
-        if widget:
-            self.header_actions_layout.addWidget(widget)
-            if page_name:
-                self.page_header_widgets.setdefault(page_name, []).append(widget); return True
-        return False
-
-    def clear_header_actions(self, page_name=None):
-        if page_name and page_name in self.page_header_widgets:
-            for widget in self.page_header_widgets[page_name]: self.header_actions_layout.removeWidget(widget); widget.setParent(None)
-            self.page_header_widgets[page_name] = []
-        else:
-            while self.header_actions_layout.count():
-                item = self.header_actions_layout.takeAt(0)
-                if item.widget(): item.widget().setParent(None)
-            self.page_header_widgets = {}
 
     # --- Navigation Slot ---
     @Slot(int)
-    def change_page(self, row):
+    def change_page(self, row: int): # row is emitted by SidebarWidget.navigationItemClicked
+        """Changes the current page in the QStackedWidget and updates the header."""
         if 0 <= row < self.stacked_widget.count():
-            self.clear_header_actions()
-            item = self.sidebar.item(row)
-            title_text = item.text().strip() if item else "Unknown"
-            if hasattr(self, 'page_title_label'): self.page_title_label.setText(title_text)
-            new_widget = self.stacked_widget.widget(row)
-            if new_widget and hasattr(new_widget, 'add_header_actions'): new_widget.add_header_actions(self)
-            logger.info(f"Changing page to: {title_text} (Index: {row})")
-            self.stacked_widget.setCurrentIndex(row)
-            self.refresh_current_page()
-        else:
-            logger.warning(f"Invalid page index {row} requested.")
+            # 1. Get page title from sidebar item text
+            sidebar_item = self.sidebar_widget.item(row) # Use new sidebar_widget
+            page_title = sidebar_item.text().strip() if sidebar_item else "Unknown Page"
 
-    def refresh_current_page(self): # From response #79
+            # 2. Set title on HeaderWidget
+            self.header_widget.set_title(page_title)
+
+            # 3. Clear any actions from the previous page in HeaderWidget
+            self.header_widget.clear_actions()
+
+            # 4. Set the current page in QStackedWidget
+            self.stacked_widget.setCurrentIndex(row)
+
+            # 5. Get the current page widget
+            current_page_widget = self.stacked_widget.currentWidget()
+
+            # 6. If page has 'add_header_actions', call it
+            if hasattr(current_page_widget, 'add_header_actions') and callable(current_page_widget.add_header_actions):
+                current_page_widget.add_header_actions(self.header_widget) # Pass HeaderWidget instance
+            else:
+                logger.debug(f"Page '{page_title}' does not have an 'add_header_actions' method.")
+
+            # 7. If page has 'refresh_data', call it
+            if hasattr(current_page_widget, 'refresh_data') and callable(current_page_widget.refresh_data):
+                logger.debug(f"MAIN_WINDOW: Calling refresh_data for {current_page_widget.__class__.__name__}")
+                current_page_widget.refresh_data()
+
+            # Specific additional refreshes if needed (like Dnsmasq for ServicesPage)
+            # This could also be handled within the page's refresh_data if appropriate.
+            if current_page_widget == self.services_page:
+                if hasattr(self, 'refresh_dnsmasq_status_on_page'):
+                    QTimer.singleShot(50, self.refresh_dnsmasq_status_on_page)
+
+            logger.info(f"Changed page to: {page_title} (Index: {row})")
+        else:
+            logger.warning(f"Invalid page index {row} requested for change_page.")
+
+    def refresh_current_page(self): # This method might become less critical if change_page handles refresh.
+                                    # However, it can be useful for explicit refresh actions.
         widget = self.stacked_widget.currentWidget()
         if hasattr(widget, 'refresh_data'):
-            logger.debug(f"MAIN_WINDOW: Calling refresh_data for {widget.__class__.__name__}")
+            logger.debug(f"MAIN_WINDOW: Explicitly calling refresh_data for {widget.__class__.__name__}")
             widget.refresh_data()
         if widget == self.services_page:
             if hasattr(self, 'refresh_dnsmasq_status_on_page'):
-                logger.info("MAIN_WINDOW: Dnsmasq status refresh from refresh_current_page is explicitly SKIPPED for now.")
-                # QTimer.singleShot(50, self.refresh_dnsmasq_status_on_page) # Keep disabled for now
+                QTimer.singleShot(50, self.refresh_dnsmasq_status_on_page)
 
-    def log_message(self, message):
-        logger.info(f"UI_LOG: {message}") # Use logger for UI messages too
-        if hasattr(self, 'log_text_area'): self.log_text_area.append(message)
+
+    def log_message(self, message: str):
+        """Passes a message to the LogViewWidget."""
+        # logger.info(f"UI_LOG_PASSTHROUGH: {message}") # Avoid double logging if LogViewWidget also logs
+        if hasattr(self, 'log_view_widget') and self.log_view_widget:
+            self.log_view_widget.append_message(message)
+        else: # Fallback if log_view_widget is not yet available
+            logger.warning(f"LogViewWidget not available. MainWindow log_message fallback: {message}")
+
 
     # --- Slot to Handle Worker Results ---
     @Slot(str, dict, bool, str)
@@ -573,18 +495,8 @@ class MainWindow(QMainWindow):
             logger.debug(f"MAIN_WINDOW: NOT scheduling re-enable for task '{task_name}'.")
         self.log_message("-" * 30)
 
-    @Slot()
-    def toggle_log_area(self):
-        """Shows or hides the log output area."""
-        if not hasattr(self, 'log_frame'): return
-        is_visible = self.log_frame.isVisible()
-        if is_visible:
-            self.log_frame.setVisible(False); self.toggle_log_button.setText("Show Logs \u25BC")
-        else:
-            self.log_frame.setVisible(True); self.toggle_log_button.setText(
-                "Hide Logs \u25B2"); cursor = self.log_text_area.textCursor(); cursor.movePosition(
-                QTextCursor.MoveOperation.End); self.log_text_area.setTextCursor(cursor)
-        self.layout().activate()
+    # toggle_log_area is now fully managed by LogViewWidget itself.
+    # MainWindow doesn't need a slot for it unless there's a global hotkey or menu item.
 
     def _get_config_id_for_service_type(self, target_service_type: str):
         """
@@ -609,10 +521,10 @@ class MainWindow(QMainWindow):
         # However, if they ARE configured in services.json, we need their unique ID from there.
 
         configured_services = load_configured_services()
-        for svc_config in configured_services:
-            if svc_config.get('service_type') == target_service_type:
+        for svc_config_item in configured_services: # Renamed svc_config to avoid conflict
+            if svc_config_item.get('service_type') == target_service_type:
                 # Return the unique ID from services.json for this service type
-                return svc_config.get('id')
+                return svc_config_item.get('id')
 
         logger.debug(
             f"MAIN_WINDOW: No *configured instance* found for service_type '{target_service_type}' in services.json.")
@@ -635,13 +547,11 @@ class MainWindow(QMainWindow):
 
         # Determine service_type and the key ServicesPage uses for this widget
         if process_id_for_service == getattr(config, 'NGINX_PROCESS_ID', None):
-            widget_key_for_ui = process_id_for_service  # Nginx uses its process_id as widget_key
+            widget_key_for_ui = process_id_for_service
             service_type_to_find = "nginx"
         else:
-            # For MySQL, Redis, MinIO, find their service_type from AVAILABLE_BUNDLED_SERVICES
-            # then find the config_id of the (first) configured instance of that type.
-            for svc_type, details in config.AVAILABLE_BUNDLED_SERVICES.items():
-                if details.get('process_id') == process_id_for_service:
+            for svc_type, service_def_obj in config.AVAILABLE_BUNDLED_SERVICES.items(): # service_def_obj is ServiceDefinition
+                if service_def_obj.process_id == process_id_for_service:
                     service_type_to_find = svc_type
                     break
             if service_type_to_find:
@@ -651,25 +561,28 @@ class MainWindow(QMainWindow):
             logger.warning(
                 f"MAIN_WINDOW: Could not determine UI widget key for service with process_id '{process_id_for_service}'. Cannot update its status on ServicesPage.")
             return
-        if not service_type_to_find:  # Should have been found if widget_key_for_ui was set (except for Nginx)
-            # Try to get service_type from widget_key_for_ui if it's a config_id
+        if not service_type_to_find:
             temp_service_config = get_service_config_by_id(widget_key_for_ui)
             if temp_service_config: service_type_to_find = temp_service_config.get('service_type')
 
         status = "unknown";
         version = "N/A";
         port_info = "-";
-        name = process_id_for_service
+        name = process_id_for_service # Fallback name
         status_func = None;
         version_func = None;
         default_port = 0
 
-        service_definition = config.AVAILABLE_BUNDLED_SERVICES.get(service_type_to_find, {})
-        name = service_definition.get('display_name', process_id_for_service)
-        default_port = service_definition.get('default_port', 0)
+        service_definition = config.AVAILABLE_BUNDLED_SERVICES.get(service_type_to_find) # Returns ServiceDefinition
+        if service_definition:
+            name = service_definition.display_name
+            default_port = service_definition.default_port if service_definition.default_port is not None else 0
+        else: # Fallback if service_definition is None (should not happen if service_type_to_find is valid)
+             logger.warning(f"No service definition found for {service_type_to_find} during status refresh.")
+
 
         if process_id_for_service == config.NGINX_PROCESS_ID:
-            status_func = process_manager.get_process_status;
+            status_func = process_manager.get_process_status
             version_func = get_nginx_version;
             port_info = "80/443"
         elif process_id_for_service == config.MYSQL_PROCESS_ID:
@@ -1083,7 +996,9 @@ class MainWindow(QMainWindow):
 
         port_to_display = service_config.get(
             'port',
-            config.AVAILABLE_BUNDLED_SERVICES.get(service_config.get('service_type'), {}).get('default_port', '?')
+                    service_def_for_port = config.AVAILABLE_BUNDLED_SERVICES.get(service_config.get('service_type'))
+                    default_port_for_type = service_def_for_port.default_port if service_def_for_port else 0
+                    port_to_display = service_config.get('port', default_port_for_type)
         )
         detail_text = f"Version: {version} | Port: {port_to_display}" if status == "running" else f"Version: {version} | Port: -"
 
@@ -1106,14 +1021,13 @@ class MainWindow(QMainWindow):
     def _get_service_type_from_process_id(self, process_id_to_match):
         """Helper to find service_type from a potentially templated process_id."""
         if not hasattr(config, 'AVAILABLE_BUNDLED_SERVICES'): return None
-        for svc_type, details in config.AVAILABLE_BUNDLED_SERVICES.items():
-            if details.get('process_id') == process_id_to_match: return svc_type
-            template = details.get('process_id_template')
-            if template:
-                # Basic check if process_id_to_match starts with the base of the template
-                base_template = template.split("{", 1)[0]
+        for svc_type, service_def_obj in config.AVAILABLE_BUNDLED_SERVICES.items(): # service_def_obj is ServiceDefinition
+            if service_def_obj.process_id == process_id_to_match:
+                return svc_type
+            if service_def_obj.process_id_template:
+                base_template = service_def_obj.process_id_template.split("{", 1)[0]
                 if process_id_to_match.startswith(base_template):
-                    return svc_type  # Return the service_type like "postgres16"
+                    return svc_type
         return None
 
     def start_configured_autostart_services(self):
@@ -1122,26 +1036,33 @@ class MainWindow(QMainWindow):
             services = load_configured_services()
             for svc_config in services:  # svc_config is the dict from services.json
                 if svc_config.get('autostart'):
-                    service_type = svc_config.get('service_type')
-                    instance_id = svc_config.get('id')  # This is the unique ID for the instance
-                    task_name = None;
+                    service_type = svc_config.get('service_type') # e.g. "mysql", "postgres16"
+                    instance_id = svc_config.get('id') # Unique ID from services.json
+
+                    # Find the ServiceDefinition to determine how to start it
+                    service_def_obj = config.AVAILABLE_BUNDLED_SERVICES.get(service_type)
+                    if not service_def_obj:
+                        logger.warning(f"Cannot autostart: No ServiceDefinition for type '{service_type}' (ID: {instance_id}).")
+                        continue
+
+                    task_name = None
                     task_data = {}
 
-                    if service_type == "mysql":
-                        task_name = "start_mysql"
-                    elif service_type == "redis":
-                        task_name = "start_redis"
-                    elif service_type == "minio":
-                        task_name = "start_minio"
-                    elif service_type and service_type.startswith("postgres"):
+                    # Use service_type to map to a generic start task if possible,
+                    # or use a more specific mechanism if needed (e.g. based on manager_module)
+                    # For now, direct mapping based on known types:
+                    if service_type == "mysql": task_name = "start_mysql"
+                    elif service_type == "redis": task_name = "start_redis"
+                    elif service_type == "minio": task_name = "start_minio"
+                    elif service_type.startswith("postgres"): # Covers "postgres16", "postgres15", etc.
                         task_name = "start_postgres"
-                        task_data = {"instance_id": instance_id}  # Pass the unique instance ID
+                        task_data = {"instance_id": instance_id} # PG tasks need instance_id
 
                     if task_name:
-                        logger.info(f"Autostarting {service_type} (Instance ID: {instance_id})...")
+                        logger.info(f"Autostarting service '{svc_config.get('name', instance_id)}' (Type: {service_type}, Instance ID: {instance_id})...")
                         self.triggerWorker.emit(task_name, task_data)
                     else:
-                        logger.warning(f"Unknown service type '{service_type}' for autostart.")
+                        logger.warning(f"No autostart task defined for service type '{service_type}' (ID: {instance_id}).")
         except Exception as e:
             logger.error(f"Error loading or starting autostart services: {e}", exc_info=True)
 

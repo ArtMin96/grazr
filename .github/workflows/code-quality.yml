@@ -18,48 +18,56 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11' # Or your project's Python version
+        python-version: '3.10' # Unified Python version
         cache: 'pip' # Cache pip dependencies
 
-    - name: Install dependencies (including quality tools)
+    - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install black flake8 isort mypy bandit
-        # Install your project's dependencies if linters/mypy need them
-        # For example, if you have a requirements.txt:
-        # pip install -r requirements.txt
-        # If using poetry or PDM, install dependencies using those tools
+        # Install project dependencies including GUI and dev tools (Ruff, Black, MyPy, Bandit, pytest)
+        # This assumes these are defined in pyproject.toml's optional-dependencies
+        python -m pip install .[gui,dev]
 
     - name: Run Black (Format Check)
       run: black --check --diff .
       # To auto-format and commit (use with caution, typically run locally or in a separate PR):
       # black .
       # git diff --exit-code # Fails if black made changes
-      # Or use a specific action like psf/black@stable
 
-    - name: Run isort (Import Sort Check)
-      run: isort --check-only --diff .
-      # To auto-format and commit:
-      # isort .
-      # git diff --exit-code
+    # isort and Flake8 are replaced by Ruff
+    # - name: Run isort (Import Sort Check)
+    #   run: isort --check-only --diff .
 
-    - name: Run Flake8 (Linting)
-      run: flake8 .
-      # You can add --max-line-length, --ignore, etc. here or in a config file
+    # - name: Run Flake8 (Linting)
+    #   run: flake8 .
+
+    - name: Run Ruff (Linting and Import Sort Check)
+      # Ruff check combines linting (pycodestyle, pyflakes, bugbear, etc.)
+      # and import sorting (isort) based on pyproject.toml configuration.
+      run: ruff check .
+
+    - name: Run Ruff (Formatting Check)
+      # This checks if Ruff's formatter (if configured, or if it has default opinions)
+      # would make any changes. For projects using Black as the primary formatter,
+      # this step might be redundant if Ruff's formatting rules are Black-compatible
+      # or if Ruff is not configured to format.
+      # If Black is the sole formatter, this step can be removed or kept as an additional check.
+      # For now, keeping it as it's a common Ruff command.
+      run: ruff format --check .
 
     - name: Run MyPy (Static Type Checking)
-      # MyPy might require your project dependencies to be installed
-      # and a pyproject.toml or mypy.ini for configuration.
-      # Add --install-types if you want MyPy to try and install missing stubs.
-      run: |
-        mypy grazr/ --ignore-missing-imports
-      # Replace 'grazr/' with your main package directory name
+      # MyPy will use configuration from pyproject.toml (e.g., files/packages to check, python_version)
+      # The --ignore-missing-imports is configured in pyproject.toml.
+      # With .[gui,dev] installed, many 'missing imports' for dependencies should be resolved.
+      run: mypy
+      # If you need to specify paths explicitly and override pyproject.toml 'files' or 'packages':
+      # run: mypy grazr tests
 
     - name: Run Bandit (Security Scan)
       run: bandit -r grazr/ -ll -ii
       # -r: recursive, grazr/: your package directory
-      # -ll: report on medium and high severity issues
-      # -ii: report on medium and high confidence issues
+      # -ll: report on medium and high severity issues (adjust as needed)
+      # -ii: report on medium and high confidence issues (adjust as needed)
 
   # Optional: CodeQL Analysis (GitHub native, very powerful)
   # codeql-analysis:
