@@ -1,41 +1,106 @@
 [tool.black]
-line-length = 80
+line-length = 88
 force-exclude = '''
 /grazr/ui/resources_rc\.py$
-'''
+''' # This can also be a list: ["grazr/ui/resources_rc\\.py"]
 
-[tool.isort]
-profile = "black"
-line_length = 80
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
+# Flake8 is replaced by Ruff
+# [tool.flake8]
+# max-line-length = 80
+# extend-ignore = "E203,W503"
 
-[tool.flake8]
-max-line-length = 80
-extend-ignore = "E203,W503"
+# isort is replaced by Ruff's isort functionality
+# [tool.isort]
+# profile = "black"
+# line_length = 80
+# multi_line_output = 3
+# include_trailing_comma = true
+# force_grid_wrap = 0
+# use_parentheses = true
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.10" # Unified Python version
 warn_return_any = true
 warn_unused_configs = true
-ignore_missing_imports = true
-exclude = 'grazr/ui/resources_rc\.py'
+ignore_missing_imports = true # Keep for now, for PySide6 or other complex imports
+# Exclude generated files and virtual environments. Use list of strings.
+# TOML requires backslashes to be escaped in basic strings, or use literal strings for regex.
+# For simplicity, using basic strings with escaped backslashes for regex patterns.
+exclude = [
+    "grazr/ui/resources_rc.py", # Direct path, no regex needed if it's exact
+    "venv",
+    "\\.venv", # Regex for .venv
+    "build",
+    "dist",
+    ".*egg-info" # Regex for .egg-info directories
+]
+files = "grazr,tests" # Specify paths or packages to check
+# packages = ["grazr", "tests"] # Alternative to files
+disallow_untyped_defs = false # Set to true later for stricter checking
+show_error_codes = true
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "-ra -q"
+addopts = "-ra -q --cov=grazr --cov-report=xml --cov-report=term-missing" # Added coverage options
 testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
 source = ["grazr"]
+omit = [
+    "grazr/ui/resources_rc.py", # Exclude generated files from coverage
+    "*/__main__.py", # Typically main entry points might be excluded if simple
+    "grazr/main.py", # Main GUI entry point can be complex to unit test fully
+    "grazr/cli.py", # CLI shim might be tested via integration tests
+    "*/tests/*", # Test files themselves
+    "grazr/*_dummy.py" # Any dummy files if created
+]
+
+[tool.coverage.report]
+fail_under = 70 # Example coverage threshold
+show_missing = true
+skip_covered = true
 
 [tool.ruff]
-line-length = 80
-select = ["E", "F", "I", "UP"]
-ignore = ["E501"]
+line-length = 88
+select = [
+    "E",  # pycodestyle errors
+    "F",  # Pyflakes
+    "W",  # pycodestyle warnings
+    "I",  # isort
+    "UP", # pyupgrade
+    "B",  # flake8-bugbear
+    "C90",# McCabe complexity
+    "RUF" # Ruff-specific rules
+]
+ignore = [
+    "E501", # Line too long, handled by Black
+    # Add other specific ignores if necessary after initial run, e.g.:
+    # "B008", # Function call argument without keyword (for some cases like Popen)
+]
+extend-exclude = [
+    "grazr/ui/resources_rc.py",
+    "venv",
+    ".venv",
+    "build",
+    "dist",
+    "*.egg-info", # More general pattern for egg-info
+    "grazr/core/config_dummy_test_data.py" # Example of excluding a test data file
+]
+# Fixable violations will be fixed by `ruff --fix`
+# Unfixable violations will be reported.
+
+[tool.ruff.isort]
+known-first-party = ["grazr"]
+force-sort-within-sections = true
+# combine_as_imports = true # Optional: Combines "as" imports if desired
+
+# Optional: If Ruff is to format (instead of or alongside Black)
+# [tool.ruff.format]
+# quote-style = "double"
+# indent-style = "space"
+# skip-magic-trailing-comma = false
+# line-ending = "auto"
 
 [build-system]
 # Specifies build tools pip needs to install your package
@@ -45,10 +110,24 @@ build-backend = "setuptools.build_meta"
 [project]
 # Basic info about your project
 name = "grazr"
-version = "0.1.0-alpha"
+version = "0.1.0-alpha" # Keep version as is, or update if needed
 description = "GUI Helper for managing local development services."
-requires-python = ">=3.10" # Specify your minimum Python version
-# Add license later if needed: license = { text = "MIT License" }
+requires-python = ">=3.10" # Consistent Python version
+readme = "README.md" # Assuming you have a README.md
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}, # Replace with actual author
+]
+keywords = ["development", "gui", "php", "nginx", "local", "pyside"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License", # Example, choose your license
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Operating System :: OS Independent", # Or specify Linux if it's Linux-only
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: User Interfaces",
+]
 
 # Add dependencies here if they are NOT just for the GUI
 # dependencies = []
@@ -58,14 +137,31 @@ requires-python = ">=3.10" # Specify your minimum Python version
 gui = [
     "PySide6 >=6.6.0, <7.0.0", # Or your specific version
 ]
+dev = [ # Development dependencies
+    "pytest>=7.0",
+    "pytest-cov>=3.0",
+    "mypy>=1.0",
+    "ruff>=0.1.0", # Check latest Ruff version
+    "black>=23.0", # Check latest Black version
+    "types-PySide6", # Stubs for PySide6 if available and needed
+    "pip-tools", # For compiling requirements
+]
 
-# Optional: Define entry points if you want installable commands later
-# [project.scripts]
-# grazr-cli = "grazr.cli:main_cli_function_name" # Example
+
+# Optional: Define entry points
+[project.scripts]
+grazr = "grazr.main:main" # Main GUI entry point
+grazr-cli = "grazr.cli:main" # CLI entry point (assuming cli.py has a main() function)
+
+[project.urls]
+Homepage = "https://github.com/artmin96/grazr" # Replace with actual URL
+Repository = "https://github.com/artmin96/grazr"
+# Bug Tracker = "https://github.com/artmin96/grazr/issues"
+
 
 [tool.setuptools.packages.find]
 # Tells setuptools where to find your main package code
 # Assumes your package ('grazr') is directly under the root where pyproject.toml is
 where = ["."] # Look in the current directory (project root)
 include = ["grazr*"] # Include the 'grazr' package and sub-packages
-exclude = ["venv*", "tests*"] # Exclude virtual environment, tests
+exclude = ["venv*", ".venv*", "tests*", "build*", "dist*", "*.egg-info*"] # Exclude virtual environment, tests, build artifacts

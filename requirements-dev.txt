@@ -1,0 +1,13 @@
+# Development dependencies for Grazr.
+# This file can be generated from pyproject.toml using a tool like
+# pip-compile-multi or by manually keeping it in sync with
+# [project.optional-dependencies.dev] in pyproject.toml.
+# To install: pip install -r requirements-dev.txt
+
+pytest>=7.0
+pytest-cov>=3.0
+mypy>=1.0
+ruff>=0.1.0
+black>=23.0
+types-PySide6
+pip-tools
