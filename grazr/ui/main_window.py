@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        logger.info("MainWindow.__init__: Start")
+        logger.info("MainWindow.__init__: Start") # Existing Start log
 
         self.tray_icon = None
         self.setWindowTitle(f"{getattr(config, 'APP_NAME', 'Grazr')} (Alpha)")
@@ -171,8 +171,8 @@ class MainWindow(QMainWindow):
         self.node_page = NodePage(self)
         logger.info("MainWindow.__init__: NodePage created.")
 
-        self.stacked_widget.addWidget(self.services_page)
-        self.stacked_widget.addWidget(self.php_page)
+        self.stacked_widget.addWidget(self.services_page) # This line was already present
+        self.stacked_widget.addWidget(self.php_page) # This line was already present
         self.stacked_widget.addWidget(self.sites_page)
         self.stacked_widget.addWidget(self.node_page)
 
@@ -230,7 +230,7 @@ class MainWindow(QMainWindow):
         self.log_message("Attempting to start bundled Nginx...")
         QTimer.singleShot(100, lambda: self.triggerWorker.emit("start_internal_nginx", {}))
         self.start_configured_autostart_services()
-        logger.info("MainWindow.__init__: End")
+        logger.info("MainWindow.__init__: End") # Existing End log
 
     def set_tray_icon(self, tray_icon: QSystemTrayIcon):
         self.tray_icon = tray_icon
@@ -539,8 +539,8 @@ class MainWindow(QMainWindow):
         # Find the process_id associated with this service_type from AVAILABLE_BUNDLED_SERVICES
         # This assumes single-instance services like MySQL, Redis, MinIO have a fixed 'process_id'
         # in their AVAILABLE_BUNDLED_SERVICES definition.
-        service_def = config.AVAILABLE_BUNDLED_SERVICES.get(target_service_type)
-        if not service_def or not service_def.get('process_id'):
+        service_def = config.AVAILABLE_BUNDLED_SERVICES.get(target_service_type) # service_def is a ServiceDefinition object
+        if not service_def or not service_def.process_id: # Changed .get('process_id') to .process_id
             logger.warning(
                 f"MAIN_WINDOW: No fixed process_id definition found for service_type '{target_service_type}' in AVAILABLE_BUNDLED_SERVICES.")
             return None  # Cannot find config_id without knowing its process_id or if it's not a fixed ID service
@@ -646,8 +646,9 @@ class MainWindow(QMainWindow):
 
         if process_id_for_service == config.MINIO_PROCESS_ID:
             api_port = configured_port
-            con_port = service_definition.get('console_port', getattr(config, 'MINIO_CONSOLE_PORT', 9001))
-            port_info = f"API:{api_port}|Console:{con_port}"
+            # Access console_port directly, provide fallback if it's None
+            con_port_val = service_definition.console_port if service_definition.console_port is not None else getattr(config, 'MINIO_CONSOLE_PORT', 9001)
+            port_info = f"API:{api_port}|Console:{con_port_val}"
         elif process_id_for_service != config.NGINX_PROCESS_ID:
             port_info = configured_port
 

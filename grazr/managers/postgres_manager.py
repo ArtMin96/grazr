@@ -139,13 +139,14 @@ def _get_instance_paths(service_instance_config: dict):
             f"POSTGRES_MANAGER: No definition for service_type '{service_type}' in AVAILABLE_BUNDLED_SERVICES.")
         return None
 
-    bundle_version_full = service_def.get('bundle_version_full')
-    binary_name = service_def.get('binary_name', 'postgres')
-    initdb_name = service_def.get('initdb_name', 'initdb')
-    pg_ctl_name = service_def.get('pg_ctl_name', 'pg_ctl')
-    psql_name = service_def.get('psql_name', 'psql')
+    # Direct attribute access for ServiceDefinition object
+    bundle_version_full = service_def.bundle_version_full
+    binary_name = service_def.binary_name if service_def.binary_name is not None else 'postgres'
+    initdb_name = service_def.initdb_name if service_def.initdb_name is not None else 'initdb'
+    pg_ctl_name = service_def.pg_ctl_name if service_def.pg_ctl_name is not None else 'pg_ctl'
+    psql_name = service_def.psql_name if service_def.psql_name is not None else 'psql'
 
-    if not bundle_version_full:
+    if not bundle_version_full: # This check remains important
         logger.error(f"POSTGRES_MANAGER: 'bundle_version_full' not defined for service_type '{service_type}'.")
         return None
 

@@ -448,14 +448,48 @@ class ServicesPage(QWidget):
     @Slot(bool)
     def set_controls_enabled(self, enabled):
         logger.info(f"SERVICES_PAGE: Setting controls enabled state: {enabled}")
-        for sid, widget in self.service_widgets.items():
-            if hasattr(widget, 'set_controls_enabled'):
-                widget.set_controls_enabled(enabled)
-            else:
-                widget.setEnabled(enabled)
-        self.add_service_button.setEnabled(enabled)
-        if hasattr(self, 'stop_all_button'): self.stop_all_button.setEnabled(enabled)
-        # if enabled: QTimer.singleShot(10, self.refresh_data)  # Re-check states after enabling
+        # Check for self.service_widgets itself, though it's initialized in __init__
+        if hasattr(self, 'service_widgets') and self.service_widgets:
+            for sid, widget in self.service_widgets.items():
+                # Check if widget is still valid (C++ object not deleted)
+                # A simple check for parent might not be enough if the widget is top-level
+                # but typically item widgets will have a parent.
+                # A more robust check often involves sip.isdeleted() but that's for PyQt.
+                # For PySide, checking if parent() is not None is a reasonable heuristic for child widgets.
+                # Or, more directly, ensure the widget's internal C++ pointer is valid.
+                # For now, let's assume if it's in service_widgets, it might be valid,
+                # but the error occurs when it's accessed *after* deletion.
+                # The timer makes this tricky.
+                # The most direct impact of the error is on calls like setEnabled or set_controls_enabled.
+                try:
+                    if widget: # Basic check
+                        if hasattr(widget, 'set_controls_enabled'):
+                            widget.set_controls_enabled(enabled)
+                        else:
+                            widget.setEnabled(enabled)
+                except RuntimeError as e:
+                    logger.warning(f"SERVICES_PAGE: RuntimeErorr accessing widget {sid} in set_controls_enabled: {e}")
+
+
+        if hasattr(self, 'add_service_button') and self.add_service_button:
+            # Check if the C++ object is still alive. A simple way is to try accessing a Qt property.
+            # Or check if its parent is still valid if it's supposed to have one.
+            # self.add_service_button.parent() would be its parent QLayout's parent widget.
+            try:
+                # Attempting a benign call to check if object is alive
+                _ = self.add_service_button.isEnabled() # Or isVisible()
+                self.add_service_button.setEnabled(enabled)
+            except RuntimeError as e:
+                logger.warning(f"SERVICES_PAGE: RuntimeError accessing add_service_button in set_controls_enabled: {e}")
+
+        if hasattr(self, 'stop_all_button') and self.stop_all_button:
+            try:
+                _ = self.stop_all_button.isEnabled()
+                self.stop_all_button.setEnabled(enabled)
+            except RuntimeError as e:
+                logger.warning(f"SERVICES_PAGE: RuntimeError accessing stop_all_button in set_controls_enabled: {e}")
+
+        # The QTimer.singleShot that called refresh_data was already commented out in a previous step.
         logger.debug(f"{self.__class__.__name__}: set_controls_enabled called with {enabled}, refresh_data timer commented out.")
 
     def refresh_data(self):
