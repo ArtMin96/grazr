@@ -281,28 +281,47 @@ class MainWindow(QMainWindow):
                 task_name = "start_minio"
             elif process_id_to_start.startswith("internal-postgres-"):
                 task_name = "start_postgres"
-                # Find the instance_id from the process_id_to_start
-                instance_id_from_proc = process_id_to_start.split(
-                    # Find the service_type corresponding to process_id_to_start
-                    service_type_for_proc_id = self._get_service_type_from_process_id(process_id_to_start)
-                    service_def_for_proc_id = config.AVAILABLE_BUNDLED_SERVICES.get(service_type_for_proc_id)
+                instance_id_from_proc = None # Initialize
 
-                    if service_def_for_proc_id and service_def_for_proc_id.process_id_template:
-                        # Extract instance_id from process_id_to_start using the template's structure
-                        # Example: template "internal-postgres-{version}-{instance_id}"
-                        # process_id_to_start "internal-postgres-16-my_instance"
-                        # This logic is simplified; a more robust parsing based on the exact template format might be needed.
-                        # For now, assuming process_id_template ends with "{instance_id}"
-                        base_template = service_def_for_proc_id.process_id_template.split("{instance_id}")[0]
-                        if process_id_to_start.startswith(base_template):
-                            instance_id_from_proc = process_id_to_start[len(base_template):]
-                            task_data = {"instance_id": instance_id_from_proc}
-                        else:
-                            logger.error(f"Could not parse instance_id from {process_id_to_start} using template {service_def_for_proc_id.process_id_template}"); continue
+                service_type_for_proc_id = self._get_service_type_from_process_id(process_id_to_start)
+                if not service_type_for_proc_id:
+                    logger.error(f"Could not determine service type for process_id {process_id_to_start} to extract instance_id for Postgres task.")
+                    continue # Skip this service
+
+                # service_def_for_proc_id should be a ServiceDefinition object
+                service_def_for_proc_id = config.AVAILABLE_BUNDLED_SERVICES.get(service_type_for_proc_id)
+                if not service_def_for_proc_id or not hasattr(service_def_for_proc_id, 'process_id_template') or not service_def_for_proc_id.process_id_template:
+                    logger.error(f"No valid service definition or process_id_template for {service_type_for_proc_id} (derived from {process_id_to_start}).")
+                    continue # Skip this service
+
+                # Example template: "internal-postgres-{major_version}-{instance_id}"
+                # We need to robustly extract the instance_id part.
+                template_parts = service_def_for_proc_id.process_id_template.split("{instance_id}")
+                prefix_template = template_parts[0] # e.g., "internal-postgres-{major_version}-"
+                suffix_template = template_parts[1] if len(template_parts) > 1 else ""
+
+                # Resolve the {major_version} in the prefix if it exists
+                if "{major_version}" in prefix_template and hasattr(service_def_for_proc_id, 'major_version') and service_def_for_proc_id.major_version:
+                    prefix_resolved = prefix_template.replace("{major_version}", service_def_for_proc_id.major_version)
+                else:
+                    prefix_resolved = prefix_template
+
+                if process_id_to_start.startswith(prefix_resolved):
+                    temp_id = process_id_to_start[len(prefix_resolved):]
+                    if not suffix_template: # No suffix in template
+                        instance_id_from_proc = temp_id
+                    elif temp_id.endswith(suffix_template):
+                        instance_id_from_proc = temp_id[:-len(suffix_template)] if len(suffix_template) > 0 else temp_id
                     else:
-                         logger.error(f"No valid service definition or process_id_template found for {process_id_to_start} to extract instance_id."); continue
-                else: # Should not happen if logic is correct
-                     logger.error(f"Could not determine instance_id for Postgres task {process_id_to_start}"); continue
+                        logger.error(f"Suffix mismatch while parsing instance_id from '{process_id_to_start}' using template '{service_def_for_proc_id.process_id_template}' (prefix: '{prefix_resolved}', suffix: '{suffix_template}').")
+                else:
+                    logger.error(f"Prefix mismatch while parsing instance_id from '{process_id_to_start}' using template '{service_def_for_proc_id.process_id_template}' (resolved prefix: '{prefix_resolved}').")
+
+                if instance_id_from_proc:
+                    task_data = {"instance_id": instance_id_from_proc}
+                else:
+                    logger.error(f"Failed to parse instance_id from '{process_id_to_start}' for service type '{service_type_for_proc_id}'.")
+                    continue # Skip this service
             if task_name:
                 logger.info(f"Triggering start task: {task_name} for process ID {process_id_to_start} with data {task_data}")
                 self.triggerWorker.emit(task_name, task_data)
@@ -982,19 +1001,25 @@ class MainWindow(QMainWindow):
 
         status = "error"
         version = "N/A"
-        port_info = "-"
+        port_info = "-" # Default port_info, will be updated by port_to_display
         try:
             status = get_postgres_status(instance_id=instance_id)  # Pass instance_id
-            version = get_postgres_version(service_instance_config=service_config)
+            version = get_postgres_version(service_instance_config=service_config) # Pass full config
         except Exception as e:
             logger.error(f"Error getting PG instance {instance_id} status/version: {e}", exc_info=True)
 
-        port_to_display = service_config.get(
-            'port',
-                    service_def_for_port = config.AVAILABLE_BUNDLED_SERVICES.get(service_config.get('service_type'))
-                    default_port_for_type = service_def_for_port.default_port if service_def_for_port else 0
-                    port_to_display = service_config.get('port', default_port_for_type)
-        )
+        # Determine port_to_display clearly
+        configured_port = service_config.get('port')
+        if configured_port is not None:
+            port_to_display = configured_port
+        else:
+            # service_def_for_port should be a ServiceDefinition object
+            service_def_for_port = config.AVAILABLE_BUNDLED_SERVICES.get(service_config.get('service_type'))
+            if service_def_for_port and hasattr(service_def_for_port, 'default_port') and service_def_for_port.default_port is not None:
+                port_to_display = service_def_for_port.default_port
+            else:
+                port_to_display = "?" # Fallback if no port info found
+
         detail_text = f"Version: {version} | Port: {port_to_display}" if status == "running" else f"Version: {version} | Port: -"
 
         # ServicesPage uses instance_id as the key for its widgets
