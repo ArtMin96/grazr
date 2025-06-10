@@ -6,13 +6,16 @@ import shutil
 import traceback
 import shlex
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 
 # --- Import Core Config ---
 try:
     # Use relative import assuming this is in managers/
     from ..core import config
 except ImportError as e:
-    print(f"ERROR in node_manager.py: Could not import core.config: {e}")
+    logger.critical(f"NODE_MANAGER_IMPORT_ERROR: Could not import core.config: {e}", exc_info=True)
     # Dummy config with necessary constants
     class ConfigDummy:
         NVM_SCRIPT_PATH=Path("~/.nvm/nvm.sh").expanduser() # Example fallback
@@ -42,13 +45,13 @@ def _run_nvm_command(nvm_command_args, timeout=180):
 
     if not nvm_script or not nvm_dir or not nvm_script.is_file():
         msg = f"NVM script path ({nvm_script}) or managed node dir ({nvm_dir}) is not configured or invalid."
-        print(f"Node Manager Error: {msg}")
+        logger.error(f"NVM setup error: {msg}")
         return False, msg
 
     # Ensure the managed node directory exists
-    if not config.ensure_dir(nvm_dir):
+    if not config.ensure_dir(nvm_dir): # config.ensure_dir should use logging
         msg = f"Could not create NVM managed node directory: {nvm_dir}"
-        print(f"Node Manager Error: {msg}")
+        logger.error(f"NVM setup error: {msg}")
         return False, msg
 
     # Construct the full shell command to source nvm and run the command
@@ -63,8 +66,8 @@ def _run_nvm_command(nvm_command_args, timeout=180):
     # Using ; instead of && allows the nvm command to run even if sourcing has no output
     full_command = f"export NVM_DIR=\"{nvm_dir.resolve()}\" ; \\. \"{nvm_script.resolve()}\" ; nvm {nvm_cmd_str}"
 
-    print(f"Node Manager: Running NVM command: {nvm_cmd_str}")
-    # print(f"Node Manager DEBUG: Full shell command: {full_command}") # Debug
+    logger.info(f"Running NVM command: nvm {nvm_cmd_str}")
+    logger.debug(f"Full shell command for NVM: {full_command}")
 
     try:
         # Use shell=True because we need to source the nvm script
@@ -81,26 +84,26 @@ def _run_nvm_command(nvm_command_args, timeout=180):
             check=False # Don't raise exception on non-zero exit
         )
 
-        print(f"Node Manager: NVM command finished. Exit Code: {result.returncode}") # Debug
-        # print(f"Node Manager DEBUG: stdout:\n{result.stdout}") # Debug
-        # print(f"Node Manager DEBUG: stderr:\n{result.stderr}") # Debug
+        logger.debug(f"NVM command 'nvm {nvm_cmd_str}' finished. Exit Code: {result.returncode}")
+        logger.debug(f"NVM stdout:\n{result.stdout}")
+        if result.stderr: # Only log stderr if it's not empty
+            logger.debug(f"NVM stderr:\n{result.stderr}")
 
         if result.returncode == 0:
             return True, result.stdout.strip()
         else:
             # NVM often prints errors to stdout, so return that if stderr is empty
             error_output = result.stderr.strip() if result.stderr.strip() else result.stdout.strip()
-            print(f"Node Manager Error: NVM command failed. Output:\n{error_output}")
+            logger.error(f"NVM command 'nvm {nvm_cmd_str}' failed. Output:\n{error_output}")
             return False, error_output
 
     except subprocess.TimeoutExpired:
-        msg = f"NVM command timed out after {timeout} seconds."
-        print(f"Node Manager Error: {msg}")
+        msg = f"NVM command 'nvm {nvm_cmd_str}' timed out after {timeout} seconds."
+        logger.error(msg)
         return False, msg
     except Exception as e:
-        msg = f"Unexpected error running NVM command: {e}"
-        print(f"Node Manager Error: {msg}")
-        traceback.print_exc()
+        msg = f"Unexpected error running NVM command 'nvm {nvm_cmd_str}': {e}"
+        logger.error(msg, exc_info=True) # Include stack trace for unexpected errors
         return False, msg
 
 
@@ -138,7 +141,7 @@ def list_remote_node_versions(lts=True):
         try:
              versions.sort(key=lambda s: list(map(int, s.split('.'))), reverse=True)
         except ValueError:
-             print("Node Manager Warning: Could not sort versions numerically.")
+             logger.warning("Could not sort remote Node versions numerically. Proceeding with NVM's order.")
     return versions
 
 
@@ -147,11 +150,11 @@ def list_installed_node_versions():
     Lists Node.js versions installed within the managed NVM directory using 'nvm list'.
     Returns: list: A list of installed version strings (e.g., ['20.11.0', '18.19.0']).
     """
-    print("DEBUG Node Manager: Fetching installed versions with 'nvm list'...")
+    logger.debug("Fetching installed Node versions with 'nvm list'...")
     success, output = _run_nvm_command("list")
     versions = []
-    print(f"DEBUG Node Manager: 'nvm list' success: {success}")
-    print(f"DEBUG Node Manager: Raw 'nvm list' output:\n---\n{output}\n---")
+    logger.debug(f"'nvm list' command success: {success}")
+    logger.debug(f"Raw 'nvm list' output:\n---\n{output}\n---")
 
     if success:
         # Regex revised: Find lines containing 'v' followed by digits.dots.digits
@@ -163,12 +166,12 @@ def list_installed_node_versions():
         found_versions = set(matches) # Use set to get unique versions directly
 
         versions = list(found_versions)
-        print(f"DEBUG Node Manager: Parsed unique versions: {versions}")
+        logger.debug(f"Parsed unique installed Node versions: {versions}")
         try:
              versions.sort(key=lambda s: list(map(int, s.split('.'))), reverse=True)
-             print(f"DEBUG Node Manager: Sorted versions: {versions}")
+             logger.debug(f"Sorted installed Node versions: {versions}")
         except ValueError:
-             print("Node Manager Warning: Could not sort installed versions numerically.")
+             logger.warning("Could not sort installed Node versions numerically. Proceeding with NVM's order.")
     return versions
 
 def install_node_version(version):
@@ -185,17 +188,19 @@ def install_node_version(version):
         return False, "No version specified for installation."
 
     # Basic validation? NVM handles invalid versions.
-    print(f"Node Manager: Attempting to install Node.js version '{version}'...")
+    logger.info(f"Attempting to install Node.js version '{version}'...")
     success, output = _run_nvm_command(["install", version])
-    # Check if binary path exists after install attempt
+
     if success:
-         node_path = get_node_bin_path(version) # Use helper to check path
-         if node_path and node_path.exists():
-              print(f"Node Manager: Installation successful for {version}.")
-              return True, output # Return NVM's output
+         # NVM's "install" output can be verbose. The important thing is if it's now listed.
+         # A more robust check might be to call list_installed_node_versions() again.
+         # For now, trust NVM's exit code and check binary path.
+         node_bin_path = get_node_bin_path(version.lstrip('lts/')) # Ensure 'lts/' prefix is removed for path check
+         if node_bin_path and node_bin_path.exists():
+              logger.info(f"Node.js version '{version}' installation reported success by NVM and binary found at {node_bin_path}.")
+              return True, output # NVM's output might contain useful info like path.
          else:
-              # NVM command succeeded but binary not found? Weird state.
-              print(f"Node Manager Error: NVM install command succeeded for {version}, but binary not found at expected path.")
+              logger.error(f"NVM install for '{version}' reported success, but binary not found at expected path {node_bin_path}. NVM output: {output}")
               return False, f"Installation command ran, but binary verification failed.\nNVM Output:\n{output}"
     else:
          return False, output # Return NVM's error output
@@ -211,19 +216,21 @@ def uninstall_node_version(version):
         tuple: (success (bool), output/error_message (str))
     """
     if not version:
+        logger.error("No Node.js version specified for uninstallation.")
         return False, "No version specified for uninstallation."
 
-    print(f"Node Manager: Attempting to uninstall Node.js version '{version}'...")
+    logger.info(f"Attempting to uninstall Node.js version '{version}'...")
     success, output = _run_nvm_command(["uninstall", version])
-    # Check if binary path is gone after uninstall attempt
+
     if success:
-         node_path = get_node_bin_path(version)
-         if not node_path or not node_path.exists():
-              print(f"Node Manager: Uninstallation successful for {version}.")
+         # Similar to install, check if it's truly gone.
+         node_bin_path = get_node_bin_path(version)
+         if not node_bin_path or not node_bin_path.exists(): # Check it's NOT there
+              logger.info(f"Node.js version '{version}' uninstallation reported success by NVM and binary not found.")
               return True, output
          else:
-              print(f"Node Manager Error: NVM uninstall command succeeded for {version}, but binary still found.")
-              return False, f"Uninstallation command ran, but binary still exists.\nNVM Output:\n{output}"
+              logger.error(f"NVM uninstall for '{version}' reported success, but binary still found at {node_bin_path}. NVM output: {output}")
+              return False, f"Uninstallation command ran, but binary verification suggests it still exists.\nNVM Output:\n{output}"
     else:
          return False, output
 
@@ -246,12 +253,14 @@ def get_node_bin_path(version):
         # Remove 'v' prefix if template doesn't expect it
         version_num = version_str.lstrip('v')
         template = str(config.NODE_VERSION_BIN_TEMPLATE)
-        return Path(template.format(version=version_num))
+        path = Path(template.format(version=version_num))
+        logger.debug(f"Constructed node binary path for version '{version}': {path}")
+        return path
     except AttributeError:
-        print("Error: NODE_VERSION_BIN_TEMPLATE not defined correctly in config.")
+        logger.error("NODE_VERSION_BIN_TEMPLATE not defined correctly in config.")
         return None
     except Exception as e:
-        print(f"Error constructing node path for version {version}: {e}")
+        logger.error(f"Error constructing node binary path for version '{version}': {e}", exc_info=True)
         return None
 
 def get_npm_bin_path(version):
@@ -270,50 +279,75 @@ def get_npm_bin_path(version):
     try:
         version_num = version_str.lstrip('v')
         template = str(config.NPM_VERSION_BIN_TEMPLATE)
-        return Path(template.format(version=version_num))
+        path = Path(template.format(version=version_num))
+        logger.debug(f"Constructed npm binary path for version '{version}': {path}")
+        return path
     except AttributeError:
-        print("Error: NPM_VERSION_BIN_TEMPLATE not defined correctly in config.")
+        logger.error("NPM_VERSION_BIN_TEMPLATE not defined correctly in config.")
         return None
     except Exception as e:
-        print(f"Error constructing npm path for version {version}: {e}")
+        logger.error(f"Error constructing npm binary path for version '{version}': {e}", exc_info=True)
         return None
 
 # --- Example Usage ---
 if __name__ == "__main__":
-    print("--- Testing Node Manager ---")
-    # Add project root to path if running directly
+    # Setup basic logging to console for testing if no handlers are configured
+    if not logging.getLogger().hasHandlers():
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        # For more detailed output:
+        # logging.getLogger('grazr.managers.node_manager').setLevel(logging.DEBUG)
+
+    logger.info("--- Testing Node Manager ---")
+
+    # Add project root to path if running directly for config import
     project_root = Path(__file__).resolve().parent.parent.parent
-    if str(project_root) not in sys.path: sys.path.insert(0, str(project_root))
-    try: from grazr.core import config
-    except: print("Could not re-import config."); sys.exit(1)
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    try:
+        from grazr.core import config # Re-attempt import after path modification
+    except ImportError:
+        logger.critical("Could not import config even after path adjustment. Ensure config dummy is sufficient or run from main project context.", exc_info=True)
+        # sys.exit(1) # Exit if config is critical and dummy is not enough for testing
 
-    print("\nInstalled Versions:")
+    logger.info("Installed Node Versions:")
     installed = list_installed_node_versions()
-    print(installed if installed else "None")
+    logger.info(installed if installed else "None")
 
-    print("\nRemote LTS Versions:")
+    logger.info("Remote LTS Node Versions (top 10):")
     remote_lts = list_remote_node_versions(lts=True)
-    print(remote_lts[:10] if remote_lts else "Could not fetch") # Show top 10
+    logger.info(remote_lts[:10] if remote_lts else "Could not fetch remote LTS versions.")
 
     # Example: Install latest LTS if not already installed
-    if remote_lts and remote_lts[0] not in installed:
+    if remote_lts and (not installed or remote_lts[0] not in installed) :
         version_to_install = remote_lts[0]
-        print(f"\nAttempting to install Node.js {version_to_install}...")
-        success, output = install_node_version(version_to_install)
-        print(f"Install Success: {success}")
-        print(f"Output:\n{output}")
+        logger.info(f"Attempting to install Node.js {version_to_install}...")
+        install_success, install_output = install_node_version(version_to_install)
+        logger.info(f"Installation of {version_to_install} success: {install_success}")
+        if not install_success:
+            logger.error(f"Installation output/error:\n{install_output}")
 
-        print("\nInstalled Versions after install:")
-        installed = list_installed_node_versions()
-        print(installed if installed else "None")
+        logger.info("Installed Node Versions after install attempt:")
+        installed_after_install = list_installed_node_versions()
+        logger.info(installed_after_install if installed_after_install else "None")
 
         # Example: Uninstall if install seemed successful
-        # if success and version_to_install in installed:
-        #     print(f"\nAttempting to uninstall Node.js {version_to_install}...")
-        #     un_success, un_output = uninstall_node_version(version_to_install)
-        #     print(f"Uninstall Success: {un_success}")
-        #     print(f"Output:\n{un_output}")
-        #     print("\nInstalled Versions after uninstall:")
-        #     installed = list_installed_node_versions()
-        #     print(installed if installed else "None")
+        # Note: NVM might set the newly installed version as current,
+        # and uninstalling the current version can sometimes have quirks.
+        # For a robust test, you might want to `nvm use` another version first if one exists.
+        if install_success and version_to_install in installed_after_install:
+            logger.info(f"Attempting to uninstall Node.js {version_to_install}...")
+            uninstall_success, uninstall_output = uninstall_node_version(version_to_install)
+            logger.info(f"Uninstallation of {version_to_install} success: {uninstall_success}")
+            if not uninstall_success:
+                logger.error(f"Uninstallation output/error:\n{uninstall_output}")
+
+            logger.info("Installed Node Versions after uninstall attempt:")
+            installed_after_uninstall = list_installed_node_versions()
+            logger.info(installed_after_uninstall if installed_after_uninstall else "None")
+    elif remote_lts and installed and remote_lts[0] in installed:
+        logger.info(f"Latest LTS version {remote_lts[0]} is already installed. Skipping install/uninstall test cycle.")
+    else:
+        logger.info("No remote LTS versions found or other condition met, skipping install/uninstall test cycle.")
+
+    logger.info("--- Node Manager Testing Finished ---")
 

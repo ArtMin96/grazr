@@ -1,4 +1,7 @@
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 
 # --- Import Core Modules ---
 try:
@@ -6,10 +9,10 @@ try:
     from ..core.system_utils import run_root_helper_action
     from ..core import config
 except ImportError as e:
-    print(f"ERROR in hosts_manager.py: Could not import core modules - {e}")
+    logger.critical(f"HOSTS_MANAGER_IMPORT_ERROR: Could not import core modules - {e}", exc_info=True)
     # Define dummy function if import fails
     def run_root_helper_action(*args, **kwargs):
-        print("DUMMY run_root_helper_action called.")
+        logger.error("DUMMY run_root_helper_action called due to import error.")
         # Simulate failure for add, success for remove?
         action = kwargs.get('action', args[0] if args else None)
         if action == "add_host_entry": return False, "Dummy: Failed adding host (import error)"
@@ -33,8 +36,9 @@ def add_entry(domain, ip="127.0.0.1"):
     Returns:
         tuple: (bool success, str message) from the helper action.
     """
-    print(f"Hosts Manager: Requesting add entry -> {ip} {domain}")
+    logger.info(f"Requesting to add host entry: IP='{ip}', Domain='{domain}'")
     if not domain or not ip:
+        logger.error("Invalid domain or IP provided to add_entry.")
         return False, "Invalid domain or IP provided to add_entry."
 
     # Call the helper script via pkexec using system_utils function
@@ -56,8 +60,9 @@ def remove_entry(domain):
     Returns:
         tuple: (bool success, str message) from the helper action.
     """
-    print(f"Hosts Manager: Requesting remove entry -> {domain}")
+    logger.info(f"Requesting to remove host entry for domain: '{domain}'")
     if not domain:
+        logger.error("Invalid domain provided to remove_entry.")
         return False, "Invalid domain provided to remove_entry."
 
     # Call the helper script via pkexec using system_utils function
@@ -70,18 +75,29 @@ def remove_entry(domain):
 
 # --- Example Usage --- (for testing this file directly, requires root/pkexec setup)
 if __name__ == "__main__":
-    print("--- Testing Hosts Manager (requires root/pkexec setup) ---")
+    # Setup basic logging to console for testing if no handlers are configured
+    if not logging.getLogger().hasHandlers():
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    logger.info("--- Testing Hosts Manager (requires root/pkexec setup) ---")
     test_domain = "grazr-test.test"
-    print(f"\nAttempting to add {test_domain}...")
+    logger.info(f"Attempting to add host entry for: {test_domain}")
     add_ok, add_msg = add_entry(test_domain)
-    print(f"Result: {add_ok} - {add_msg}")
+    logger.info(f"Add entry result: Success={add_ok}, Message='{add_msg}'")
+
     if add_ok:
-        print("\nCheck /etc/hosts manually for the entry.")
-        input("Press Enter to attempt removal...")
-        print(f"\nAttempting to remove {test_domain}...")
+        logger.info("Host entry possibly added. Check /etc/hosts manually for the entry.")
+        try:
+            input("Press Enter to attempt removal of the host entry...")
+        except EOFError: # Handle non-interactive environments
+            logger.info("EOFError encountered, proceeding with removal automatically.")
+
+        logger.info(f"Attempting to remove host entry for: {test_domain}")
         rm_ok, rm_msg = remove_entry(test_domain)
-        print(f"Result: {rm_ok} - {rm_msg}")
+        logger.info(f"Remove entry result: Success={rm_ok}, Message='{rm_msg}'")
         if rm_ok:
-             print("\nCheck /etc/hosts manually to confirm removal.")
+             logger.info("Host entry possibly removed. Check /etc/hosts manually to confirm removal.")
     else:
-        print("\nSkipping removal test as add failed.")
+        logger.warning("Skipping removal test as adding the host entry failed.")
+
+    logger.info("--- Hosts Manager Testing Finished ---")

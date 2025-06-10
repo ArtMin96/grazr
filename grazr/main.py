@@ -4,15 +4,17 @@ import traceback
 from pathlib import Path
 import logging
 import logging.handlers
+from typing import Optional # Added for type hinting
 
 # This helps resolve imports when main.py is inside the package
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
+    # This print is okay as it's pre-logging setup for dev purposes
     print(f"INFO: Adding project root to sys.path: {project_root}")
     sys.path.insert(0, str(project_root))
 # --- End Path Addition ---
 
-# --- Custom Log Formatter for Colors ---
+# --- Custom Log Formatter for Colors (Moved to top) ---
 class ColorLogFormatter(logging.Formatter):
     """Adds ANSI color codes to log messages based on level for console output."""
 
@@ -44,53 +46,91 @@ class ColorLogFormatter(logging.Formatter):
         return formatter.format(record)
 # --- End Custom Log Formatter ---
 
-# --- Attempt to import config first for logging setup ---
+# --- Early Logging Setup (Console Only) ---
+# This is set up before attempting to import `grazr.core.config` so that
+# critical import errors for config itself can be logged.
+_early_root_logger = logging.getLogger()
+_early_root_logger.setLevel(logging.INFO) # Start with INFO for early messages
+_early_console_handler = logging.StreamHandler(sys.stderr)
+_early_console_handler.setFormatter(ColorLogFormatter()) # Use ColorLogFormatter directly
+_early_root_logger.addHandler(_early_console_handler)
+_early_initial_logger = logging.getLogger(__name__) # Logger for this file's early messages
+
+# --- Attempt to import config for further logging setup ---
 try:
     from grazr.core import config
-except ImportError as e:
-    print(f"FATAL: Failed to import core.config: {e}", file=sys.stderr)
-    config = None
+    _early_initial_logger.info("MAIN: Successfully imported grazr.core.config.")
+except ImportError as e_config_import: # pragma: no cover
+    _early_initial_logger.critical(f"MAIN: CRITICAL - Failed to import grazr.core.config: {e_config_import}", exc_info=True)
+
+    class ConfigDummy:
+        LOG_DIR: Optional[Path] = Path.home() / ".grazr_temp_logs" # Temporary log location
+        APP_NAME: str = "Grazr (Config Load Error)" # For point 5
+
+        def ensure_dir(self, path_to_ensure: Optional[Path]) -> bool:
+            if path_to_ensure is None:
+                _early_initial_logger.warning("ConfigDummy.ensure_dir called with None path. Cannot create.")
+                return False
+            try:
+                path_to_ensure.mkdir(parents=True, exist_ok=True)
+                _early_initial_logger.info(f"ConfigDummy: Ensured directory (or it existed): {path_to_ensure}")
+                return True
+            except Exception as e_mkdir:
+                _early_initial_logger.error(f"ConfigDummy: Failed to create directory {path_to_ensure}: {e_mkdir}")
+                return False
+
+    config = ConfigDummy() # Use the dummy config
+    _early_initial_logger.info("MAIN: Using dummy configuration due to import failure of grazr.core.config.")
 # --- End Config Import ---
 
-# --- Configure Logging ---
-log_level = logging.DEBUG
-log_format = '%(asctime)s [%(levelname)-7s] %(name)s: %(message)s'
-log_datefmt = '%H:%M:%S'
+# --- Configure Full Logging (Console and File if possible) ---
+# Remove early basic handler now that we have config (real or dummy)
+_early_root_logger.removeHandler(_early_console_handler)
 
-# Remove basicConfig handlers if they exist (to avoid duplicate messages)
+log_level = logging.DEBUG # Overall level for root logger
+log_format_str = '%(asctime)s [%(levelname)-7s] %(name)s: %(message)s'
+log_datefmt_str = ColorLogFormatter.DATE_FORMAT # Use DATE_FORMAT from ColorLogFormatter
+
 root_logger = logging.getLogger()
-for handler in root_logger.handlers[:]:
+for handler in root_logger.handlers[:]: # Clear any existing handlers
     root_logger.removeHandler(handler)
-
-# Set root logger level
 root_logger.setLevel(log_level)
 
-# Console Handler (stderr) with Color Formatter
+# Console Handler (stderr) with Color Formatter - Re-add with potentially new level
 console_handler = logging.StreamHandler(sys.stderr)
-console_handler.setLevel(logging.INFO) # Log INFO and above to console
-console_handler.setFormatter(ColorLogFormatter()) # Use custom color formatter
+console_handler.setLevel(logging.INFO) # Console logs INFO and above
+console_handler.setFormatter(ColorLogFormatter(datefmt=log_datefmt_str))
 root_logger.addHandler(console_handler)
 
-if config and hasattr(config, 'LOG_DIR') and hasattr(config, 'ensure_dir'):
-    try:
-        log_file_path = config.LOG_DIR / 'grazr_app.log'
-        config.ensure_dir(config.LOG_DIR)
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_file_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8'
-        )
-        file_formatter = logging.Formatter(log_format, datefmt=log_datefmt)
-        file_handler.setFormatter(file_formatter)
-        file_handler.setLevel(logging.DEBUG)
-        root_logger.addHandler(file_handler)
-        logging.info("File logging initialized.")
-    except Exception as log_e:
-        logging.error(f"Failed to set up file logging: {log_e}", exc_info=True)
+# File Handler (if config.LOG_DIR is valid)
+if hasattr(config, 'LOG_DIR') and isinstance(getattr(config, 'LOG_DIR', None), Path) and hasattr(config, 'ensure_dir'):
+    # Check if ensure_dir is callable (method of an object or a function)
+    ensure_dir_callable = getattr(config, 'ensure_dir', None)
+    if callable(ensure_dir_callable):
+        if ensure_dir_callable(config.LOG_DIR): # type: ignore
+            log_file_path = config.LOG_DIR / 'grazr_app.log' # type: ignore
+            try:
+                file_handler = logging.handlers.RotatingFileHandler(
+                    log_file_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8'
+                )
+                file_formatter = logging.Formatter(log_format_str, datefmt=log_datefmt_str)
+                file_handler.setFormatter(file_formatter)
+                file_handler.setLevel(logging.DEBUG) # File log captures DEBUG and above
+                root_logger.addHandler(file_handler)
+                logging.info(f"MAIN: File logging initialized at: {log_file_path}")
+            except Exception as log_e:
+                logging.error(f"MAIN: Failed to set up file logging at {log_file_path}: {log_e}", exc_info=True)
+        else:
+            logging.warning(f"MAIN: LOG_DIR '{config.LOG_DIR}' could not be ensured. Skipping file logging.")
+    else:
+        logging.warning("MAIN: config.ensure_dir is not callable. Skipping file logging.")
+elif hasattr(config, 'LOG_DIR') and getattr(config, 'LOG_DIR', None) is None:
+    logging.warning("MAIN: config.LOG_DIR is None. Skipping file logging.")
 else:
-    logging.warning("Config module or LOG_DIR/ensure_dir not available, skipping file logging setup.")
+    logging.warning("MAIN: config.LOG_DIR or config.ensure_dir not available/valid in config. Skipping file logging setup.")
 
-
-logger = logging.getLogger(__name__)
-logger.info("Application logging configured.")
+logger = logging.getLogger(__name__) # Get logger for this module, now with full config
+logger.info("MAIN: Application logging fully configured.")
 # --- End Logging Configuration ---
 
 # --- Qt Imports ---
@@ -121,25 +161,42 @@ except ImportError:
 # --- End Resource Import ---
 
 # --- Function to Load Stylesheet ---
-def load_stylesheet():
+def load_stylesheet() -> str: # Added type hint
     style_path = Path(__file__).parent / "ui" / "style.qss"
     if style_path.is_file():
         try:
-            with open(style_path, 'r', encoding='utf-8') as f: logger.info(f"Loading stylesheet from: {style_path}"); return f.read()
-        except Exception as e: logger.error(f"Error loading stylesheet {style_path}: {e}", exc_info=True)
-    else: logger.warning(f"Stylesheet not found at {style_path}")
-    return ""
+            with open(style_path, 'r', encoding='utf-8') as f:
+                logger.info(f"MAIN: Loading stylesheet from: {style_path}")
+                return f.read()
+        except Exception as e:
+            logger.error(f"MAIN: Error loading stylesheet {style_path}: {e}", exc_info=True)
+    else:
+        logger.warning(f"MAIN: Stylesheet not found at {style_path}")
+    return "" # Return empty string if not loaded
 
 
 # --- Global reference to MainWindow instance for cleanup ---
-# This is not ideal, but necessary if app.aboutToQuit needs to access window.thread
-# A better approach might involve a dedicated application class or signal mechanism.
-main_window_instance = None
+# This global variable, `main_window_instance`, serves as a mechanism to allow the
+# `application_cleanup` function (connected to `app.aboutToQuit`) to access
+# the `MainWindow` instance. This is primarily needed to interact with the worker
+# thread (`window.thread`) and ensure it's properly shut down before the application
+# exits.
+#
+# While functional, using a global variable for this purpose is generally not ideal
+# for larger applications as it can make dependencies less clear. More robust
+# alternatives could include:
+#   1. A dedicated application controller class that owns both the `MainWindow`
+#      and the `QApplication`, and can manage cleanup directly.
+#   2. Passing necessary references through signals or making the `MainWindow`
+#      a singleton (though singletons also have their own trade-offs).
+# For the current scale, this approach is simple, but it's a point for potential
+# future refactoring if the application's complexity grows significantly.
+main_window_instance: Optional['MainWindow'] = None # Added Optional and forward reference for MainWindow
 
 
-def application_cleanup():
+def application_cleanup() -> None: # Added type hint
     """Function to handle cleanup tasks before the application quits."""
-    logger.info("MAIN_APP: Starting application cleanup...")
+    logger.info("MAIN: Starting application cleanup...")
 
     global main_window_instance
     if main_window_instance and hasattr(main_window_instance, 'thread') and main_window_instance.thread.isRunning():
@@ -176,15 +233,16 @@ if __name__ == "__main__":
     # --- Create QApplication (Only Once) ---
     # Set attribute BEFORE creating QApplication instance
     QApplication.setQuitOnLastWindowClosed(False) # Default to not quitting
-    app = QApplication(sys.argv)
+    app: QApplication = QApplication(sys.argv) # Added type hint
     app.setOrganizationName("Grazr")
-    app.setApplicationName(config.APP_NAME if hasattr(config, 'APP_NAME') else "Grazr")
+    # Use getattr for safer access to APP_NAME from potentially dummy config
+    app.setApplicationName(getattr(config, 'APP_NAME', "Grazr (Error Mode)"))
 
     # --- Setup System Tray Icon ---
-    tray_icon = None
+    tray_icon: Optional[QSystemTrayIcon] = None # Added type hint
     if QSystemTrayIcon.isSystemTrayAvailable():
-        logger.info("System tray available. Creating icon...")
-        tray_icon = QSystemTrayIcon()
+        logger.info("MAIN: System tray available. Creating icon...")
+        tray_icon = QSystemTrayIcon() # Type: QSystemTrayIcon
         try:
             icon = QIcon(":/icons/tray-icon.png")
             if icon.isNull():
@@ -226,34 +284,39 @@ if __name__ == "__main__":
     logger.info("Applied global stylesheet.")
 
     # --- Create the Main Window ---
-    logger.info("Creating MainWindow instance...")
+    logger.info("MAIN: Creating MainWindow instance...")
+    window: Optional['MainWindow'] = None # Initialize with Optional and forward reference for MainWindow
     try:
-        window = MainWindow()
+        window = MainWindow() # MainWindow type hint will be resolved by linter
         main_window_instance = window
     except Exception as e:
-        logger.critical(f"Error during MainWindow creation: {e}", exc_info=True)
-        traceback.print_exc()
-        sys.exit(1)
+        logger.critical(f"MAIN: Error during MainWindow creation: {e}", exc_info=True)
+        # traceback.print_exc() # logger.critical with exc_info=True already does this
+        sys.exit(1) # Exit if main window can't be created
 
-    if tray_icon: window.set_tray_icon(tray_icon)
-    logger.info("MainWindow instance created successfully.")
+    if tray_icon and window: window.set_tray_icon(tray_icon) # Check window is not None
+    logger.info("MAIN: MainWindow instance created successfully.")
 
     # --- Connect Signals Between Tray and Window ---
-    if tray_icon:
-        window.set_tray_icon(tray_icon)
+    if tray_icon and window: # Ensure window is not None
+        # window.set_tray_icon(tray_icon) # Already done above
         show_action.triggered.connect(window.toggle_visibility)
         start_all_action.triggered.connect(window.on_start_all_services_clicked)
         stop_all_action.triggered.connect(window.on_stop_all_services_clicked)
         tray_icon.activated.connect(lambda reason: window.toggle_visibility() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
 
-        # --- Connect Application Cleanup Logic ---
-    app.aboutToQuit.connect(application_cleanup)  # Centralized cleanup
-    logger.info("Connected application_cleanup to app.aboutToQuit.")
+    # --- Connect Application Cleanup Logic ---
+    app.aboutToQuit.connect(application_cleanup)
+    logger.info("MAIN: Connected application_cleanup to app.aboutToQuit.")
 
     # --- Show Window and Run ---
-    logger.info("Showing main window...")
-    window.show()
-    logger.info("Starting Qt event loop...")
-    exit_code = app.exec()
-    logger.info(f"Application exiting with code {exit_code}.")
+    if window: # Ensure window was created
+        logger.info("MAIN: Showing main window...")
+        window.show()
+        logger.info("MAIN: Starting Qt event loop...")
+        exit_code = app.exec()
+        logger.info(f"MAIN: Application exiting with code {exit_code}.")
+    else: # Should not happen if MainWindow creation error leads to sys.exit
+        logger.critical("MAIN: MainWindow instance is None. Cannot start application.")
+        exit_code = 1 # Indicate error
     sys.exit(exit_code)

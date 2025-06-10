@@ -191,17 +191,21 @@ def _get_instance_paths(service_instance_config: dict):
 
 
 def _get_default_postgres_config_content(instance_paths: dict, port_to_use: int):
-    if not instance_paths: logger.error(
-        "POSTGRES_MANAGER: instance_paths missing for _get_default_postgres_config_content."); return None
+    if not instance_paths:
+        logger.error("POSTGRES_MANAGER: instance_paths missing for _get_default_postgres_config_content.")
+        return None
 
-    try:
-        config.ensure_dir(instance_paths['instance_log_file'].parent)
-        config.ensure_dir(instance_paths['instance_sock_dir'])
-    except Exception as e:
-        logger.error(f"POSTGRES_MANAGER: Failed to ensure log/socket dirs: {e}"); return None
+    # Directories like instance_log_file.parent and instance_sock_dir
+    # should be created by the caller (_ensure_instance_config_files or _ensure_instance_datadir)
+    # before this content generation is called, or by _ensure_instance_paths if that's its role.
+    # For now, let's assume they are created by _ensure_instance_config_files or a dedicated path setup function.
+    # If not, calls to config.ensure_dir() would be needed here for:
+    # instance_paths['instance_log_file'].parent
+    # instance_paths['instance_sock_dir']
+    # However, it's cleaner if _ensure_instance_config_files handles its own directory needs.
 
     sock_dir = str(instance_paths['instance_sock_dir'].resolve())
-    hba_file = str(instance_paths['instance_hba_file'].resolve())
+    hba_file = str(instance_paths['instance_hba_file'].resolve()) # hba_file is inside instance_config_dir
 
     content = f"""# PostgreSQL configuration managed by Grazr for instance {instance_paths['instance_id']}
 listen_addresses = '127.0.0.1, ::1'
@@ -233,91 +237,182 @@ local   all             {default_pg_user}                       trust
     return content
 
 def _ensure_instance_config_files(instance_paths: dict, port_to_use: int):
-    if not instance_paths: return False
+    if not instance_paths:
+        logger.error("POSTGRES_MANAGER: instance_paths missing for _ensure_instance_config_files.")
+        return False
+
     conf_dir = instance_paths['instance_config_dir']
     conf_file = instance_paths['instance_conf_file']
     hba_file = instance_paths['instance_hba_file']
+    log_dir_for_instance = instance_paths['instance_log_file'].parent # Parent of the instance specific log
+    sock_dir_for_instance = instance_paths['instance_sock_dir']
+
     try:
-        if not config.ensure_dir(conf_dir): logger.error(f"Failed dir {conf_dir}"); return False
+        logger.debug(f"Ensuring instance config directory: {conf_dir}")
+        if not config.ensure_dir(conf_dir): # This will log errors if it fails
+            # No need to log again, just return False
+            return False
+
+        # Ensure log and socket directories specific to this instance are created before config refers to them
+        logger.debug(f"Ensuring instance log directory: {log_dir_for_instance}")
+        if not config.ensure_dir(log_dir_for_instance): return False
+        logger.debug(f"Ensuring instance socket directory: {sock_dir_for_instance}")
+        if not config.ensure_dir(sock_dir_for_instance): return False
+
         logger.info(f"POSTGRES_MANAGER: Writing postgresql.conf for instance '{instance_paths['instance_id']}' to {conf_file} with port {port_to_use}")
         content_main = _get_default_postgres_config_content(instance_paths, port_to_use)
-        if content_main is None: return False
+        if content_main is None:
+            logger.error(f"Failed to generate postgresql.conf content for instance '{instance_paths['instance_id']}'.")
+            return False
         conf_file.write_text(content_main, encoding='utf-8')
+        os.chmod(conf_file, 0o600) # Restrictive permissions for config files
 
-        if not hba_file.is_file(): # Only create if not exists
-            logger.info(f"POSTGRES_MANAGER: Creating default HBA config for instance '{instance_paths['instance_id']}' at {hba_file}")
-            content_hba = _get_default_pg_hba_content(); hba_file.write_text(content_hba, encoding='utf-8'); os.chmod(hba_file, 0o600)
-        else: logger.debug(f"POSTGRES_MANAGER: pg_hba.conf already exists at {hba_file}, not overwriting.")
+        if not hba_file.is_file(): # Only create if not exists, to preserve user changes
+            logger.info(f"POSTGRES_MANAGER: Creating default pg_hba.conf for instance '{instance_paths['instance_id']}' at {hba_file}")
+            content_hba = _get_default_pg_hba_content()
+            if content_hba is None: # Should not happen with current _get_default_pg_hba_content
+                 logger.error(f"Failed to generate pg_hba.conf content for instance '{instance_paths['instance_id']}'.")
+                 return False
+            hba_file.write_text(content_hba, encoding='utf-8')
+            os.chmod(hba_file, 0o600) # Restrictive permissions
+        else:
+            logger.debug(f"POSTGRES_MANAGER: pg_hba.conf already exists at {hba_file} for instance '{instance_paths['instance_id']}', not overwriting.")
         return True
-    except Exception as e: logger.error(f"POSTGRES_MANAGER: Error ensuring instance config files in {conf_dir}: {e}", exc_info=True); return False
+    except Exception as e:
+        logger.error(f"POSTGRES_MANAGER: Error ensuring instance config files in {conf_dir} for instance '{instance_paths['instance_id']}': {e}", exc_info=True)
+        return False
 
 
 def _ensure_instance_datadir(instance_paths: dict):
-    if not instance_paths: return False
+    """Ensures the instance-specific data directory exists and is initialized."""
+    if not instance_paths:
+        logger.error("POSTGRES_MANAGER: instance_paths missing for _ensure_instance_datadir.")
+        return False
+
     datadir = instance_paths['instance_data_dir']
-    logger.info(f"POSTGRES_MANAGER: Checking data directory {datadir} for instance '{instance_paths['instance_id']}'.")
+    instance_id = instance_paths['instance_id']
+
+    logger.info(f"POSTGRES_MANAGER: Checking data directory {datadir} for instance '{instance_id}'.")
+
+    # Ensure parent of data directory exists first.
+    # config.ensure_dir should handle this, but explicit check for parent is safer for permission setting.
+    if not config.ensure_dir(datadir.parent):
+        logger.error(f"POSTGRES_MANAGER: Failed to create parent directory for data directory {datadir.parent} of instance '{instance_id}'.")
+        return False
+
     if datadir.is_dir() and (datadir / "PG_VERSION").is_file():
-        logger.info(f"Data directory {datadir} exists and seems initialized."); return True
-    elif datadir.exists():
-        logger.error(f"Data directory {datadir} exists but is not valid PG data dir."); return False
-    else:
-        logger.info(
-            f"POSTGRES_MANAGER: Data directory {datadir} not found. Running initdb for instance '{instance_paths['instance_id']}'...")
+        logger.info(f"Data directory {datadir} for instance '{instance_id}' exists and appears initialized.")
+        return True
+    elif datadir.exists() and not (datadir / "PG_VERSION").is_file() :
+        # Directory exists but doesn't seem to be a valid PG data directory (e.g. PG_VERSION missing)
+        # Or it's a file, not a directory.
+        logger.error(f"Path {datadir} for instance '{instance_id}' exists but is not a valid or initialized PostgreSQL data directory. Please check or remove it manually.")
+        return False
+
+    # If datadir does not exist, create it and then initialize
+    if not datadir.exists():
+        logger.info(f"POSTGRES_MANAGER: Data directory {datadir} not found for instance '{instance_id}'. Creating and initializing...")
         try:
-            if not config.ensure_dir(datadir): logger.error(f"Failed to create data directory {datadir}."); return False
-            os.chmod(datadir, 0o700)
+            datadir.mkdir(mode=0o700, parents=False, exist_ok=False) # Create with specific permissions, no parents here.
+            logger.info(f"Created data directory {datadir} for instance '{instance_id}'.")
+        except FileExistsError: # Should be caught by initial datadir.is_dir() but good for safety
+             logger.info(f"Data directory {datadir} for instance '{instance_id}' created concurrently or already exists.")
+        except Exception as e_mkdir:
+            logger.error(f"POSTGRES_MANAGER: Failed to create data directory {datadir} for instance '{instance_id}': {e_mkdir}", exc_info=True)
+            return False
+    # else: datadir exists but was not initialized (PG_VERSION check failed)
+    # This case implies an empty or partially created directory. initdb should handle it or error out.
 
-            initdb_path = instance_paths.get('initdb_path');
-            share_dir_path = instance_paths.get('share_dir');
-            lib_dir_path = instance_paths.get('lib_dir')
-            if not (initdb_path and initdb_path.is_file() and os.access(initdb_path, os.X_OK)): logger.error(
-                f"initdb binary not found: {initdb_path}"); return False
-            if not (share_dir_path and share_dir_path.is_dir()): logger.error(
-                f"PostgreSQL share directory not found: {share_dir_path}"); return False
-            try:
-                db_user = pwd.getpwuid(os.geteuid()).pw_name
-            except Exception:
-                db_user = getattr(config, 'POSTGRES_DEFAULT_USER_VAR', 'postgres')
+    logger.info(f"POSTGRES_MANAGER: Proceeding with initdb for instance '{instance_id}' in {datadir}.")
+    try:
+        initdb_path = instance_paths.get('initdb_path')
+        share_dir_path = instance_paths.get('share_dir')
+        lib_dir_path = instance_paths.get('lib_dir')
 
-            command = [str(initdb_path.resolve()), "-U", db_user, "-A", "trust", "-E", "UTF8", "-L",
-                       str(share_dir_path.resolve()), "-D", str(datadir.resolve())]
-            logger.info(f"POSTGRES_MANAGER: Running initdb: {' '.join(command)}")
-            env = os.environ.copy()
-            if lib_dir_path and lib_dir_path.is_dir():
-                ld_path = env.get('LD_LIBRARY_PATH', '');
-                env['LD_LIBRARY_PATH'] = f"{lib_dir_path.resolve()}{os.pathsep}{ld_path}" if ld_path else str(
-                    lib_dir_path.resolve())
+        if not (initdb_path and initdb_path.is_file() and os.access(initdb_path, os.X_OK)):
+            logger.error(f"initdb binary not found or not executable for instance '{instance_id}': {initdb_path}")
+            return False
+        if not (share_dir_path and share_dir_path.is_dir()):
+            logger.error(f"PostgreSQL share directory not found for instance '{instance_id}': {share_dir_path}")
+            return False
 
-            result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=180, env=env)
-            logger.debug(f"initdb exit code: {result.returncode}");
-            if result.stdout: logger.debug(f"initdb stdout:\n{result.stdout.strip()}");
-            if result.stderr: logger.warning(f"initdb stderr:\n{result.stderr.strip()}")
-            if result.returncode == 0 and (datadir / "PG_VERSION").is_file():
-                logger.info("initdb completed successfully."); return True
-            else:
-                logger.error(f"initdb failed (Code: {result.returncode})."); return False
-        except Exception as e:
-            logger.error(f"Unexpected error during initdb for {datadir}: {e}", exc_info=True); return False
+        try:
+            # Get current OS username to set as default superuser for the new cluster
+            db_user = pwd.getpwuid(os.geteuid()).pw_name
+        except Exception: # Fallback if getpwuid fails (e.g. in some container environments)
+            db_user = getattr(config, 'POSTGRES_DEFAULT_USER_VAR', 'postgres') # Use configured default or 'postgres'
+            logger.warning(f"Could not get current OS username for initdb of instance '{instance_id}', falling back to '{db_user}'.")
+
+        # -A trust is for local convenience; for production, md5 or scram-sha-256 would be better.
+        # -L specifies the directory for locale data, typically $PGSHARE/locale
+        command = [
+            str(initdb_path.resolve()),
+            "-U", db_user,
+            "-A", "trust", # Sets local connections to 'trust'
+            "-E", "UTF8",  # Default encoding
+            #"-L", str(share_dir_path.resolve() / 'locale'), # Often needed if locale data isn't found automatically.
+                                                            # However, some bundles might not have this sub-path, or initdb finds it via basedir.
+                                                            # If initdb fails with locale errors, this might need adjustment.
+            "--locale=C", # Using C locale can avoid issues with system locales. Or use "en_US.UTF-8" if available.
+            "-D", str(datadir.resolve())
+        ]
+        logger.info(f"POSTGRES_MANAGER: Running initdb for instance '{instance_id}': {' '.join(command)}")
+
+        env = os.environ.copy()
+        if lib_dir_path and lib_dir_path.is_dir():
+            ld_path_env = env.get('LD_LIBRARY_PATH', '')
+            env['LD_LIBRARY_PATH'] = f"{lib_dir_path.resolve()}{os.pathsep}{ld_path_env}" if ld_path_env else str(lib_dir_path.resolve())
+            logger.debug(f"Set LD_LIBRARY_PATH for initdb: {env['LD_LIBRARY_PATH']}")
+
+        result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=180, env=env) # 3 min timeout
+
+        logger.debug(f"initdb for instance '{instance_id}' exit code: {result.returncode}")
+        if result.stdout:
+            logger.debug(f"initdb stdout for instance '{instance_id}':\n{result.stdout.strip()}")
+        if result.stderr: # stderr often contains progress or warnings even on success for initdb
+            logger.info(f"initdb stderr for instance '{instance_id}':\n{result.stderr.strip()}") # Use INFO for stderr as it's often not an error
+
+        if result.returncode == 0 and (datadir / "PG_VERSION").is_file():
+            logger.info(f"initdb completed successfully for instance '{instance_id}'.")
+            return True
+        else:
+            logger.error(f"initdb failed for instance '{instance_id}' (Exit Code: {result.returncode}). Check logs above.")
+            return False
+    except subprocess.TimeoutExpired:
+        logger.error(f"initdb for instance '{instance_id}' timed out after 180 seconds.")
+        return False
+    except Exception as e:
+        logger.error(f"POSTGRES_MANAGER: Unexpected error during initdb for instance '{instance_id}' in {datadir}: {e}", exc_info=True)
+        return False
 
 # --- Public API ---
+# (start_postgres, stop_postgres, get_postgres_instance_status, get_postgres_status, get_postgres_version, and __main__ remain largely the same but will use the updated helpers and logging)
 
 # --- Public API ---
 def start_postgres(service_instance_config: dict):
     instance_id = service_instance_config.get('id')
     logger.info(f"POSTGRES_MANAGER: Requesting start for instance '{instance_id}'...")
     instance_paths = _get_instance_paths(service_instance_config)
-    if not instance_paths: return False
+    if not instance_paths:
+        logger.error(f"POSTGRES_MANAGER: Could not get instance paths for '{instance_id}'. Cannot start.")
+        return False
 
-    if get_postgres_instance_status(instance_paths) == "running": logger.info(
-        f"Instance '{instance_id}' already running."); return True
+    if get_postgres_instance_status(instance_paths) == "running":
+        logger.info(f"POSTGRES_MANAGER: Instance '{instance_id}' is already running.")
+        return True
 
-    port_to_use = service_instance_config.get('port', config.POSTGRES_DEFAULT_PORT)
-    if not _ensure_instance_config_files(instance_paths, port_to_use): logger.error(
-        f"Failed config setup for {instance_id}"); return False
-    if not _ensure_instance_datadir(instance_paths): logger.error(
-        f"Failed datadir setup for {instance_id}"); return False
+    port_to_use = service_instance_config.get('port', config.POSTGRES_DEFAULT_PORT) # Default from main config if not in instance
 
-    pg_ctl_path = instance_paths.get('pg_ctl_path');
+    # Ensure config files and data directory are set up correctly BEFORE attempting to start.
+    # These functions now handle their own directory creations.
+    if not _ensure_instance_config_files(instance_paths, port_to_use):
+        logger.error(f"POSTGRES_MANAGER: Failed to ensure instance configuration files for '{instance_id}'. Cannot start.")
+        return False
+    if not _ensure_instance_datadir(instance_paths): # This also runs initdb if needed
+        logger.error(f"POSTGRES_MANAGER: Failed to ensure instance data directory for '{instance_id}'. Cannot start.")
+        return False
+
+    pg_ctl_path = instance_paths.get('pg_ctl_path')
     data_dir_path = instance_paths.get('instance_data_dir')
     log_path = instance_paths.get('instance_log_file');
     sock_dir_path = instance_paths.get('instance_sock_dir')
@@ -364,20 +459,27 @@ def stop_postgres(service_instance_config: dict):
     instance_id = service_instance_config.get('id')
     logger.info(f"POSTGRES_MANAGER: Requesting stop for instance '{instance_id}'...")
     instance_paths = _get_instance_paths(service_instance_config)
-    if not instance_paths: return False
+    if not instance_paths:
+        logger.error(f"POSTGRES_MANAGER: Could not get instance paths for '{instance_id}'. Cannot stop.")
+        return False
 
-    pg_ctl_path = instance_paths.get('pg_ctl_path');
-    data_dir_path = instance_paths.get('instance_data_dir');
+    pg_ctl_path = instance_paths.get('pg_ctl_path')
+    data_dir_path = instance_paths.get('instance_data_dir')
     lib_dir_path = instance_paths.get('lib_dir')
 
     if not (pg_ctl_path and pg_ctl_path.is_file() and os.access(pg_ctl_path, os.X_OK)):
-        logger.error(f"pg_ctl binary not found: {pg_ctl_path}");
+        logger.error(f"POSTGRES_MANAGER: pg_ctl binary not found or not executable for instance '{instance_id}': {pg_ctl_path}")
         return False
-    if not data_dir_path.is_dir(): logger.info(
-        f"Data directory {data_dir_path} not found, assuming stopped."); return True
+
+    if not data_dir_path.is_dir(): # If data dir doesn't exist, it's definitely not running
+        logger.info(f"POSTGRES_MANAGER: Data directory {data_dir_path} for instance '{instance_id}' not found, assuming already stopped.")
+        # Ensure PID file is also gone if data dir is gone or it's a fresh setup
+        instance_paths['instance_pid_file'].unlink(missing_ok=True)
+        return True
 
     command = [
-        str(pg_ctl_path.resolve()), "-D",
+        str(pg_ctl_path.resolve()),
+        "-D",
         str(data_dir_path.resolve()), "stop", "-m", "fast", "-s", "-w", "-t", "30"
     ]
     logger.info(f"POSTGRES_MANAGER: Stopping instance '{instance_id}' via pg_ctl: {' '.join(command)}")
@@ -407,185 +509,253 @@ def stop_postgres(service_instance_config: dict):
 
 def get_postgres_instance_status(instance_paths: dict):
     """Gets status for a specific instance using its PID file or pg_ctl status."""
-    if not instance_paths: return "error"
-    pid_file = instance_paths['instance_pid_file'];
+    if not instance_paths:
+        logger.error("POSTGRES_MANAGER: Could not get instance paths. Cannot determine status.")
+        return "error"
+
+    pid_file = instance_paths['instance_pid_file']
     data_dir = instance_paths['instance_data_dir']
-    pg_ctl_path = instance_paths['pg_ctl_path'];
+    pg_ctl_path = instance_paths['pg_ctl_path']
     lib_dir_path = instance_paths.get('lib_dir')
+    instance_id = instance_paths['instance_id'] # For logging
 
-    if not data_dir.is_dir(): return "stopped"
-    pid = _read_pid_from_file(pid_file)  # Use process_manager's helper if it's public, else local one.
-    if pid and _check_process_running(pid): return "running"  # Use process_manager's helper
+    if not data_dir.is_dir(): # If data directory doesn't exist, it can't be running
+        logger.debug(f"POSTGRES_MANAGER: Data directory {data_dir} for instance '{instance_id}' not found. Status: stopped.")
+        return "stopped"
 
+    # Check PID file first (most reliable if server is running cleanly)
+    pid = _read_pid_from_file(pid_file)
+    if pid and _check_process_running(pid):
+        logger.debug(f"POSTGRES_MANAGER: Process with PID {pid} from {pid_file} for instance '{instance_id}' is running.")
+        return "running"
+
+    # If PID file check failed, try pg_ctl status as a fallback.
+    # This can help if the PID file is stale or if server is in an odd state.
+    logger.debug(f"POSTGRES_MANAGER: PID file check failed for instance '{instance_id}'. Falling back to pg_ctl status.")
     if pg_ctl_path and pg_ctl_path.is_file() and os.access(pg_ctl_path, os.X_OK):
         command = [str(pg_ctl_path.resolve()), "-D", str(data_dir.resolve()), "status"]
         env = os.environ.copy()
-        if lib_dir_path and lib_dir_path.is_dir(): ld_path = env.get('LD_LIBRARY_PATH', ''); env[
-            'LD_LIBRARY_PATH'] = f"{lib_dir_path.resolve()}{os.pathsep}{ld_path}" if ld_path else str(
-            lib_dir_path.resolve())
+        if lib_dir_path and lib_dir_path.is_dir():
+            ld_path_env = env.get('LD_LIBRARY_PATH', '')
+            env['LD_LIBRARY_PATH'] = f"{lib_dir_path.resolve()}{os.pathsep}{ld_path_env}" if ld_path_env else str(lib_dir_path.resolve())
         try:
+            logger.debug(f"POSTGRES_MANAGER: Running pg_ctl status for instance '{instance_id}': {' '.join(command)}")
             result = subprocess.run(command, capture_output=True, text=True, check=False, env=env, timeout=10)
-            if result.returncode == 0: return "running"
-            if result.returncode == 3: return "stopped"
-            logger.warning(
-                f"pg_ctl status for {data_dir} returned {result.returncode}. Stderr: {result.stderr.strip()}")
+            # pg_ctl status: 0 for running, 3 for not running, other for error.
+            if result.returncode == 0:
+                logger.info(f"POSTGRES_MANAGER: pg_ctl status for instance '{instance_id}' indicates server is running.")
+                return "running"
+            if result.returncode == 3:
+                logger.info(f"POSTGRES_MANAGER: pg_ctl status for instance '{instance_id}' indicates server is not running.")
+                return "stopped"
+
+            # For other return codes, log details.
+            logger.warning(f"POSTGRES_MANAGER: pg_ctl status for instance '{instance_id}' returned code {result.returncode}. Stdout: '{result.stdout.strip()}', Stderr: '{result.stderr.strip()}'")
+            return "error"
+        except subprocess.TimeoutExpired:
+            logger.error(f"POSTGRES_MANAGER: Timeout running pg_ctl status for instance '{instance_id}'.", exc_info=True)
             return "error"
         except Exception as e:
-            logger.error(f"Error running pg_ctl status for {data_dir}: {e}"); return "error"
-    return "stopped"
+            logger.error(f"POSTGRES_MANAGER: Exception running pg_ctl status for instance '{instance_id}': {e}", exc_info=True)
+            return "error"
+
+    logger.warning(f"POSTGRES_MANAGER: Could not determine status for instance '{instance_id}' using PID file or pg_ctl. Assuming stopped.")
+    return "stopped" # Fallback if pg_ctl is not available or fails unexpectedly
 
 
-def get_postgres_status(instance_id: str = None):  # Parameter changed to instance_id
+def get_postgres_status(instance_id: str = None):
     """Public status function. Loads instance config and calls instance status check."""
-    logger.debug(f"POSTGRES_MANAGER: get_postgres_status called for instance_id: {instance_id}")
+    logger.debug(f"POSTGRES_MANAGER: get_postgres_status called for instance_id: '{instance_id}'")
     if not instance_id:
-        logger.warning("POSTGRES_MANAGER: get_postgres_status requires an instance_id.")
-        # This function is called by MainWindow for a generic "PostgreSQL" entry.
-        # It needs to be adapted to list all instances or the UI needs to call for specific instances.
-        # For now, if called without instance_id, it can't determine status.
-        return "unknown"
+        logger.warning("POSTGRES_MANAGER: get_postgres_status called without an instance_id. This function requires an instance ID to check a specific PostgreSQL instance.")
+        return "unknown" # Cannot determine status for a generic "PostgreSQL" without knowing which one.
 
-    service_config = get_service_config_by_id(instance_id)  # From services_config_manager
+    service_config = get_service_config_by_id(instance_id)
     if not service_config:
-        logger.warning(f"POSTGRES_MANAGER: No service_config found for instance_id '{instance_id}'.")
-        return "not_configured"  # Or "unknown"
+        logger.warning(f"POSTGRES_MANAGER: No service configuration found for instance_id '{instance_id}'. Cannot determine status.")
+        return "not_configured"
 
     instance_paths = _get_instance_paths(service_config)
+    if not instance_paths: # _get_instance_paths will log errors
+        return "error" # Path resolution failed
+
     return get_postgres_instance_status(instance_paths)
 
 
-def get_postgres_version(service_instance_config: dict = None):  # Parameter changed
+def get_postgres_version(service_instance_config: dict = None):
     """Gets the PostgreSQL server version for a specific bundled instance."""
-    logger.debug(
-        f"POSTGRES_MANAGER: get_postgres_version called for instance: {service_instance_config.get('id') if service_instance_config else 'None'}")
+    instance_id_for_log = service_instance_config.get('id', 'Unknown Instance') if service_instance_config else 'Unknown Instance'
+    logger.debug(f"POSTGRES_MANAGER: get_postgres_version called for instance: '{instance_id_for_log}'")
 
     if not service_instance_config:
-        logger.warning("POSTGRES_MANAGER: get_postgres_version requires service_instance_config.")
+        logger.warning("POSTGRES_MANAGER: get_postgres_version requires service_instance_config argument.")
         return "N/A (No instance info)"
 
     instance_paths = _get_instance_paths(service_instance_config)
     if not instance_paths or not instance_paths.get('binary_path'):
-        logger.warning(
-            f"POSTGRES_MANAGER: Could not determine binary path for version check of instance {service_instance_config.get('id')}.")
+        logger.warning(f"POSTGRES_MANAGER: Could not determine binary path for version check of instance '{instance_id_for_log}'.")
         return "N/A (Path Error)"
 
     binary_to_check = instance_paths['binary_path']
     lib_dir_path = instance_paths.get('lib_dir')
 
     if not binary_to_check.is_file():
-        logger.warning(f"POSTGRES_MANAGER: Version check failed - binary not found at {binary_to_check}")
+        logger.warning(f"POSTGRES_MANAGER: Version check failed for instance '{instance_id_for_log}' - binary not found at {binary_to_check}")
         return "N/A (Binary Not Found)"
 
     command = [str(binary_to_check.resolve()), '--version']
     version_string = "N/A"
+    logger.debug(f"POSTGRES_MANAGER: Running command for version for instance '{instance_id_for_log}': {' '.join(command)}")
     try:
         env = os.environ.copy()
         if lib_dir_path and lib_dir_path.is_dir():
-            ld_path = env.get('LD_LIBRARY_PATH', '');
-            env['LD_LIBRARY_PATH'] = f"{lib_dir_path.resolve()}{os.pathsep}{ld_path}" if ld_path else str(
-                lib_dir_path.resolve())
-        logger.debug(f"POSTGRES_MANAGER: Running command for version: {' '.join(command)}")
-        result = subprocess.run(command, capture_output=True, text=True, check=False, env=env, timeout=5)
+            ld_path_env = env.get('LD_LIBRARY_PATH', '')
+            env['LD_LIBRARY_PATH'] = f"{lib_dir_path.resolve()}{os.pathsep}{ld_path_env}" if ld_path_env else str(lib_dir_path.resolve())
+            logger.debug(f"Set LD_LIBRARY_PATH for version check: {env['LD_LIBRARY_PATH']}")
+
+        result = subprocess.run(command, capture_output=True, text=True, check=False, env=env, timeout=10)
+
         if result.returncode == 0 and result.stdout:
+            # Example: "postgres (PostgreSQL) 16.2"
             match = re.search(r'postgres(?:ql)?\s+\(PostgreSQL\)\s+([\d\.]+)', result.stdout, re.IGNORECASE)
             if match:
                 version_string = match.group(1)
             else:
-                version_string = result.stdout.split('\n')[0].strip()
+                version_string = result.stdout.split('\n')[0].strip() # Fallback
+                logger.debug(f"PostgreSQL version regex did not match for instance '{instance_id_for_log}'. Using first line: {version_string}")
         elif result.stderr:
             version_string = f"Error ({result.stderr.strip()})"
+            logger.warning(f"Failed to get PostgreSQL version for instance '{instance_id_for_log}'. Stderr: {result.stderr.strip()}")
         else:
             version_string = f"Error (Code {result.returncode})"
+            logger.warning(f"Failed to get PostgreSQL version for instance '{instance_id_for_log}'. Exit code: {result.returncode}")
+    except subprocess.TimeoutExpired:
+        logger.error(f"Timeout getting PostgreSQL version for instance '{instance_id_for_log}'. Command: '{' '.join(command)}'")
+        version_string = "N/A (Timeout)"
     except Exception as e:
-        logger.error(f"POSTGRES_MANAGER: Exception getting version for {binary_to_check}: {e}",
-                     exc_info=True); version_string = "N/A (Error)"
-    logger.info(f"POSTGRES_MANAGER: Detected version for {binary_to_check}: {version_string}");
+        logger.error(f"POSTGRES_MANAGER: Exception getting version for instance '{instance_id_for_log}' (binary: {binary_to_check}): {e}", exc_info=True)
+        version_string = "N/A (Exception)"
+
+    logger.info(f"POSTGRES_MANAGER: Detected version for instance '{instance_id_for_log}' (binary {binary_to_check}): {version_string}")
     return version_string
 
 # --- Example Usage ---
 if __name__ == "__main__":
-    project_root = Path(__file__).resolve().parent.parent.parent
-    if str(project_root) not in sys.path: sys.path.insert(0, str(project_root))
-    try:
-        from grazr.core import config; from grazr.managers.services_config_manager import add_configured_service, \
-            load_configured_services, save_configured_services
-    except ImportError:
-        logger.critical("FATAL: Cannot import for standalone test."); sys.exit(1)
+    # Setup basic logging to console for testing if no handlers are configured
+    if not logging.getLogger().hasHandlers(): # Ensure we don't add handlers if already configured
+        logging.basicConfig(level=logging.DEBUG,
+                            format='%(asctime)s [%(levelname)-7s] %(name)s (PG_TEST): %(message)s',
+                            datefmt='%Y-%m-%d %H:%M:%S')
+    # For less verbose testing, set level to INFO after basicConfig
+    # logging.getLogger().setLevel(logging.INFO)
+    # logging.getLogger('grazr.managers.postgres_manager').setLevel(logging.DEBUG)
 
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)-7s] %(name)s (PG_TEST): %(message)s',
-                        datefmt='%H:%M:%S')
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    try:
+        # Attempt to import necessary Grazr modules for a more complete test
+        from grazr.core import config
+        from grazr.managers.services_config_manager import add_configured_service, load_configured_services, get_service_config_by_id
+    except ImportError:
+        logger.critical("POSTGRES_MANAGER_TEST: FATAL - Cannot import Grazr core modules for standalone test. Ensure PYTHONPATH is correct or run from project root.")
+        sys.exit(1)
 
     # Ensure dummy service defs for testing if main config didn't load them
-    if "postgres16" not in config.AVAILABLE_BUNDLED_SERVICES:
+    # This would typically be handled by config.py loading AVAILABLE_BUNDLED_SERVICES
+    # For standalone testing, we might need to ensure this specific service type is defined.
+    # The dummy config at the top of this file should provide some fallback if full config isn't loaded.
+    if "postgres16" not in config.AVAILABLE_BUNDLED_SERVICES and hasattr(config, 'AVAILABLE_BUNDLED_SERVICES'):
+        logger.info("POSTGRES_MANAGER_TEST: 'postgres16' not in AVAILABLE_BUNDLED_SERVICES. Adding a dummy definition for testing.")
+        # This dummy definition should align with what _get_instance_paths expects.
+        # It's better if config.py is fully loaded.
         config.AVAILABLE_BUNDLED_SERVICES["postgres16"] = {
-            "display_name": "PostgreSQL 16 Test", "category": "Database", "service_group": "postgres",
-            "major_version": "16", "bundle_version_full": "16.2",  # MUST MATCH A BUNDLED VERSION
+            "display_name": "PostgreSQL 16 Test (Dummy Def)",
+            "category": "Database", "service_group": "postgres",
+            "major_version": "16", "bundle_version_full": "16.2", # Ensure this matches an actual bundle
             "process_id_template": "internal-postgres-16-{instance_id}", "default_port": 5432,
             "binary_name": "postgres", "initdb_name": "initdb", "pg_ctl_name": "pg_ctl", "psql_name": "psql",
             "manager_module": "postgres_manager",
+            # Path template names (these should match constants in config.py)
+             "bundle_path_template_name": "POSTGRES_BUNDLE_PATH_TEMPLATE",
+             "binary_path_template_name": "POSTGRES_BINARY_TEMPLATE",
+             "lib_dir_template_name": "POSTGRES_LIB_DIR_TEMPLATE",
+             "share_dir_template_name": "POSTGRES_SHARE_DIR_TEMPLATE",
+             "log_file_template_name": "INTERNAL_POSTGRES_INSTANCE_LOG_TEMPLATE",
+             "pid_file_template_name": "INTERNAL_POSTGRES_INSTANCE_PID_TEMPLATE",
+             "data_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_DATA_DIR_TEMPLATE",
+             "config_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_CONFIG_DIR_TEMPLATE",
+             "socket_dir_template_name": "INTERNAL_POSTGRES_INSTANCE_SOCK_DIR_TEMPLATE",
         }
+
 
     test_instance_id = "pg16_test_instance_01"
-    test_service_type = "postgres16"
+    test_service_type = "postgres16" # Should match a key in AVAILABLE_BUNDLED_SERVICES
+
+    logger.info(f"POSTGRES_MANAGER_TEST: Starting test with instance ID '{test_instance_id}' of type '{test_service_type}'.")
 
     # Check if this test instance already exists in services.json
-    existing_services = load_configured_services()
-    test_service_config = next((s for s in existing_services if s.get('id') == test_instance_id), None)
+    existing_services = load_configured_services() # services_config_manager also uses logging
+    test_service_config = next((s for s in existing_services if s.get('id') == test_instance_id and s.get('service_type') == test_service_type), None)
 
     if not test_service_config:
-        logger.info(f"Test instance '{test_instance_id}' not found in services.json, creating it...")
-        test_service_config_data = {
-            "id": test_instance_id, "service_type": test_service_type,
-            "name": "Test PG 16 Instance", "port": 54321, "autostart": False
-        }
-        if not add_configured_service(test_service_config_data):  # This saves it
-            logger.error("Failed to add test service config to services.json");
+        logger.info(f"POSTGRES_MANAGER_TEST: Test instance '{test_instance_id}' not found. Creating a new configuration for it.")
+        # Make sure the service_type exists in AVAILABLE_BUNDLED_SERVICES from config
+        if test_service_type not in config.AVAILABLE_BUNDLED_SERVICES:
+            logger.error(f"POSTGRES_MANAGER_TEST: Service type '{test_service_type}' is not defined in config.AVAILABLE_BUNDLED_SERVICES. Cannot create test instance.")
             sys.exit(1)
-        test_service_config = get_service_config_by_id(test_instance_id)  # Reload it
-        if not test_service_config: logger.error("Failed to retrieve test service config after adding."); sys.exit(1)
+
+        test_service_config_data = {
+            "id": test_instance_id,
+            "service_type": test_service_type,
+            "name": f"Test PG {config.AVAILABLE_BUNDLED_SERVICES[test_service_type].get('major_version', '')} Instance",
+            "port": 54321, # Use a non-default port for testing to avoid conflicts
+            "autostart": False
+        }
+        if not add_configured_service(test_service_config_data): # This also saves to services.json
+            logger.error("POSTGRES_MANAGER_TEST: Failed to add test service configuration to services.json.")
+            sys.exit(1)
+        test_service_config = get_service_config_by_id(test_instance_id) # Reload to confirm
+        if not test_service_config:
+            logger.error("POSTGRES_MANAGER_TEST: Failed to retrieve test service configuration after adding.")
+            sys.exit(1)
     else:
-        logger.info(f"Found existing test instance '{test_instance_id}' in services.json.")
+        logger.info(f"POSTGRES_MANAGER_TEST: Found existing configuration for test instance '{test_instance_id}'.")
 
-    logger.info("--- Testing PostgreSQL Manager Standalone ---")
-    logger.info(f"Using service config: {test_service_config}")
+    logger.info(f"--- Testing PostgreSQL Manager Standalone with config: {test_service_config} ---")
 
-    logger.info("\nStep 1: Ensuring Config Files...")
-    if not _ensure_instance_config_files(_get_instance_paths(test_service_config), test_service_config['port']):
-        logger.error("FATAL: Failed to ensure config files.");
-        sys.exit(1)
-    logger.info("Config files ensured.")
+    # Note: _ensure_instance_config_files and _ensure_instance_datadir are called by start_postgres
+    # For standalone testing of these, you might call them directly here if needed,
+    # but the start sequence should cover them.
 
-    logger.info("\nStep 2: Ensuring Data Directory (runs initdb if needed)...")
-    if not _ensure_instance_datadir(_get_instance_paths(test_service_config)):
-        logger.error("FATAL: Failed to ensure/initialize data directory.");
-        sys.exit(1)
-    logger.info("Data directory ensured/initialized.")
-
-    logger.info("\nStep 3: Attempting to start PostgreSQL...")
+    logger.info(f"POSTGRES_MANAGER_TEST: Step - Attempting to start PostgreSQL instance '{test_instance_id}'...")
     if start_postgres(test_service_config):
-        logger.info("Start command reported SUCCESS.")
+        logger.info(f"POSTGRES_MANAGER_TEST: Start command for '{test_instance_id}' reported SUCCESS.")
     else:
-        logger.error("Start command reported FAILURE.")
+        logger.error(f"POSTGRES_MANAGER_TEST: Start command for '{test_instance_id}' reported FAILURE.")
 
-    logger.info("\nStep 4: Checking status...")
-    status = get_postgres_status(instance_id=test_instance_id)  # Test with instance_id
-    logger.info(f"Current Status: {status}")
+    logger.info(f"POSTGRES_MANAGER_TEST: Step - Checking status for '{test_instance_id}'...")
+    status = get_postgres_status(instance_id=test_instance_id)
+    logger.info(f"POSTGRES_MANAGER_TEST: Current Status of '{test_instance_id}': {status}")
 
     if status == "running":
-        logger.info("\nStep 5: Attempting to stop PostgreSQL...")
+        logger.info(f"POSTGRES_MANAGER_TEST: Step - Attempting to stop PostgreSQL instance '{test_instance_id}'...")
         if stop_postgres(test_service_config):
-            logger.info("Stop command reported SUCCESS.")
+            logger.info(f"POSTGRES_MANAGER_TEST: Stop command for '{test_instance_id}' reported SUCCESS.")
         else:
-            logger.error("Stop command reported FAILURE.")
+            logger.error(f"POSTGRES_MANAGER_TEST: Stop command for '{test_instance_id}' reported FAILURE.")
     else:
-        logger.info("\nStep 5: Skipping stop command (server not reported as running).")
+        logger.info(f"POSTGRES_MANAGER_TEST: Step - Skipping stop command for '{test_instance_id}' as server not reported as running (status: {status}).")
 
-    logger.info("\nStep 6: Checking final status...")
+    logger.info(f"POSTGRES_MANAGER_TEST: Step - Checking final status for '{test_instance_id}'...")
     final_status = get_postgres_status(instance_id=test_instance_id)
-    logger.info(f"Final Status: {final_status}")
+    logger.info(f"POSTGRES_MANAGER_TEST: Final Status of '{test_instance_id}': {final_status}")
 
+    logger.info(f"POSTGRES_MANAGER_TEST: Step - Checking version for instance '{test_instance_id}'...")
     version_check = get_postgres_version(service_instance_config=test_service_config)
-    logger.info(f"Version check for instance: {version_check}")
+    logger.info(f"POSTGRES_MANAGER_TEST: Version check for '{test_instance_id}': {version_check}")
 
-    logger.info("\n--- Test Finished ---")
+    logger.info("--- PostgreSQL Manager Standalone Test Finished ---")
 

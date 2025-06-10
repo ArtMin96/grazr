@@ -18,12 +18,13 @@ logger = logging.getLogger(__name__)
 try:
     from ..core import config
     from ..managers.php_manager import (get_ini_value, set_ini_value,
-                                        list_available_extensions, list_enabled_extensions,
-                                        enable_extension, disable_extension,
-                                        configure_extension, get_php_ini_path)
+                                        # list_available_extensions, list_enabled_extensions, # Handled by PhpExtensionsManagerWidget
+                                        # enable_extension, disable_extension, # Handled by MainWindow via signals
+                                        configure_extension, get_php_ini_path) # configure_extension for system ones
+    from .php_extensions_manager_widget import PhpExtensionsManagerWidget # Import new widget
 except ImportError as e:
     logger.error(f"Failed to import dependencies: {e}", exc_info=True)
-    def get_ini_value(v, k, s='PHP'): return "128M"
+    def get_ini_value(version_str, setting_name, service='PHP'): return "128M" # Updated signature for dummy
     def set_ini_value(v, k, val, s='PHP'): return False
     def list_available_extensions(v): return ["opcache(err)", "xdebug(err)"]
     def list_enabled_extensions(v): return ["opcache(err)"]
@@ -102,16 +103,13 @@ class PhpConfigurationDialog(QDialog):
         ext_layout.setContentsMargins(15, 15, 15, 15)
         ext_layout.setSpacing(10)
 
-        ext_info_label = QLabel("Enable/disable bundled extensions:")
-        ext_layout.addWidget(ext_info_label)
+        # Instantiate and add the PhpExtensionsManagerWidget
+        self.extensions_manager_widget = PhpExtensionsManagerWidget(php_version=self.php_version)
+        self.extensions_manager_widget.toggleExtensionRequested.connect(self._on_toggle_extension_from_widget)
+        ext_layout.addWidget(self.extensions_manager_widget, 1) # Give it stretch factor
 
-        self.extension_list_widget = QListWidget()
-        self.extension_list_widget.setSpacing(2)
-        self.extension_list_widget.setStyleSheet("QListWidget::item { border-bottom: 1px solid #E0E0E0; }")
-        ext_layout.addWidget(self.extension_list_widget, 1)
-
-        # --- Add New Extension Section ---
-        ext_install_group = QGroupBox("Install New Extension (Requires sudo)")
+        # --- Add New Extension Section (kept in this dialog for now) ---
+        self.ext_install_group = QGroupBox("Install New System Extension (Requires sudo)") # Renamed self.ext_install_group
         ext_install_layout = QVBoxLayout(ext_install_group)
         ext_install_layout.setSpacing(8)
 
@@ -179,47 +177,36 @@ class PhpConfigurationDialog(QDialog):
         self._pending_ini_changes = {}
         self._pending_extension_changes = {}
 
-        # Load INI values (as before)
-        upload_str = get_ini_value(self.php_version, 'upload_max_filesize'); upload_mb = self._parse_mb_value(upload_str); mem_str = get_ini_value(self.php_version, 'memory_limit'); mem_mb = self._parse_mb_value(mem_str, allow_unlimited=-1); exec_str = get_ini_value(self.php_version, 'max_execution_time'); exec_sec = self._parse_int_value(exec_str);
+        # Load INI values (as before, but with version_str=)
+        upload_str = get_ini_value(version_str=self.php_version, setting_name='upload_max_filesize'); upload_mb = self._parse_mb_value(upload_str)
+        mem_str = get_ini_value(version_str=self.php_version, setting_name='memory_limit'); mem_mb = self._parse_mb_value(mem_str, allow_unlimited=-1)
+        exec_str = get_ini_value(version_str=self.php_version, setting_name='max_execution_time'); exec_sec = self._parse_int_value(exec_str)
+
         self.upload_spinbox.setValue(upload_mb if upload_mb is not None else 2); self._initial_ini_values['upload_max_filesize'] = f"{self.upload_spinbox.value()}M"; self._initial_ini_values['post_max_size'] = f"{self.upload_spinbox.value()}M";
         self.memory_spinbox.setValue(mem_mb if mem_mb is not None else 128); self._initial_ini_values['memory_limit'] = "-1" if self.memory_spinbox.value() == -1 else f"{self.memory_spinbox.value()}M";
         self.exectime_spinbox.setValue(exec_sec if exec_sec is not None else 60); self._initial_ini_values['max_execution_time'] = str(self.exectime_spinbox.value());
 
-        # --- Load Extensions <<< ADDED DEBUGGING ---
-        self.extension_list_widget.clear()
-        logger.debug(f"Loading extensions for PHP {self.php_version}...")
-        try:
-            available = list_available_extensions(self.php_version)
-            enabled_set = set(list_enabled_extensions(self.php_version))
-            logger.debug(f"Available extensions found: {available}")
-            logger.debug(f"Enabled extensions found: {enabled_set}")
+        # --- Load Extensions into the new widget ---
+        # PhpExtensionsManagerWidget's constructor already calls load_extensions if php_version is provided.
+        # If self.php_version could change after dialog creation, we might need to call:
+        # self.extensions_manager_widget.load_extensions(self.php_version)
+        # For now, assuming php_version is fixed for the dialog's lifetime.
+        # We still need to get the initial state for comparison if we want the main save button to work for extensions.
+        # This part needs careful thought: PhpExtensionsManagerWidget emits changes as they happen.
+        # Does PhpConfigurationDialog's main "Save" button also save extension changes, or are they immediate?
+        # The prompt for PhpExtensionsManagerWidget: "Handle button clicks to emit the appropriate signals."
+        # This implies extension changes are signaled immediately.
+        # PhpConfigurationDialog's save button should then only be for INI changes.
+        # Let's adjust _mark_extension_change and how pending changes are collected.
+        # For now, _load_initial_values will *not* try to get initial extension states.
+        # The PhpExtensionsManagerWidget handles its own state.
+        # We only need to connect the signal.
 
-            if not available:
-                logger.warning(f"No available extensions found for PHP {self.php_version}.")
-                self.extension_list_widget.addItem(QListWidgetItem("No extensions found."))
-                return # Exit early if none available
+        # The old way of storing initial extension states here is removed.
+        # self._initial_extension_states = {}
+        # The population of self.extension_list_widget is removed.
 
-            # Populate the list
-            for ext_name in available:
-                logger.debug(f"Processing extension: {ext_name}")
-                item = QListWidgetItem(self.extension_list_widget)
-                checkbox = QCheckBox(ext_name)
-                is_enabled = ext_name in enabled_set
-                checkbox.setChecked(is_enabled)
-                self._initial_extension_states[ext_name] = is_enabled # Store initial state
-                # Connect stateChanged signal
-                checkbox.stateChanged.connect(lambda state, name=ext_name: self._mark_extension_change(name, state == Qt.Checked.value))
-                # Set the checkbox as the widget for the list item
-                self.extension_list_widget.setItemWidget(item, checkbox)
-                logger.debug(f"Added checkbox for {ext_name}, enabled={is_enabled}")
-
-        except Exception as e:
-            logger.error(f"Error loading extensions: {e}", exc_info=True)
-            self.extension_list_widget.clear() # Clear any partial items
-            self.extension_list_widget.addItem(QListWidgetItem("Error loading extensions."))
-        # --- End Load Extensions ---
-
-        self.save_button.setEnabled(False)
+        self.save_button.setEnabled(False) # Should only be enabled by INI changes now.
 
     def _parse_mb_value(self, value_str, allow_unlimited=None):
         """Parses strings like '128M' or '-1' into integer MB."""
@@ -258,28 +245,56 @@ class PhpConfigurationDialog(QDialog):
 
         self._update_save_button_state()
 
-    @Slot(str, bool) # ext_name, enable_state
-    def _mark_extension_change(self, ext_name, enable_state):
-        """Mark an extension toggle if different from initial state."""
-        initial_state = self._initial_extension_states.get(ext_name)
-        if enable_state != initial_state:
-            self._pending_extension_changes[ext_name] = enable_state
-        else: # Reverted to initial state
-            self._pending_extension_changes.pop(ext_name, None)
+    # This slot is connected to PhpExtensionsManagerWidget.toggleExtensionRequested
+    @Slot(str, str, bool)
+    def _on_toggle_extension_from_widget(self, php_version: str, extension_name: str, enable_state: bool):
+        """Handles the request from PhpExtensionsManagerWidget to toggle an extension."""
+        if php_version != self.php_version:
+            logger.warning(f"Received toggle request for {php_version} but dialog is for {self.php_version}. Ignoring.")
+            return
 
-        self._update_save_button_state()
+        logger.info(f"PhpConfigurationDialog: Forwarding toggle request for ext '{extension_name}', enable: {enable_state} for PHP {self.php_version}")
+        # This dialog itself emits a signal that MainWindow will handle.
+        # MainWindow's worker will then call php_manager.enable_extension or disable_extension.
+        # After the worker completes, MainWindow should signal back to refresh this dialog or relevant parts.
+        self.toggleExtensionRequested.emit(self.php_version, extension_name, enable_state)
+
+        # Optionally, disable controls while this specific operation is in progress.
+        # However, the main "Save" button logic needs to be clear:
+        # Does "Save" also apply extension changes, or are they "live"?
+        # Based on PhpExtensionsManagerWidget design, they are "live" requests.
+        # So, no need to add to _pending_extension_changes here for the main Save button.
+        # The _update_save_button_state should only consider INI changes.
+
+        # To refresh the extensions widget after action (success/failure handled by MainWindow's feedback loop):
+        # self.extensions_manager_widget.load_extensions(self.php_version) # Or MainWindow signals a full refresh.
+
+    def refresh_extensions_data(self):
+        """Reloads the extension lists in the PhpExtensionsManagerWidget."""
+        logger.debug(f"PhpConfigurationDialog: Refreshing extensions data for PHP {self.php_version}")
+        if hasattr(self, 'extensions_manager_widget'):
+            self.extensions_manager_widget.load_extensions(self.php_version)
+        # Reset pending INI changes as well, as save button state might depend on a clean load.
+        # Or, only reset if explicitly told to. For now, keep INI changes unless dialog is re-accepted.
+        # self._pending_ini_changes.clear()
+        # self._update_save_button_state()
+
 
     def _update_save_button_state(self):
-        """Enable Save button if any changes are pending."""
-        has_changes = bool(self._pending_ini_changes) or bool(self._pending_extension_changes)
-        self.save_button.setEnabled(has_changes)
+        """Enable Save button if any INI changes are pending."""
+        # Extension changes are now handled immediately by PhpExtensionsManagerWidget signals.
+        has_ini_changes = bool(self._pending_ini_changes)
+        self.save_button.setEnabled(has_ini_changes)
 
     # --- Public Method for MainWindow ---
-    def get_pending_changes(self):
-        """Returns the pending INI and extension changes."""
+    def get_pending_changes(self) -> dict: # Added type hint
+        """Returns the pending INI changes. Extension changes are signaled directly."""
+        # Extension changes are now signaled directly by PhpExtensionsManagerWidget
+        # and handled by _on_toggle_extension_from_widget which emits to MainWindow.
+        # So, this dialog's "Save" button primarily applies INI changes.
         return {
             "ini": self._pending_ini_changes.copy(),
-            "extensions": self._pending_extension_changes.copy()
+            "extensions": {} # No longer collects pending extension changes here for the main Save.
         }
 
     @Slot(str)
