@@ -520,7 +520,9 @@ class MainWindow(QMainWindow):
         if target_page and hasattr(target_page, 'set_controls_enabled'):
             logger.debug(f"MAIN_WINDOW: Scheduling {target_page.__class__.__name__}.set_controls_enabled(True)")
             re_enable_delay = refresh_delay + 150 if not self.progress_dialog else 100
-            QTimer.singleShot(re_enable_delay, lambda: target_page.set_controls_enabled(True))
+            # Modified lambda to check if target_page is still valid and visible
+            QTimer.singleShot(re_enable_delay,
+                              lambda page=target_page: page.set_controls_enabled(True) if page and hasattr(page, 'isVisible') and page.isVisible() else None)
         else:
             logger.debug(f"MAIN_WINDOW: NOT scheduling re-enable for task '{task_name}'.")
         self.log_message("-" * 30)

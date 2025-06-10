@@ -448,44 +448,34 @@ class ServicesPage(QWidget):
     @Slot(bool)
     def set_controls_enabled(self, enabled):
         logger.info(f"SERVICES_PAGE: Setting controls enabled state: {enabled}")
-        # Check for self.service_widgets itself, though it's initialized in __init__
         if hasattr(self, 'service_widgets') and self.service_widgets:
             for sid, widget in self.service_widgets.items():
-                # Check if widget is still valid (C++ object not deleted)
-                # A simple check for parent might not be enough if the widget is top-level
-                # but typically item widgets will have a parent.
-                # A more robust check often involves sip.isdeleted() but that's for PyQt.
-                # For PySide, checking if parent() is not None is a reasonable heuristic for child widgets.
-                # Or, more directly, ensure the widget's internal C++ pointer is valid.
-                # For now, let's assume if it's in service_widgets, it might be valid,
-                # but the error occurs when it's accessed *after* deletion.
-                # The timer makes this tricky.
-                # The most direct impact of the error is on calls like setEnabled or set_controls_enabled.
                 try:
-                    if widget: # Basic check
+                    if widget and widget.parent() is not None: # Added parent check
                         if hasattr(widget, 'set_controls_enabled'):
                             widget.set_controls_enabled(enabled)
                         else:
                             widget.setEnabled(enabled)
+                    elif widget:
+                        logger.debug(f"SERVICES_PAGE: Widget {sid} has no parent in set_controls_enabled, skipping.")
                 except RuntimeError as e:
-                    logger.warning(f"SERVICES_PAGE: RuntimeErorr accessing widget {sid} in set_controls_enabled: {e}")
-
+                    logger.warning(f"SERVICES_PAGE: RuntimeError accessing widget {sid} in set_controls_enabled: {e}")
 
         if hasattr(self, 'add_service_button') and self.add_service_button:
-            # Check if the C++ object is still alive. A simple way is to try accessing a Qt property.
-            # Or check if its parent is still valid if it's supposed to have one.
-            # self.add_service_button.parent() would be its parent QLayout's parent widget.
             try:
-                # Attempting a benign call to check if object is alive
-                _ = self.add_service_button.isEnabled() # Or isVisible()
-                self.add_service_button.setEnabled(enabled)
+                if self.add_service_button.parent() is not None:
+                    self.add_service_button.setEnabled(enabled)
+                else:
+                    logger.debug(f"SERVICES_PAGE: add_service_button has no parent in set_controls_enabled, skipping.")
             except RuntimeError as e:
                 logger.warning(f"SERVICES_PAGE: RuntimeError accessing add_service_button in set_controls_enabled: {e}")
 
         if hasattr(self, 'stop_all_button') and self.stop_all_button:
             try:
-                _ = self.stop_all_button.isEnabled()
-                self.stop_all_button.setEnabled(enabled)
+                if self.stop_all_button.parent() is not None:
+                    self.stop_all_button.setEnabled(enabled)
+                else:
+                    logger.debug(f"SERVICES_PAGE: stop_all_button has no parent in set_controls_enabled, skipping.")
             except RuntimeError as e:
                 logger.warning(f"SERVICES_PAGE: RuntimeError accessing stop_all_button in set_controls_enabled: {e}")
 
@@ -537,8 +527,15 @@ class ServicesPage(QWidget):
                     process_id_for_pm = service_def_obj.process_id_template.format(instance_id=config_id)
                 except KeyError:
                     logger.error(f"SERVICES_PAGE: process_id_template for {service_type} malformed: {service_def_obj.process_id_template}"); continue
-            else:
-                logger.warning(f"SERVICES_PAGE: Cannot determine process_id_for_pm for {service_config_json}"); continue
+            # If still no process_id_for_pm, check for special handling or log warning
+            if not process_id_for_pm:
+                if service_def_obj.service_id == 'node': # Check against service_id from ServiceDefinition
+                    process_id_for_pm = "nvm_managed" # Assign special string
+                    logger.info(f"SERVICES_PAGE: Node.js service type (config_id: {config_id}) found. Using '{process_id_for_pm}' for process_id_for_pm.")
+                    # We will proceed to create the widget for Node.js with this special process_id_for_pm
+                else:
+                    logger.warning(f"SERVICES_PAGE: Cannot determine process_id_for_pm for {service_config_json} (type: {service_type})")
+                    continue # Skip for other types if no process_id
 
             category = service_def_obj.category if service_def_obj.category else 'Other'
             display_name = service_config_json.get('name', service_def_obj.display_name)
