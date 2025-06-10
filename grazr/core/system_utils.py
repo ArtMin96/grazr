@@ -140,15 +140,17 @@ def run_root_helper_action(
     Returns:
         A tuple: (success: bool, message: str) - Message is generic on success.
     """
-    logger.info(f"SYSTEM_UTILS: Attempting privileged action via pkexec: '{action}' (Service: {service_name}, Domain: {domain}, IP: {ip})")
+    logger.info(
+        f"SYSTEM_UTILS: Attempting privileged action via pkexec: '{action}' (Service: {service_name}, Domain: {domain}, IP: {ip})")
 
     helper_script_path_str: Optional[str] = getattr(config, 'HELPER_SCRIPT_INSTALL_PATH', None)
-    polkit_action_id: Optional[str] = getattr(config, 'POLKIT_ACTION_ID', None) # Not directly used in command but good for context
-    hosts_path_str: str = getattr(config, 'HOSTS_FILE_PATH', '/etc/hosts') # Default if not in config
-    hosts_marker_str: str = getattr(config, 'HOSTS_MARKER', '# Grazr Auto Entry') # Default
-    systemctl_path_str: str = getattr(config, 'SYSTEMCTL_PATH', '/usr/bin/systemctl') # Default
+    polkit_action_id: Optional[str] = getattr(config, 'POLKIT_ACTION_ID',
+                                              None)  # Not directly used in command but good for context
+    hosts_path_str: str = getattr(config, 'HOSTS_FILE_PATH', '/etc/hosts')  # Default if not in config
+    hosts_marker_str: str = getattr(config, 'HOSTS_MARKER', '# Grazr Auto Entry')  # Default
+    systemctl_path_str: str = getattr(config, 'SYSTEMCTL_PATH', '/usr/bin/systemctl')  # Default
 
-    if not polkit_action_id: # Should be configured
+    if not polkit_action_id:  # Should be configured
         logger.warning("SYSTEM_UTILS: POLKIT_ACTION_ID is not configured. pkexec might require full root password.")
 
     pkexec_path = shutil.which("pkexec")
@@ -172,17 +174,19 @@ def run_root_helper_action(
     # For now, assume the helper script itself will handle invalid paths passed as arguments.
     # However, ensuring they are strings is important.
     if not isinstance(hosts_path_str, str) or not Path(hosts_path_str).is_absolute():
-        logger.warning(f"SYSTEM_UTILS: Configured HOSTS_FILE_PATH '{hosts_path_str}' is not an absolute path. Helper script might fail.")
+        logger.warning(
+            f"SYSTEM_UTILS: Configured HOSTS_FILE_PATH '{hosts_path_str}' is not an absolute path. Helper script might fail.")
         # Depending on strictness, could return False here.
 
     if not isinstance(systemctl_path_str, str) or not Path(systemctl_path_str).is_absolute():
-        logger.warning(f"SYSTEM_UTILS: Configured SYSTEMCTL_PATH '{systemctl_path_str}' is not an absolute path. Helper script might fail.")
+        logger.warning(
+            f"SYSTEM_UTILS: Configured SYSTEMCTL_PATH '{systemctl_path_str}' is not an absolute path. Helper script might fail.")
 
     command: List[str] = [
         pkexec_path,
         # If polkit_action_id is available and set up, pkexec might use it implicitly
         # or it might need to be passed, depending on system config. For now, not passing.
-        str(helper_script_path), # Ensure helper script path is string
+        str(helper_script_path),  # Ensure helper script path is string
         "--action", action,
         "--hosts-path", hosts_path_str,
         "--hosts-marker", hosts_marker_str,
@@ -198,7 +202,8 @@ def run_root_helper_action(
         # Helper script should log to system logs or a dedicated file if detailed output is needed.
         result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
-        logger.info(f"SYSTEM_UTILS: pkexec action '{action}' for service '{service_name or 'N/A'}' finished with return code: {result.returncode}")
+        logger.info(
+            f"SYSTEM_UTILS: pkexec action '{action}' for service '{service_name or 'N/A'}' finished with return code: {result.returncode}")
 
         if result.returncode == 0:
             return True, f"Privileged action '{action}' for '{service_name or 'system'}' completed successfully."
@@ -216,57 +221,6 @@ def run_root_helper_action(
             msg = f"Failed to execute privileged action '{action}'. Helper script exited with code {result.returncode}."
             logger.error(msg)
             return False, msg
-    except Exception as e: # Catch broader exceptions during Popen
+    except Exception as e:  # Catch broader exceptions during Popen
         logger.error(f"SYSTEM_UTILS: Exception calling pkexec for action '{action}': {e}", exc_info=True)
         return False, f"Unexpected error during privileged action '{action}': {e}"
-
-    Returns:
-        A tuple: (success: bool, message: str) - Message is generic on success.
-    """
-    logger.info(f"Attempting privileged action via pkexec: {action} (Service: {service_name}, Domain: {domain})")
-
-    helper_script_path = getattr(config, 'HELPER_SCRIPT_INSTALL_PATH', None)
-    polkit_action_id = getattr(config, 'POLKIT_ACTION_ID', None)
-    hosts_path = getattr(config, 'HOSTS_FILE_PATH', '/etc/hosts')
-    hosts_marker = getattr(config, 'HOSTS_MARKER', '# Grazr Entry')
-    systemctl_path = getattr(config, 'SYSTEMCTL_PATH', '/usr/bin/systemctl')
-
-    pkexec_path = shutil.which("pkexec")
-    if not pkexec_path:
-        msg = "Error: 'pkexec' command not found."
-        logger.error(msg)
-        return False, msg
-    if not helper_script_path or not Path(helper_script_path).is_file() or not os.access(helper_script_path, os.X_OK):
-        msg = f"Error: Helper script missing/not executable: {helper_script_path}."
-        logger.error(msg)
-        return False, msg
-
-    command = [
-        pkexec_path,
-        helper_script_path,
-        "--action",
-        action,
-        "--hosts-path",
-        str(hosts_path),
-        "--hosts-marker",
-        hosts_marker,
-        "--systemctl-path",
-        systemctl_path
-    ]
-    if service_name: command.extend(["--service", service_name])
-    if domain: command.extend(["--domain", domain])
-    if ip: command.extend(["--ip", ip])
-
-    logger.debug(f"Running pkexec command: {shlex.join(command)}")
-    try:
-        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        logger.info(f"pkexec action '{action}' finished with return code: {result.returncode}")
-        if result.returncode == 0:
-            return True, f"Privileged action '{action}' executed successfully."
-        elif result.returncode in [126, 127]:
-            msg = f"Authentication failed/cancelled for '{action}'."; logger.warning(msg); return False, msg
-        else:
-            msg = f"Failed action '{action}'. pkexec code {result.returncode}."; logger.error(msg); return False, msg
-    except Exception as e:
-        logger.exception(f"SYSTEM_UTILS: EXCEPTION calling pkexec for action '{action}'")
-        return False, f"Unexpected error calling pkexec: {e}"

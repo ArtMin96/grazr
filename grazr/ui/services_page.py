@@ -469,9 +469,9 @@ class ServicesPage(QWidget):
                 "display_name": display_name,
                 "service_type": service_type
             })
-            else:
-                logger.warning(
-                    f"SERVICES_PAGE: Skipping service due to missing config_id or process_id_for_pm: {service_config}")
+        else:
+            logger.warning(
+                f"SERVICES_PAGE: Skipping service due to missing config_id or process_id_for_pm: {service_config_json}")
 
         # Ensure category sorting is robust if a category from service_def_obj.category is new
         known_categories = ["Web Server", "Database", "Cache & Queue", "Storage", "Runtime"] # Define known order
