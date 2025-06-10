@@ -80,7 +80,10 @@ INTERNAL_POSTGRES_INSTANCE_LOG_TEMPLATE = str(LOG_DIR / 'postgres-{instance_id}.
 INTERNAL_POSTGRES_INSTANCE_SOCK_DIR_TEMPLATE = str(RUN_DIR / 'postgres_sock_{instance_id}') # Socket in RUN_DIR
 
 POSTGRES_DEFAULT_PORT = 5432
-POSTGRES_DEFAULT_USER_VAR = os.getlogin() if hasattr(os, 'getlogin') else "postgres" # System user, not DB user
+try:
+    POSTGRES_DEFAULT_USER_VAR = os.getlogin() if hasattr(os, 'getlogin') else "postgres"
+except OSError: # Handle cases like no controlling tty
+    POSTGRES_DEFAULT_USER_VAR = os.environ.get('USER', 'postgres') # Fallback to USER env var, then 'postgres'
 POSTGRES_DEFAULT_DB = "postgres" # Default database name
 
 # --- Redis Specific Paths ---

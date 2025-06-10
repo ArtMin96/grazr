@@ -6,7 +6,7 @@ from PySide6.QtGui import QPixmap, QIcon, QFont
 
 # Attempt to import resources, fail gracefully
 try:
-    from . import resources_rc # Assuming resources_rc.py is in the same directory
+    from . import resources_rc  # noqa: F401
 except ImportError:
     # If resources_rc fails, QIcon from PySide6.QtGui should still be available.
     # The icons just won't load from the resource paths.

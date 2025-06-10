@@ -1,16 +1,22 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                               QTableWidget, QTableWidgetItem, QPushButton,
-                               QHeaderView, QApplication, QAbstractItemView,
-                               QGroupBox, QSpinBox, QSpacerItem, QSizePolicy,
-                               QMenu, QAbstractButton, QListWidget, QFormLayout, QListWidgetItem)
-from PySide6.QtCore import Signal, Slot, Qt, QTimer, QPoint # Removed QRegularExpression
-from PySide6.QtGui import QFont, QScreen # Removed QRegularExpressionValidator
+import logging # Added for logger
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, # QLabel removed
+                               # QTableWidget, QTableWidgetItem removed
+                               QPushButton,
+                               # QHeaderView, QApplication, QAbstractItemView removed
+                               # QGroupBox, QSpinBox, QSpacerItem, QSizePolicy removed
+                               # QMenu, QAbstractButton removed
+                               QListWidget, # QFormLayout removed
+                               QListWidgetItem)
+from PySide6.QtCore import Signal, Slot, Qt, QTimer # QPoint removed
+# from PySide6.QtGui import QFont, QScreen # Removed QRegularExpressionValidator, QFont, QScreen
 
 # import re # No longer needed in this file after refactor
-import subprocess
-import shutil
-import os
-from pathlib import Path
+# import subprocess # Removed F401
+# import shutil # Removed F401
+# import os # Removed F401
+# from pathlib import Path # Removed F401
+
+logger = logging.getLogger(__name__) # Added for F821
 
 # --- Import Core Config and PHP Manager (using new paths) ---
 try:

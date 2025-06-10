@@ -1,17 +1,19 @@
+import logging # Added for logger
+import logging # Added for logger
+import sys # Added for F821
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QListWidget, QListWidgetItem,
-                               QFileDialog, QApplication, QFrame, QSplitter,
-                               QSizePolicy, QLineEdit, QMessageBox,
-                               QComboBox, QCheckBox, QMenu, QFormLayout, QScrollArea)
-from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QUrl, QSize
-from PySide6.QtGui import QFont, QRegularExpressionValidator, QAction, QDesktopServices, QPainter, QColor, QPixmap, QIcon
+                               QFrame, QSplitter, # QFileDialog, QApplication removed F401
+                               QLineEdit, QMessageBox, QScrollArea) # QSizePolicy, QComboBox, QCheckBox, QMenu, QFormLayout removed F401, QScrollArea Added
+from PySide6.QtCore import Signal, Slot, Qt, QUrl # QRegularExpression, QSize removed F401
+from PySide6.QtGui import QFont, QDesktopServices, QIcon # QRegularExpressionValidator, QAction, QPainter, QColor, QPixmap removed F401
 
-import re
+# import re # Removed F401
 import subprocess
 import shutil
-import os
+# import os # Removed F401
 import shlex # Keep for terminal command quoting
-import traceback
+# import traceback # Removed F401
 from pathlib import Path
 
 # --- Import Core Config and Manager Modules (using new paths) ---
@@ -23,7 +25,11 @@ try:
     from .widgets.site_list_item_widget import SiteListItemWidget
     from .site_detail_widget import SiteDetailWidget # Import the new detail widget
 except ImportError as e:
-    logger.critical(f"SITES_PAGE_IMPORT_ERROR: Could not import dependencies: {e}", exc_info=True) # Use logger
+    # logger is not defined yet if this block is hit before logger = logging.getLogger(__name__)
+    # For now, assuming logger will be defined before this is an issue, or critical will handle it.
+    # If fixing F821 for logger, ensure it's defined before this line.
+    # For now, let's assume logger will be defined globally before this.
+    logging.getLogger(__name__).critical(f"SITES_PAGE_IMPORT_ERROR: Could not import dependencies: {e}", exc_info=True) # Use logger
     # Define dummy functions/constants if import fails
     class ConfigDummy:
         SITE_TLD = "test"; DEFAULT_PHP = "default";
@@ -420,29 +426,7 @@ class SitesPage(QWidget):
         else:
             self.disableSiteSslClicked.emit(self.current_site_info)
 
-    @Slot(str)
-    def on_open_path_clicked(self, site_path: str = None): # Can be called by SiteDetailWidget or directly
-        path_to_open = site_path
-        if not path_to_open and self.current_site_info: # Fallback if called without arg but site selected
-            path_to_open = self.current_site_info.get('path')
-
-        if not path_to_open:
-            self.log_to_main("SitesPage: Error - No site path available for 'Open Path'.")
-            return
-
-        self.log_to_main(f"SitesPage: Attempting to open path: {path_to_open}")
-        if not QDesktopServices.openUrl(QUrl.fromLocalFile(path_to_open)):
-            self.log_to_main(f"SitesPage: Error - Failed to open path {path_to_open}")
-            # Fallback attempt with xdg-open for Linux, or similar for other OS
-            if sys.platform == "linux":
-                xdg_open = shutil.which('xdg-open')
-                if xdg_open:
-                    logger.info(f"Attempting fallback with xdg-open {path_to_open}")
-                    try: subprocess.Popen([xdg_open, path_to_open])
-                    except Exception as e_xdg: logger.error(f"xdg-open fallback failed: {e_xdg}")
-                else: QMessageBox.warning(self, "Cannot Open Path", f"Could not open the directory:\n{path_to_open}")
-            else: QMessageBox.warning(self, "Cannot Open Path", f"Could not open the directory:\n{path_to_open}")
-
+    # First on_open_path_clicked removed (F811)
 
     @Slot()
     def on_open_tinker_clicked(self): # Connected to SiteDetailWidget.openTinkerRequested

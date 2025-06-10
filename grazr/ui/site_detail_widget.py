@@ -1,7 +1,8 @@
 import logging
+import sys # Added for F821
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                               QFrame, QScrollArea, QSizePolicy)
-from PySide6.QtCore import Signal, Slot, Qt
+                               QFrame, QScrollArea, QSizePolicy, QApplication) # QApplication added for F821
+from PySide6.QtCore import Signal, Qt, QTimer # Slot removed F401, QTimer added for F821
 from PySide6.QtGui import QFont, QPixmap, QPainter, QColor
 
 logger = logging.getLogger(__name__)

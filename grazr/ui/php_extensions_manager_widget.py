@@ -1,7 +1,7 @@
 import logging
 from typing import List, Optional
 
-from qtpy.QtCore import Signal, Slot, Qt
+from qtpy.QtCore import Signal, Slot, QTimer # Qt removed (F401), QTimer added for F821
 from qtpy.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -9,8 +9,8 @@ from qtpy.QtWidgets import (
     QLabel,
     QListWidget,
     QPushButton,
-    QFrame,
-    QSizePolicy,
+    # QFrame removed (F401)
+    # QSizePolicy removed (F401)
     QListWidgetItem
 )
 

@@ -1,5 +1,4 @@
 import os
-import signal
 import time
 from pathlib import Path
 import subprocess
@@ -20,8 +19,11 @@ except ImportError as e:
     # This logger might not be fully configured if this is the first import,
     # but it's better than print for consistency.
     logger.error(f"MYSQL_MANAGER_IMPORT_ERROR: Could not import core/managers: {e}", exc_info=True)
-    class ProcessManagerDummy: pass; process_manager = ProcessManagerDummy()
-    class ConfigDummy: pass; config = ConfigDummy(); config.MYSQL_DEFAULT_PORT = 3306
+    class ProcessManagerDummy: pass
+    class ConfigDummy: pass
+    process_manager = ProcessManagerDummy()
+    config = ConfigDummy()
+    config.MYSQL_DEFAULT_PORT = 3306 # type: ignore
     def run_command(*args): return -1, "", "Import Error"
     def load_configured_services(): return []
 # --- End Imports ---

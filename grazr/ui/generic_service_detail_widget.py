@@ -4,9 +4,10 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QTextEdit, QScrollArea, QFrame,
-                               QApplication, QSizePolicy) # QApplication for clipboard
-from PySide6.QtCore import Signal, Slot, Qt, QUrl, QSize
-from PySide6.QtGui import QFont, QIcon, QDesktopServices, QTextCursor
+                               QApplication, QMessageBox) # QApplication for clipboard, QMessageBox for F821
+from PySide6.QtCore import Signal, Slot, Qt, QSize, QTimer # QUrl removed (F401), QTimer for F821
+from PySide6.QtGui import QFont, QIcon, QTextCursor # QDesktopServices removed (F401)
+#QSizePolicy removed (F401)
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 try:
     # Assuming generic_service_detail_widget.py is in grazr/ui/
     # and config.py is in grazr/core/
-    from ..core.config import ServiceDefinition, config # Import both ServiceDefinition and the config object
+    from grazr.core.config import ServiceDefinition, config # Import both ServiceDefinition and the config object
 except ImportError:
     logger.warning("GenericServiceDetailWidget: Could not import ServiceDefinition or core.config. Some defaults might be missing or type hints incomplete.")
     # Define a dummy ServiceDefinition for type hinting if import fails
@@ -153,18 +154,7 @@ class GenericServiceDetailWidget(QWidget):
         section_layout.addLayout(title_layout)
         return section_frame
 
-        section_layout = QVBoxLayout(group_box) # Main layout for the group
-        section_layout.setSpacing(8)
-        section_layout.setContentsMargins(0,0,0,0)
-
-        title_layout = QHBoxLayout() # For title and potential action buttons
-        title_layout.setContentsMargins(0,0,0,5) # Bottom margin for spacing
-        label = QLabel(title)
-        label.setFont(QFont("Sans Serif", 10, QFont.Weight.Bold))
-        title_layout.addWidget(label)
-        title_layout.addStretch()
-        section_layout.addLayout(title_layout)
-        return group_box
+    # Removed duplicate block that returned group_box (F821 for group_box)
 
     def update_details(self, service_config: dict, service_definition: ServiceDefinition):
         self._service_config = service_config if service_config else {}
@@ -295,15 +285,15 @@ class GenericServiceDetailWidget(QWidget):
         QApplication.clipboard().setText(text_to_copy)
         logger.info("Environment variables copied to clipboard.")
         # Visual feedback (optional)
-        original_text = self.copy_env_button.text()
+        # original_text = self.copy_env_button.text() # F841: Unused variable
         original_icon = self.copy_env_button.icon()
         self.copy_env_button.setText("Copied!")
         self.copy_env_button.setIcon(QIcon()) # Clear icon
         self.copy_env_button.setEnabled(False)
         QTimer.singleShot(1500, lambda: (
-            self.copy_env_button.setText(""),
+            self.copy_env_button.setText(""), # Reset text
             self.copy_env_button.setIcon(original_icon),
-            self.copy_env_button.setEnabled(True)
+            self.copy_env_button.setEnabled(True) # Re-enable button
         ))
 
 
@@ -418,6 +408,14 @@ class GenericServiceDetailWidget(QWidget):
                 item.widget().setEnabled(enabled)
 
 if __name__ == '__main__':
+    import sys # F821: sys needed for sys.argv, sys.exit
+    from PySide6.QtCore import QTimer # F821: QTimer used in main
+    # QApplication is already imported at the top level of the module if needed by the class itself
+    # QMessageBox can be imported here if only for __main__
+    # from PySide6.QtWidgets import QMessageBox
+    # QDesktopServices can be imported here if only for __main__
+    # from PySide6.QtGui import QDesktopServices
+
     app = QApplication(sys.argv)
     logging.basicConfig(level=logging.DEBUG)
 

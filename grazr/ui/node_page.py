@@ -1,11 +1,17 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                               QPushButton, QListWidget, QListWidgetItem,
-                               QFrame, QSplitter, QSizePolicy, QMessageBox,
-                               QProgressDialog, QApplication)
-from PySide6.QtCore import Signal, Slot, Qt, QTimer
-from PySide6.QtGui import QFont, QIcon
+import logging # Added for logger
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, # QLabel removed
+                               QPushButton, # QListWidget, QListWidgetItem removed
+                               # QFrame removed
+                               QSplitter, # QSizePolicy removed
+                               QMessageBox,
+                               # QProgressDialog removed
+                               QApplication)
+from PySide6.QtCore import Signal, Slot, Qt # QTimer removed
+from PySide6.QtGui import QIcon # QFont removed
 
 import traceback
+
+logger = logging.getLogger(__name__) # Added for F821
 
 # --- Import Core Config & Manager Functions ---
 try:
@@ -233,4 +239,3 @@ class NodePage(QWidget):
             self._main_window.log_message(message)
         else:
             print(f"NodePage Log: {message}")
-

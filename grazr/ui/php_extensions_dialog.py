@@ -1,6 +1,7 @@
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, # QHBoxLayout removed
+                               QLabel, # QPushButton removed
                                QDialogButtonBox, QListWidget, QListWidgetItem,
-                               QCheckBox, QScrollArea, QWidget)
+                               QCheckBox) # QScrollArea, QWidget removed
 from PySide6.QtCore import Qt, Signal, Slot
 
 # Need to import manager functions to list extensions
@@ -8,7 +9,7 @@ try:
     from ..managers.php_manager import list_available_extensions, list_enabled_extensions
 except ImportError as e:
     print(f"ERROR in php_extensions_dialog.py: Could not import php_manager: {e}")
-    def list_available_extensions(v): return [f"ext1 ({e})", "ext2", "opcache", "xdebug"]
+    def list_available_extensions(v): return ["ext1 (ImportError)", "ext2", "opcache", "xdebug"] # F821: Corrected 'e' usage
     def list_enabled_extensions(v): return ["opcache"] # Dummy data
 
 class PhpExtensionsDialog(QDialog):

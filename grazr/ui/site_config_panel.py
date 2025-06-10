@@ -1,19 +1,23 @@
 import logging
-from pathlib import Path
+# from pathlib import Path # Removed F401
+import re # Added for F821
+import sys # Added for F821
 
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QWidget, # QVBoxLayout removed F401
+                               QHBoxLayout, QLabel,
                                QPushButton, QComboBox, QCheckBox, QLineEdit,
-                               QFormLayout, QSpacerItem, QSizePolicy, QMenu)
-from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QSize
-from PySide6.QtGui import QFont, QRegularExpressionValidator, QIcon, QDesktopServices, QUrl
+                               QFormLayout, # QSpacerItem, QSizePolicy, QMenu removed F401
+                               QApplication) # Added for F821
+from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QSize # QUrl removed F401
+from PySide6.QtGui import QFont, QRegularExpressionValidator # QIcon, QDesktopServices removed F401
 
 logger = logging.getLogger(__name__)
 
 # Try to import manager functions, with fallbacks for standalone testing
 try:
-    from ...core import config # To get DEFAULT_PHP, DEFAULT_NODE, SITE_TLD
-    from ...managers.php_manager import detect_bundled_php_versions, get_default_php_version
-    from ...managers.node_manager import list_installed_node_versions
+    from grazr.core import config # To get DEFAULT_PHP, DEFAULT_NODE, SITE_TLD
+    from grazr.managers.php_manager import detect_bundled_php_versions, get_default_php_version
+    from grazr.managers.node_manager import list_installed_node_versions
 except ImportError:
     logger.warning("SITE_CONFIG_PANEL: Could not import manager functions. Using dummies for standalone testing.")
     class ConfigDummy: DEFAULT_PHP = "default"; DEFAULT_NODE = "system"; SITE_TLD = "test"

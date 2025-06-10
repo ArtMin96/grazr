@@ -1,5 +1,5 @@
 import logging
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QHBoxLayout, QLabel
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QHBoxLayout # QLabel removed (F401)
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QIcon # For icons on buttons
 

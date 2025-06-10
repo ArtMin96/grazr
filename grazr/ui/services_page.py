@@ -1,16 +1,15 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QListWidget, QListWidgetItem,
-                               QFrame, QSplitter, QSizePolicy, QStackedWidget,
-                               QTextEdit, QScrollArea, QMessageBox, QApplication,
-                               QSpacerItem, QGroupBox, QLineEdit)
-from PySide6.QtCore import Signal, Slot, Qt, QTimer, QObject, QUrl, QSize
-from PySide6.QtGui import QFont, QPalette, QColor, QTextCursor, QDesktopServices, QClipboard, QIcon, QBrush
+                               QFrame, QSplitter, QMessageBox)
+                               # QSizePolicy, QStackedWidget, QTextEdit, QScrollArea, QApplication, QSpacerItem, QGroupBox, QLineEdit removed (F401)
+from PySide6.QtCore import Signal, Slot, Qt, QTimer, QUrl, QSize # QObject removed (F401)
+from PySide6.QtGui import QFont, QDesktopServices, QIcon # QPalette, QColor, QTextCursor, QClipboard, QBrush removed (F401)
 
-import traceback
-import html
-import re
-import shutil
-import subprocess
+# import traceback # Removed F401
+# import html # Removed F401
+# import re # Removed F401
+# import shutil # Removed F401
+import subprocess # subprocess.Popen is used
 from pathlib import Path
 from collections import defaultdict
 import logging
@@ -20,7 +19,7 @@ logger = logging.getLogger(__name__)
 # --- Import Core Config & Custom Widget ---
 try:
     from ..core import config # ServiceDefinition is used from here
-    from .widgets.status_indicator import StatusIndicator # May not be needed directly if ServiceItemWidget handles it
+    # from .widgets.status_indicator import StatusIndicator # Removed F401 (only in dummy)
     from .service_item_widget import ServiceItemWidget
     from ..managers.services_config_manager import load_configured_services, get_service_config_by_id
     from .generic_service_detail_widget import GenericServiceDetailWidget # Import new widget
@@ -181,11 +180,53 @@ class ServicesPage(QWidget):
 
         self.service_list_widget.itemSelectionChanged.connect(self.on_selection_changed_show_details)
 
+    @Slot()
+    def on_selection_changed_show_details(self):
+        """Handles selection changes in the service list to show details."""
+        selected_items = self.service_list_widget.selectedItems()
+        if not selected_items:
+            # If nothing is selected (e.g., list cleared or selection removed programmatically)
+            # and a detail view was open, close it.
+            if self.current_selected_service_id is not None:
+                logger.debug("SERVICES_PAGE: Selection cleared, hiding details.")
+                self.on_show_service_details(None)
+            return
+
+        current_item = selected_items[0]
+        widget_key = current_item.data(Qt.UserRole) # Get widget_key from item data
+
+        if not widget_key:
+            logger.warning("SERVICES_PAGE: Selected item has no widget_key (UserRole data). Might be a header.")
+            # If a detail view for a service was open, and now a header is clicked,
+            # we might want to hide the details.
+            if self.current_selected_service_id is not None:
+                 self.on_show_service_details(None)
+            return
+
+        # Check if this is already the selected service to avoid re-processing or toggling off.
+        # The on_show_service_details method itself has logic to toggle,
+        # but here we want to ensure that clicking an already selected item
+        # in the list *keeps* the detail view open, not toggles it.
+        # However, if the goal is for list selection to also toggle, this check might change.
+        # For now, assume list selection should *show* details.
+        # If it's already shown, on_show_service_details will handle it (e.g. not reopen).
+        if widget_key == self.current_selected_service_id and self.service_detail_widget.isVisible():
+            logger.debug(f"SERVICES_PAGE: Item {widget_key} already selected and details visible.")
+            # Optionally, ensure the correct list item widget is marked as selected if that's handled by set_selected
+            service_widget = self.service_widgets.get(widget_key)
+            if service_widget and hasattr(service_widget, 'set_selected'):
+                 service_widget.set_selected(True) # Ensure it's visually selected
+            return
+
+
+        logger.info(f"SERVICES_PAGE: List selection changed to widget_key: {widget_key}")
+        self.on_show_service_details(widget_key)
+
 
     # --- Header Action Methods ---
     def add_header_actions(self, header_widget):
-        main_window.add_header_action(self.add_service_button, "services_page")
-        main_window.add_header_action(self.stop_all_button, "services_page")
+        self._main_window.add_header_action(self.add_service_button, "services_page") # F821 main_window -> self._main_window
+        self._main_window.add_header_action(self.stop_all_button, "services_page") # F821 main_window -> self._main_window
         if self.add_service_button.parent(): self.add_service_button.parent().layout().removeWidget(self.add_service_button)
         if self.stop_all_button.parent(): self.stop_all_button.parent().layout().removeWidget(self.stop_all_button)
 

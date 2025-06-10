@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
-                               QPushButton, QFrame, QSizePolicy)
+                               QPushButton) # QFrame, QSizePolicy removed (F401)
 from PySide6.QtCore import Signal, Slot, Qt, QSize
-from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QIcon
+from PySide6.QtGui import QIcon # QFont, QPixmap, QPainter, QColor removed (F401)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -10,7 +10,7 @@ try:
     from ..core import config
     from .widgets.status_indicator import StatusIndicator
 except ImportError:
-    logger.error(f"SERVICE_ITEM_WIDGET: Could not import dependencies (core.config or StatusIndicator). Using dummies.")
+    logger.error("SERVICE_ITEM_WIDGET: Could not import dependencies (core.config or StatusIndicator). Using dummies.") # F541 corrected
     class ConfigDummySIW:
         NGINX_PROCESS_ID = "internal-nginx"
     config = ConfigDummySIW()

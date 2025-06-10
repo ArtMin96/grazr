@@ -1,13 +1,14 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                               QPushButton, QDialogButtonBox, QListWidget, QListWidgetItem,
-                               QCheckBox, QScrollArea, QWidget, QGroupBox, QSpinBox,
+                               QPushButton, QDialogButtonBox, # QListWidget, QListWidgetItem removed
+                               # QCheckBox, QScrollArea removed
+                               QWidget, QGroupBox, QSpinBox,
                                QFormLayout, QTabWidget, QLineEdit, QTextEdit,
                                QApplication, QMessageBox)
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QFont
 
 import re # For parsing INI values
-import traceback
+# import traceback # Removed F401
 import platform
 import shutil
 import logging
@@ -109,8 +110,8 @@ class PhpConfigurationDialog(QDialog):
         ext_layout.addWidget(self.extensions_manager_widget, 1) # Give it stretch factor
 
         # --- Add New Extension Section (kept in this dialog for now) ---
-        self.ext_install_group = QGroupBox("Install New System Extension (Requires sudo)") # Renamed self.ext_install_group
-        ext_install_layout = QVBoxLayout(ext_install_group)
+        self.ext_install_group = QGroupBox("Install New System Extension (Requires sudo)")
+        ext_install_layout = QVBoxLayout(self.ext_install_group) # F821: ext_install_group -> self.ext_install_group
         ext_install_layout.setSpacing(8)
 
         ext_install_desc = QLabel(
@@ -151,7 +152,7 @@ class PhpConfigurationDialog(QDialog):
         ext_confirm_layout.addWidget(self.ext_confirm_button)
         ext_install_layout.addLayout(ext_confirm_layout)
 
-        ext_layout.addWidget(ext_install_group)  # Add group to tab
+        ext_layout.addWidget(self.ext_install_group)  # F821: ext_install_group -> self.ext_install_group
         # --- End Add New Extension Section ---
 
         tab_widget.addTab(ext_widget, "Extensions")
@@ -374,4 +375,3 @@ class PhpConfigurationDialog(QDialog):
         if self._main_window and hasattr(self._main_window, 'log_message'):
              self._main_window.log_message(message)
         else: print(f"PhpConfigDialog Log: {message}")
-
