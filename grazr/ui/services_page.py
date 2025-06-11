@@ -675,13 +675,32 @@ class ServicesPage(QWidget):
         self.serviceActionTriggered.emit(process_id_for_pm, action)
 
     def _trigger_single_refresh(self, service_item_id):  # service_item_id is config_id for PG, process_id for others
-        if not self._main_window: return
-        widget = self.service_widgets.get(service_item_id)
-        if not widget: logger.warning(
-            f"SERVICES_PAGE: No widget found for item_id '{service_item_id}' to trigger refresh."); return
+        # service_item_id is the widget_key. For Node, this would be its config_id if it's from services.json
+        # The 'process_id_for_pm' property of the widget would be "nvm_managed".
 
-        id_for_mw_refresh = widget.property("process_id_for_pm");
-        if not id_for_mw_refresh: id_for_mw_refresh = service_item_id
+        widget = self.service_widgets.get(service_item_id) # Get the widget using its key
+        if not widget:
+            logger.warning(f"SERVICES_PAGE: No widget found for service_item_id '{service_item_id}' in _trigger_single_refresh.")
+            return
+
+        id_for_mw_refresh = widget.property("process_id_for_pm")
+        # If process_id_for_pm was not set or empty on the widget,
+        # it might fall back to using service_item_id, which is the config_id from services.json.
+        # This is the value that could be "nvm_managed" if the service_type was 'node'.
+        # However, the property "process_id_for_pm" is what was set to "nvm_managed" in refresh_data.
+
+        if id_for_mw_refresh == "nvm_managed":
+            logger.debug(f"SERVICES_PAGE: Skipping refresh for service_item_id_key '{service_item_id}' (process_id_for_pm: '{id_for_mw_refresh}') as it's managed differently.")
+            return
+
+        if not self._main_window: return # Moved this check after fetching id_for_mw_refresh for the nvm_managed check
+
+        # If id_for_mw_refresh was empty from the property, use service_item_id as fallback.
+        # This case should be less common if "nvm_managed" is consistently set.
+        if not id_for_mw_refresh:
+            id_for_mw_refresh = service_item_id
+            logger.debug(f"SERVICES_PAGE: process_id_for_pm was empty for widget {service_item_id}, using service_item_id ('{id_for_mw_refresh}') for refresh logic.")
+
 
         refresh_method_name = None
         if id_for_mw_refresh == getattr(config, 'NGINX_PROCESS_ID', None):
