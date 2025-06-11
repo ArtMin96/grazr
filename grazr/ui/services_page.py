@@ -468,7 +468,7 @@ class ServicesPage(QWidget):
                 else:
                     logger.debug(f"SERVICES_PAGE: add_service_button has no parent in set_controls_enabled, skipping.")
             except RuntimeError as e:
-                logger.warning(f"SERVICES_PAGE: RuntimeError accessing add_service_button in set_controls_enabled: {e}")
+                logger.warning(f"SERVICES_PAGE: RuntimeError accessing add_service_button (intended state: {enabled}) in set_controls_enabled: {e}")
 
         if hasattr(self, 'stop_all_button') and self.stop_all_button:
             try:
@@ -477,7 +477,7 @@ class ServicesPage(QWidget):
                 else:
                     logger.debug(f"SERVICES_PAGE: stop_all_button has no parent in set_controls_enabled, skipping.")
             except RuntimeError as e:
-                logger.warning(f"SERVICES_PAGE: RuntimeError accessing stop_all_button in set_controls_enabled: {e}")
+                logger.warning(f"SERVICES_PAGE: RuntimeError accessing stop_all_button (intended state: {enabled}) in set_controls_enabled: {e}")
 
         # The QTimer.singleShot that called refresh_data was already commented out in a previous step.
         logger.debug(f"{self.__class__.__name__}: set_controls_enabled called with {enabled}, refresh_data timer commented out.")
