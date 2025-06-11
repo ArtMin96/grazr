@@ -401,13 +401,13 @@ class SitesPage(QWidget):
 
     @Slot(str)
     def _on_php_version_change_from_detail(self, new_php_version: str):
-        logger.debug(f"SITES_PAGE._on_php_version_change_from_detail: Received new_php_version: '{new_php_version}' for site_id: {self._current_site_info.get('id') if self._current_site_info else 'N/A'}")
+        logger.debug(f"SITES_PAGE._on_php_version_change_from_detail: Received new_php_version: '{new_php_version}' for site_id: {self.current_site_info.get('id') if hasattr(self, 'current_site_info') and self.current_site_info else 'N/A'}")
         if not self.current_site_info:
             logger.error("SitesPage: Cannot change PHP version, current_site_info is not set.")
             return
 
-        logger.debug(f"SITES_PAGE._on_php_version_change_from_detail: Current site info before packaging for worker: {self._current_site_info}")
-        data = {"site_info": self._current_site_info, "new_php_version": new_php_version}
+        logger.debug(f"SITES_PAGE._on_php_version_change_from_detail: Current site info before packaging for worker: {self.current_site_info}")
+        data = {"site_info": self.current_site_info, "new_php_version": new_php_version}
         logger.debug(f"SITES_PAGE._on_php_version_change_from_detail: Data being sent to set_site_php task: {data}")
 
         logger.info(f"SitesPage: PHP version change requested for site '{self.current_site_info.get('domain')}' -> '{new_php_version}'")

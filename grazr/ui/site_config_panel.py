@@ -8,8 +8,8 @@ from PySide6.QtWidgets import (QWidget, # QVBoxLayout removed F401
                                QPushButton, QComboBox, QCheckBox, QLineEdit,
                                QFormLayout, # QSpacerItem, QSizePolicy, QMenu removed F401
                                QApplication) # Added for F821
-from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QSize # QUrl removed F401
-from PySide6.QtGui import QFont, QRegularExpressionValidator # QIcon, QDesktopServices removed F401
+from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QSize, QUrl
+from PySide6.QtGui import QFont, QRegularExpressionValidator, QIcon, QDesktopServices
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +206,17 @@ class SiteConfigPanel(QWidget):
         stored_version = self._site_info.get('php_version', DEFAULT_PHP) # Use imported constant
         version_to_save = DEFAULT_PHP if selected_text == "Default" else selected_text # Use imported constant
         logger.debug(f"SITE_CONFIG_PANEL._on_php_version_changed: version_to_save: '{version_to_save}'")
+
+        if not version_to_save: # This implies selected_text was an empty string (and not "Default")
+            current_actual_php_version = self._site_info.get('php_version', DEFAULT_PHP)
+            logger.warning(f"SITE_CONFIG_PANEL: Empty PHP version selected for site {self._site_info.get('domain', 'N/A')}. "
+                           f"Aborting version change request. UI will be reset to current version: {current_actual_php_version}.")
+
+            # To prevent feedback loop if setCurrentText re-triggers this slot:
+            self.php_version_combo.blockSignals(True)
+            self.php_version_combo.setCurrentText(current_actual_php_version)
+            self.php_version_combo.blockSignals(False)
+            return
 
         if version_to_save != stored_version:
             logger.info(f"PHP version change requested for '{self._site_info.get('domain')}': '{version_to_save}'")

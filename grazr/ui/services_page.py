@@ -462,7 +462,7 @@ class ServicesPage(QWidget):
                     is_visible = self.add_service_button.isVisible()
                     logger.debug(f"SERVICES_PAGE: add_service_button: initial_check instance: {self.add_service_button}, parent: {parent_widget}, visible: {is_visible}")
                 except RuntimeError as e_log:
-                    logger.debug(f"SERVICES_PAGE: add_service_button: initial_check instance: {self.add_service_button} - C++ object likely deleted (cannot get parent/visibility): {e_log}")
+                    logger.debug(f"SERVICES_PAGE: add_service_button: initial_check - C++ object likely deleted during parent/visibility access: {e_log}")
             else:
                 logger.debug(f"SERVICES_PAGE: add_service_button is None at start of set_controls_enabled.")
         else:
@@ -475,7 +475,7 @@ class ServicesPage(QWidget):
                     is_visible = self.stop_all_button.isVisible()
                     logger.debug(f"SERVICES_PAGE: stop_all_button: initial_check instance: {self.stop_all_button}, parent: {parent_widget}, visible: {is_visible}")
                 except RuntimeError as e_log:
-                    logger.debug(f"SERVICES_PAGE: stop_all_button: initial_check instance: {self.stop_all_button} - C++ object likely deleted (cannot get parent/visibility): {e_log}")
+                    logger.debug(f"SERVICES_PAGE: stop_all_button: initial_check - C++ object likely deleted during parent/visibility access: {e_log}")
             else:
                 logger.debug(f"SERVICES_PAGE: stop_all_button is None at start of set_controls_enabled.")
         else:
