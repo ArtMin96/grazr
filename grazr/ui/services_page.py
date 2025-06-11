@@ -123,6 +123,7 @@ class ServicesPage(QWidget):
         title.setFont(QFont("Sans Serif", 11, QFont.Weight.Bold))
 
         self.stop_all_button = QPushButton("Stop All")
+        logger.debug(f"SERVICES_PAGE.__init__: stop_all_button instantiated: {self.stop_all_button}")
         try:
             self.stop_all_button.setIcon(QIcon(":/icons/stop.svg"))
         except:
@@ -133,13 +134,18 @@ class ServicesPage(QWidget):
         self.stop_all_button.setIconSize(QSize(16, 16))
         self.stop_all_button.setFlat(True)
         self.stop_all_button.clicked.connect(self.stopAllServicesClicked.emit)
+
         self.add_service_button = QPushButton("Add Service")
+        logger.debug(f"SERVICES_PAGE.__init__: add_service_button instantiated: {self.add_service_button}")
         self.add_service_button.setObjectName("PrimaryButton")
         self.add_service_button.clicked.connect(self.addServiceClicked.emit)
+
         top_bar_layout.addWidget(title)
         top_bar_layout.addStretch()
         top_bar_layout.addWidget(self.add_service_button)
+        logger.debug(f"SERVICES_PAGE.__init__: add_service_button added to layout. Parent: {self.add_service_button.parentWidget()}")
         top_bar_layout.addWidget(self.stop_all_button)
+        logger.debug(f"SERVICES_PAGE.__init__: stop_all_button added to layout. Parent: {self.stop_all_button.parentWidget()}")
         left_layout.addLayout(top_bar_layout)
         # --- End Top Bar ---
 
@@ -447,7 +453,17 @@ class ServicesPage(QWidget):
 
     @Slot(bool)
     def set_controls_enabled(self, enabled):
-        logger.info(f"SERVICES_PAGE: Setting controls enabled state: {enabled}")
+        logger.debug(f"SERVICES_PAGE.set_controls_enabled(enabled={enabled}) called.")
+        if hasattr(self, 'add_service_button') and self.add_service_button:
+            logger.debug(f"SERVICES_PAGE: add_service_button instance: {self.add_service_button}, parent: {self.add_service_button.parentWidget()}")
+        else:
+            logger.debug(f"SERVICES_PAGE: add_service_button not found or is None at start of set_controls_enabled.")
+        if hasattr(self, 'stop_all_button') and self.stop_all_button:
+            logger.debug(f"SERVICES_PAGE: stop_all_button instance: {self.stop_all_button}, parent: {self.stop_all_button.parentWidget()}")
+        else:
+            logger.debug(f"SERVICES_PAGE: stop_all_button not found or is None at start of set_controls_enabled.")
+
+        logger.info(f"SERVICES_PAGE: Setting controls enabled state (actual logic): {enabled}") # Changed original log to avoid confusion
         if hasattr(self, 'service_widgets') and self.service_widgets:
             for sid, widget in self.service_widgets.items():
                 try:

@@ -36,10 +36,11 @@ class HeaderWidget(QWidget):
 
     def add_action_widget(self, widget: QWidget):
         """Adds a widget (e.g., a button or a small layout of buttons) to the right side of the header."""
+        logger.debug(f"HEADER.add_action_widget: Adding widget: {widget.__class__.__name__ if widget else 'None'}")
         if widget:
             self.header_actions_layout.addWidget(widget)
             self._action_widgets.append(widget)
-            logger.debug(f"Added action widget: {widget.__class__.__name__}")
+            # logger.debug(f"Added action widget: {widget.__class__.__name__}") # This is redundant with the one above now
         else:
             logger.warning("Attempted to add a None widget to header actions.")
 
@@ -81,6 +82,7 @@ class HeaderWidget(QWidget):
         # (or manage it more carefully if widgets could be added/removed outside this class)
         self._action_widgets = []
         logger.debug("Cleared all action widgets from header.")
+        logger.debug(f"HEADER.clear_actions: Completed. Attempted to remove widgets from layout. Layout count now: {self.header_actions_layout.count()}")
 
     # If specific actions are always present but just shown/hidden, methods could be:
     # def show_action_x(self, visible=True):

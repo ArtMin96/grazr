@@ -346,24 +346,32 @@ class MainWindow(QMainWindow):
     @Slot(int)
     def change_page(self, row: int): # row is emitted by SidebarWidget.navigationItemClicked
         """Changes the current page in the QStackedWidget and updates the header."""
+        logger.debug(f"MAIN_WINDOW.change_page: Received page_key_or_index: {row}")
+        logger.debug(f"SIDEBAR: Emitting pageSelected signal with key/index: {row}") # Logging effective emission
+
         if 0 <= row < self.stacked_widget.count():
             # 1. Get page title from sidebar item text
             sidebar_item = self.sidebar_widget.item(row) # Use new sidebar_widget
             page_title = sidebar_item.text().strip() if sidebar_item else "Unknown Page"
 
             # 2. Set title on HeaderWidget
+            logger.debug(f"MAIN_WINDOW.change_page: Setting header title to: {page_title}")
             self.header_widget.set_title(page_title)
 
             # 3. Clear any actions from the previous page in HeaderWidget
+            logger.debug("MAIN_WINDOW.change_page: Clearing header actions.")
             self.header_widget.clear_actions()
 
             # 4. Set the current page in QStackedWidget
+            logger.debug(f"MAIN_WINDOW.change_page: Attempting to set stacked_widget current index to: {row}")
             self.stacked_widget.setCurrentIndex(row)
+            logger.debug(f"MAIN_WINDOW.change_page: stacked_widget current index set. Current widget: {self.stacked_widget.currentWidget().__class__.__name__}")
 
             # 5. Get the current page widget
             current_page_widget = self.stacked_widget.currentWidget()
 
             # 6. If page has 'add_header_actions', call it
+            logger.debug(f"MAIN_WINDOW.change_page: Asking page {current_page_widget.__class__.__name__} to add its header actions.")
             if hasattr(current_page_widget, 'add_header_actions') and callable(current_page_widget.add_header_actions):
                 current_page_widget.add_header_actions(self.header_widget) # Pass HeaderWidget instance
             else:
