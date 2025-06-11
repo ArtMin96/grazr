@@ -454,14 +454,32 @@ class ServicesPage(QWidget):
     @Slot(bool)
     def set_controls_enabled(self, enabled):
         logger.debug(f"SERVICES_PAGE.set_controls_enabled(enabled={enabled}) called.")
-        if hasattr(self, 'add_service_button') and self.add_service_button:
-            logger.debug(f"SERVICES_PAGE: add_service_button instance: {self.add_service_button}, parent: {self.add_service_button.parentWidget()}")
+        if hasattr(self, 'add_service_button'):
+            if self.add_service_button is not None:
+                try:
+                    # Try to access attributes that might fail if C++ part is gone
+                    parent_widget = self.add_service_button.parentWidget()
+                    is_visible = self.add_service_button.isVisible()
+                    logger.debug(f"SERVICES_PAGE: add_service_button: initial_check instance: {self.add_service_button}, parent: {parent_widget}, visible: {is_visible}")
+                except RuntimeError as e_log:
+                    logger.debug(f"SERVICES_PAGE: add_service_button: initial_check instance: {self.add_service_button} - C++ object likely deleted (cannot get parent/visibility): {e_log}")
+            else:
+                logger.debug(f"SERVICES_PAGE: add_service_button is None at start of set_controls_enabled.")
         else:
-            logger.debug(f"SERVICES_PAGE: add_service_button not found or is None at start of set_controls_enabled.")
-        if hasattr(self, 'stop_all_button') and self.stop_all_button:
-            logger.debug(f"SERVICES_PAGE: stop_all_button instance: {self.stop_all_button}, parent: {self.stop_all_button.parentWidget()}")
+            logger.debug(f"SERVICES_PAGE: add_service_button attribute does not exist at start of set_controls_enabled.")
+
+        if hasattr(self, 'stop_all_button'):
+            if self.stop_all_button is not None:
+                try:
+                    parent_widget = self.stop_all_button.parentWidget()
+                    is_visible = self.stop_all_button.isVisible()
+                    logger.debug(f"SERVICES_PAGE: stop_all_button: initial_check instance: {self.stop_all_button}, parent: {parent_widget}, visible: {is_visible}")
+                except RuntimeError as e_log:
+                    logger.debug(f"SERVICES_PAGE: stop_all_button: initial_check instance: {self.stop_all_button} - C++ object likely deleted (cannot get parent/visibility): {e_log}")
+            else:
+                logger.debug(f"SERVICES_PAGE: stop_all_button is None at start of set_controls_enabled.")
         else:
-            logger.debug(f"SERVICES_PAGE: stop_all_button not found or is None at start of set_controls_enabled.")
+            logger.debug(f"SERVICES_PAGE: stop_all_button attribute does not exist at start of set_controls_enabled.")
 
         logger.info(f"SERVICES_PAGE: Setting controls enabled state (actual logic): {enabled}") # Changed original log to avoid confusion
         if hasattr(self, 'service_widgets') and self.service_widgets:

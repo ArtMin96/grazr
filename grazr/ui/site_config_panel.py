@@ -201,12 +201,15 @@ class SiteConfigPanel(QWidget):
 
     @Slot(str)
     def _on_php_version_changed(self, selected_text: str):
+        logger.debug(f"SITE_CONFIG_PANEL._on_php_version_changed: selected_text from combobox: '{selected_text}' for site: {self._site_info.get('domain', 'N/A') if self._site_info else 'N/A'}")
         if not self._site_info: return
         stored_version = self._site_info.get('php_version', DEFAULT_PHP) # Use imported constant
         version_to_save = DEFAULT_PHP if selected_text == "Default" else selected_text # Use imported constant
+        logger.debug(f"SITE_CONFIG_PANEL._on_php_version_changed: version_to_save: '{version_to_save}'")
 
         if version_to_save != stored_version:
             logger.info(f"PHP version change requested for '{self._site_info.get('domain')}': '{version_to_save}'")
+            logger.debug(f"SITE_CONFIG_PANEL._on_php_version_changed: Emitting phpVersionChangeRequested with '{version_to_save}'")
             self.phpVersionChangeRequested.emit(version_to_save)
 
     @Slot(str)

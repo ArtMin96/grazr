@@ -401,12 +401,18 @@ class SitesPage(QWidget):
 
     @Slot(str)
     def _on_php_version_change_from_detail(self, new_php_version: str):
+        logger.debug(f"SITES_PAGE._on_php_version_change_from_detail: Received new_php_version: '{new_php_version}' for site_id: {self._current_site_info.get('id') if self._current_site_info else 'N/A'}")
         if not self.current_site_info:
             logger.error("SitesPage: Cannot change PHP version, current_site_info is not set.")
             return
+
+        logger.debug(f"SITES_PAGE._on_php_version_change_from_detail: Current site info before packaging for worker: {self._current_site_info}")
+        data = {"site_info": self._current_site_info, "new_php_version": new_php_version}
+        logger.debug(f"SITES_PAGE._on_php_version_change_from_detail: Data being sent to set_site_php task: {data}")
+
         logger.info(f"SitesPage: PHP version change requested for site '{self.current_site_info.get('domain')}' -> '{new_php_version}'")
         self.set_controls_enabled(False)
-        self.setSitePhpVersionClicked.emit(self.current_site_info, new_php_version)
+        self.setSitePhpVersionClicked.emit(self.current_site_info, new_php_version) # Emits site_info (dict) and new_php_version (str)
 
     @Slot(str)
     def _on_node_version_change_from_detail(self, new_node_version: str):
@@ -647,9 +653,32 @@ class SitesPage(QWidget):
     def set_controls_enabled(self, enabled):
         """Enable/disable controls on this page."""
         self.log_to_main(f"SitesPage: Setting controls enabled state: {enabled}")
-        self.site_list_widget.setEnabled(enabled)
-        if hasattr(self, 'link_button'): self.link_button.setEnabled(enabled) # If it's still a member
-        if hasattr(self, 'search_input'): self.search_input.setEnabled(enabled) # If it's still a member
+
+        if hasattr(self, 'site_list_widget') and self.site_list_widget:
+            try:
+                if self.site_list_widget.parent() is not None: # Proactive check
+                    self.site_list_widget.setEnabled(enabled)
+            except RuntimeError as e:
+                logger.warning(f"SITES_PAGE: RuntimeError accessing site_list_widget (intended state: {enabled}) in set_controls_enabled: {e}")
+
+        if hasattr(self, 'link_button'):
+            if self.link_button is not None:
+                try:
+                    if self.link_button.parent() is not None: # Proactive check
+                        self.link_button.setEnabled(enabled)
+                except RuntimeError as e:
+                    logger.warning(f"SITES_PAGE: RuntimeError accessing link_button (intended state: {enabled}) in set_controls_enabled: {e}")
+            else:
+                logger.debug(f"SITES_PAGE: link_button is None in set_controls_enabled (intended state: {enabled}).")
+        else:
+            logger.debug(f"SITES_PAGE: link_button attribute does not exist in set_controls_enabled (intended state: {enabled}).")
+
+        if hasattr(self, 'search_input') and self.search_input:
+            try:
+                if self.search_input.parent() is not None: # Proactive check
+                    self.search_input.setEnabled(enabled)
+            except RuntimeError as e:
+                logger.warning(f"SITES_PAGE: RuntimeError accessing search_input (intended state: {enabled}) in set_controls_enabled: {e}")
 
         if hasattr(self, 'site_detail_widget') and self.site_detail_widget:
             self.site_detail_widget.set_controls_enabled(enabled)
