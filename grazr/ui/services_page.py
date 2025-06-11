@@ -1,15 +1,16 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QListWidget, QListWidgetItem,
-                               QFrame, QSplitter, QMessageBox)
-                               # QSizePolicy, QStackedWidget, QTextEdit, QScrollArea, QApplication, QSpacerItem, QGroupBox, QLineEdit removed (F401)
-from PySide6.QtCore import Signal, Slot, Qt, QTimer, QUrl, QSize # QObject removed (F401)
-from PySide6.QtGui import QFont, QDesktopServices, QIcon # QPalette, QColor, QTextCursor, QClipboard, QBrush removed (F401)
+                               QFrame, QSplitter, QSizePolicy, QStackedWidget,
+                               QTextEdit, QScrollArea, QMessageBox, QApplication,
+                               QSpacerItem, QGroupBox, QLineEdit)
+from PySide6.QtCore import Signal, Slot, Qt, QTimer, QObject, QUrl, QSize
+from PySide6.QtGui import QFont, QPalette, QColor, QTextCursor, QDesktopServices, QClipboard, QIcon, QBrush
 
-# import traceback # Removed F401
-# import html # Removed F401
-# import re # Removed F401
-# import shutil # Removed F401
-import subprocess # subprocess.Popen is used
+import traceback
+import html
+import re
+import shutil
+import subprocess
 from pathlib import Path
 from collections import defaultdict
 import logging
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 # --- Import Core Config & Custom Widget ---
 try:
     from ..core import config # ServiceDefinition is used from here
-    # from .widgets.status_indicator import StatusIndicator # Removed F401 (only in dummy)
+    from .widgets.status_indicator import StatusIndicator # May not be needed directly if ServiceItemWidget handles it
     from .service_item_widget import ServiceItemWidget
     from ..managers.services_config_manager import load_configured_services, get_service_config_by_id
     from .generic_service_detail_widget import GenericServiceDetailWidget # Import new widget
@@ -94,7 +95,6 @@ class ServicesPage(QWidget):
     def __init__(self, parent=None):
         """Initializes the Services page UI - dynamically loads services."""
         super().__init__(parent)
-        logger.info(f"{self.__class__.__name__}.__init__: Start")
         self._main_window = parent
         self.setObjectName("ServicesPage")
 
@@ -123,7 +123,6 @@ class ServicesPage(QWidget):
         title.setFont(QFont("Sans Serif", 11, QFont.Weight.Bold))
 
         self.stop_all_button = QPushButton("Stop All")
-        logger.debug(f"SERVICES_PAGE.__init__: stop_all_button instantiated: {self.stop_all_button}")
         try:
             self.stop_all_button.setIcon(QIcon(":/icons/stop.svg"))
         except:
@@ -134,19 +133,19 @@ class ServicesPage(QWidget):
         self.stop_all_button.setIconSize(QSize(16, 16))
         self.stop_all_button.setFlat(True)
         self.stop_all_button.clicked.connect(self.stopAllServicesClicked.emit)
-
+        logger.debug(f"SERVICES_PAGE.__init__: stop_all_button instantiated: {self.stop_all_button}")
         self.add_service_button = QPushButton("Add Service")
-        logger.debug(f"SERVICES_PAGE.__init__: add_service_button instantiated: {self.add_service_button}")
         self.add_service_button.setObjectName("PrimaryButton")
         self.add_service_button.clicked.connect(self.addServiceClicked.emit)
-
+        logger.debug(f"SERVICES_PAGE.__init__: add_service_button instantiated: {self.add_service_button}")
         top_bar_layout.addWidget(title)
         top_bar_layout.addStretch()
         top_bar_layout.addWidget(self.add_service_button)
-        logger.debug(f"SERVICES_PAGE.__init__: add_service_button added to layout. Parent: {self.add_service_button.parentWidget()}")
+        logger.debug(f"SERVICES_PAGE.__init__: add_service_button added to top_bar_layout. Parent: {self.add_service_button.parentWidget()}")
         top_bar_layout.addWidget(self.stop_all_button)
-        logger.debug(f"SERVICES_PAGE.__init__: stop_all_button added to layout. Parent: {self.stop_all_button.parentWidget()}")
+        logger.debug(f"SERVICES_PAGE.__init__: stop_all_button added to top_bar_layout. Parent: {self.stop_all_button.parentWidget()}")
         left_layout.addLayout(top_bar_layout)
+        logger.debug(f"SERVICES_PAGE.__init__: top_bar_layout added to left_layout. Parent of top_bar_layout's QObject: {top_bar_layout.parent()}")
         # --- End Top Bar ---
 
         self.service_list_widget = QListWidget();
@@ -186,59 +185,35 @@ class ServicesPage(QWidget):
         self.splitter.setStretchFactor(1, 1) # Right pane (details) takes available space
 
         self.service_list_widget.itemSelectionChanged.connect(self.on_selection_changed_show_details)
-        logger.info(f"{self.__class__.__name__}.__init__: End")
-
-    @Slot()
-    def on_selection_changed_show_details(self):
-        """Handles selection changes in the service list to show details."""
-        selected_items = self.service_list_widget.selectedItems()
-        if not selected_items:
-            # If nothing is selected (e.g., list cleared or selection removed programmatically)
-            # and a detail view was open, close it.
-            if self.current_selected_service_id is not None:
-                logger.debug("SERVICES_PAGE: Selection cleared, hiding details.")
-                self.on_show_service_details(None)
-            return
-
-        current_item = selected_items[0]
-        widget_key = current_item.data(Qt.UserRole) # Get widget_key from item data
-
-        if not widget_key:
-            logger.warning("SERVICES_PAGE: Selected item has no widget_key (UserRole data). Might be a header.")
-            # If a detail view for a service was open, and now a header is clicked,
-            # we might want to hide the details.
-            if self.current_selected_service_id is not None:
-                 self.on_show_service_details(None)
-            return
-
-        # Check if this is already the selected service to avoid re-processing or toggling off.
-        # The on_show_service_details method itself has logic to toggle,
-        # but here we want to ensure that clicking an already selected item
-        # in the list *keeps* the detail view open, not toggles it.
-        # However, if the goal is for list selection to also toggle, this check might change.
-        # For now, assume list selection should *show* details.
-        # If it's already shown, on_show_service_details will handle it (e.g. not reopen).
-        if widget_key == self.current_selected_service_id and self.service_detail_widget.isVisible():
-            logger.debug(f"SERVICES_PAGE: Item {widget_key} already selected and details visible.")
-            # Optionally, ensure the correct list item widget is marked as selected if that's handled by set_selected
-            service_widget = self.service_widgets.get(widget_key)
-            if service_widget and hasattr(service_widget, 'set_selected'):
-                 service_widget.set_selected(True) # Ensure it's visually selected
-            return
-
-
-        logger.info(f"SERVICES_PAGE: List selection changed to widget_key: {widget_key}")
-        self.on_show_service_details(widget_key)
 
 
     # --- Header Action Methods ---
     def add_header_actions(self, header_widget):
-        # Corrected to call method on header_widget, consistent with other pages
-        header_widget.add_action_widget(self.add_service_button)
-        header_widget.add_action_widget(self.stop_all_button)
-        # The removal logic below is fine, assuming add_action_widget reparents.
-        if self.add_service_button.parent(): self.add_service_button.parent().layout().removeWidget(self.add_service_button)
-        if self.stop_all_button.parent(): self.stop_all_button.parent().layout().removeWidget(self.stop_all_button)
+        logger.debug(f"SERVICES_PAGE.add_header_actions: Called. add_service_button is valid: {self.add_service_button is not None}, stop_all_button is valid: {self.stop_all_button is not None}")
+
+        logger.debug(f"SERVICES_PAGE.add_header_actions: Attempting to add add_service_button ({self.add_service_button}) to header.")
+        if self.add_service_button:
+            header_widget.add_action_widget(self.add_service_button)
+        else:
+            logger.warning("SERVICES_PAGE.add_header_actions: self.add_service_button is None, cannot add to header.")
+
+        logger.debug(f"SERVICES_PAGE.add_header_actions: Attempting to add stop_all_button ({self.stop_all_button}) to header.")
+        if self.stop_all_button:
+            header_widget.add_action_widget(self.stop_all_button)
+        else:
+            logger.warning("SERVICES_PAGE.add_header_actions: self.stop_all_button is None, cannot add to header.")
+
+        # The original lines that removed widgets from their parents are commented out.
+        # This is because HeaderWidget.add_action_widget should handle reparenting.
+        # If the buttons are part of `top_bar_layout` (which is added to `left_layout`),
+        # and `header_widget.add_action_widget` correctly reparents them,
+        # then explicitly removing them from their old parent (`top_bar_layout`)
+        # after they've been added to `header_widget` is unnecessary and could be problematic
+        # if `header_widget` is different from `top_bar_layout`.
+        # If `header_widget` *is* `top_bar_layout`, then this is fine.
+        # Assuming `header_widget` is a separate entity passed in from MainWindow.
+        # if self.add_service_button.parent(): self.add_service_button.parent().layout().removeWidget(self.add_service_button)
+        # if self.stop_all_button.parent(): self.stop_all_button.parent().layout().removeWidget(self.stop_all_button)
 
     @Slot(str, str) # Receives unique_instance_id_or_process_id, action
     def on_service_action(self, service_item_id, action):
@@ -453,71 +428,17 @@ class ServicesPage(QWidget):
 
     @Slot(bool)
     def set_controls_enabled(self, enabled):
-        logger.debug(f"SERVICES_PAGE.set_controls_enabled(enabled={enabled}) called.")
-        if hasattr(self, 'add_service_button'):
-            if self.add_service_button is not None:
-                try:
-                    # Try to access attributes that might fail if C++ part is gone
-                    parent_widget = self.add_service_button.parentWidget()
-                    is_visible = self.add_service_button.isVisible()
-                    logger.debug(f"SERVICES_PAGE: add_service_button: initial_check instance: {self.add_service_button}, parent: {parent_widget}, visible: {is_visible}")
-                except RuntimeError as e_log:
-                    logger.debug(f"SERVICES_PAGE: add_service_button: initial_check - C++ object likely deleted during parent/visibility access: {e_log}")
+        logger.info(f"SERVICES_PAGE: Setting controls enabled state: {enabled}")
+        for sid, widget in self.service_widgets.items():
+            if hasattr(widget, 'set_controls_enabled'):
+                widget.set_controls_enabled(enabled)
             else:
-                logger.debug(f"SERVICES_PAGE: add_service_button is None at start of set_controls_enabled.")
-        else:
-            logger.debug(f"SERVICES_PAGE: add_service_button attribute does not exist at start of set_controls_enabled.")
-
-        if hasattr(self, 'stop_all_button'):
-            if self.stop_all_button is not None:
-                try:
-                    parent_widget = self.stop_all_button.parentWidget()
-                    is_visible = self.stop_all_button.isVisible()
-                    logger.debug(f"SERVICES_PAGE: stop_all_button: initial_check instance: {self.stop_all_button}, parent: {parent_widget}, visible: {is_visible}")
-                except RuntimeError as e_log:
-                    logger.debug(f"SERVICES_PAGE: stop_all_button: initial_check - C++ object likely deleted during parent/visibility access: {e_log}")
-            else:
-                logger.debug(f"SERVICES_PAGE: stop_all_button is None at start of set_controls_enabled.")
-        else:
-            logger.debug(f"SERVICES_PAGE: stop_all_button attribute does not exist at start of set_controls_enabled.")
-
-        logger.info(f"SERVICES_PAGE: Setting controls enabled state (actual logic): {enabled}") # Changed original log to avoid confusion
-        if hasattr(self, 'service_widgets') and self.service_widgets:
-            for sid, widget in self.service_widgets.items():
-                try:
-                    if widget and widget.parent() is not None: # Added parent check
-                        if hasattr(widget, 'set_controls_enabled'):
-                            widget.set_controls_enabled(enabled)
-                        else:
-                            widget.setEnabled(enabled)
-                    elif widget:
-                        logger.debug(f"SERVICES_PAGE: Widget {sid} has no parent in set_controls_enabled, skipping.")
-                except RuntimeError as e:
-                    logger.warning(f"SERVICES_PAGE: RuntimeError accessing widget {sid} in set_controls_enabled: {e}")
-
-        if hasattr(self, 'add_service_button') and self.add_service_button:
-            try:
-                if self.add_service_button.parent() is not None:
-                    self.add_service_button.setEnabled(enabled)
-                else:
-                    logger.debug(f"SERVICES_PAGE: add_service_button has no parent in set_controls_enabled, skipping.")
-            except RuntimeError as e:
-                logger.warning(f"SERVICES_PAGE: RuntimeError accessing add_service_button (intended state: {enabled}) in set_controls_enabled: {e}")
-
-        if hasattr(self, 'stop_all_button') and self.stop_all_button:
-            try:
-                if self.stop_all_button.parent() is not None:
-                    self.stop_all_button.setEnabled(enabled)
-                else:
-                    logger.debug(f"SERVICES_PAGE: stop_all_button has no parent in set_controls_enabled, skipping.")
-            except RuntimeError as e:
-                logger.warning(f"SERVICES_PAGE: RuntimeError accessing stop_all_button (intended state: {enabled}) in set_controls_enabled: {e}")
-
-        # The QTimer.singleShot that called refresh_data was already commented out in a previous step.
-        logger.debug(f"{self.__class__.__name__}: set_controls_enabled called with {enabled}, refresh_data timer commented out.")
+                widget.setEnabled(enabled)
+        self.add_service_button.setEnabled(enabled)
+        if hasattr(self, 'stop_all_button'): self.stop_all_button.setEnabled(enabled)
+        if enabled: QTimer.singleShot(10, self.refresh_data)  # Re-check states after enabling
 
     def refresh_data(self):
-        logger.info(f"{self.__class__.__name__}.refresh_data: Start")
         logger.info("SERVICES_PAGE: Refreshing data - Restoring ServiceItemWidget creation and status refreshes...")
         try:
             configured_services_from_json = load_configured_services()
@@ -561,15 +482,8 @@ class ServicesPage(QWidget):
                     process_id_for_pm = service_def_obj.process_id_template.format(instance_id=config_id)
                 except KeyError:
                     logger.error(f"SERVICES_PAGE: process_id_template for {service_type} malformed: {service_def_obj.process_id_template}"); continue
-            # If still no process_id_for_pm, check for special handling or log warning
-            if not process_id_for_pm:
-                if service_def_obj.service_id == 'node': # Check against service_id from ServiceDefinition
-                    process_id_for_pm = "nvm_managed" # Assign special string
-                    logger.info(f"SERVICES_PAGE: Node.js service type (config_id: {config_id}) found. Using '{process_id_for_pm}' for process_id_for_pm.")
-                    # We will proceed to create the widget for Node.js with this special process_id_for_pm
-                else:
-                    logger.warning(f"SERVICES_PAGE: Cannot determine process_id_for_pm for {service_config_json} (type: {service_type})")
-                    continue # Skip for other types if no process_id
+            else:
+                logger.warning(f"SERVICES_PAGE: Cannot determine process_id_for_pm for {service_config_json}"); continue
 
             category = service_def_obj.category if service_def_obj.category else 'Other'
             display_name = service_config_json.get('name', service_def_obj.display_name)
@@ -581,8 +495,9 @@ class ServicesPage(QWidget):
                 "display_name": display_name,
                 "service_type": service_type
             })
-        # The `else` block associated with the for-loop was removed as service_config_json would be undefined
-        # if configured_services_from_json is empty. Warnings for specific skipped services are already inside the loop.
+        else:
+            logger.warning(
+                f"SERVICES_PAGE: Skipping service due to missing config_id or process_id_for_pm: {service_config_json}")
 
         # Ensure category sorting is robust if a category from service_def_obj.category is new
         known_categories = ["Web Server", "Database", "Cache & Queue", "Storage", "Runtime"] # Define known order
@@ -680,7 +595,6 @@ class ServicesPage(QWidget):
         active_widget_keys = self.service_widgets.keys() # Define active_widget_keys
         if self.current_selected_service_id not in active_widget_keys:
             self.on_show_service_details(None)
-        logger.info(f"{self.__class__.__name__}.refresh_data: End")
 
 
     @Slot(str, str)
@@ -709,32 +623,13 @@ class ServicesPage(QWidget):
         self.serviceActionTriggered.emit(process_id_for_pm, action)
 
     def _trigger_single_refresh(self, service_item_id):  # service_item_id is config_id for PG, process_id for others
-        # service_item_id is the widget_key. For Node, this would be its config_id if it's from services.json
-        # The 'process_id_for_pm' property of the widget would be "nvm_managed".
+        if not self._main_window: return
+        widget = self.service_widgets.get(service_item_id)
+        if not widget: logger.warning(
+            f"SERVICES_PAGE: No widget found for item_id '{service_item_id}' to trigger refresh."); return
 
-        widget = self.service_widgets.get(service_item_id) # Get the widget using its key
-        if not widget:
-            logger.warning(f"SERVICES_PAGE: No widget found for service_item_id '{service_item_id}' in _trigger_single_refresh.")
-            return
-
-        id_for_mw_refresh = widget.property("process_id_for_pm")
-        # If process_id_for_pm was not set or empty on the widget,
-        # it might fall back to using service_item_id, which is the config_id from services.json.
-        # This is the value that could be "nvm_managed" if the service_type was 'node'.
-        # However, the property "process_id_for_pm" is what was set to "nvm_managed" in refresh_data.
-
-        if id_for_mw_refresh == "nvm_managed":
-            logger.debug(f"SERVICES_PAGE: Skipping refresh for service_item_id_key '{service_item_id}' (process_id_for_pm: '{id_for_mw_refresh}') as it's managed differently.")
-            return
-
-        if not self._main_window: return # Moved this check after fetching id_for_mw_refresh for the nvm_managed check
-
-        # If id_for_mw_refresh was empty from the property, use service_item_id as fallback.
-        # This case should be less common if "nvm_managed" is consistently set.
-        if not id_for_mw_refresh:
-            id_for_mw_refresh = service_item_id
-            logger.debug(f"SERVICES_PAGE: process_id_for_pm was empty for widget {service_item_id}, using service_item_id ('{id_for_mw_refresh}') for refresh logic.")
-
+        id_for_mw_refresh = widget.property("process_id_for_pm");
+        if not id_for_mw_refresh: id_for_mw_refresh = service_item_id
 
         refresh_method_name = None
         if id_for_mw_refresh == getattr(config, 'NGINX_PROCESS_ID', None):

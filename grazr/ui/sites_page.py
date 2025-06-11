@@ -1,21 +1,18 @@
-import logging # Keep one logging import
-import sys # Added for F821
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QListWidget, QListWidgetItem,
-                               QFrame, QSplitter, # QFileDialog, QApplication removed F401
-                               QLineEdit, QMessageBox, QScrollArea) # QSizePolicy, QComboBox, QCheckBox, QMenu, QFormLayout removed F401, QScrollArea Added
-from PySide6.QtCore import Signal, Slot, Qt, QUrl # QRegularExpression, QSize removed F401
-from PySide6.QtGui import QFont, QDesktopServices, QIcon # QRegularExpressionValidator, QAction, QPainter, QColor, QPixmap removed F401
+                               QFileDialog, QApplication, QFrame, QSplitter,
+                               QSizePolicy, QLineEdit, QMessageBox,
+                               QComboBox, QCheckBox, QMenu, QFormLayout, QScrollArea)
+from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QUrl, QSize
+from PySide6.QtGui import QFont, QRegularExpressionValidator, QAction, QDesktopServices, QPainter, QColor, QPixmap, QIcon
 
-# import re # Removed F401
+import re
 import subprocess
 import shutil
-# import os # Removed F401
+import os
 import shlex # Keep for terminal command quoting
-# import traceback # Removed F401
+import traceback
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
 
 # --- Import Core Config and Manager Modules (using new paths) ---
 try:
@@ -26,11 +23,7 @@ try:
     from .widgets.site_list_item_widget import SiteListItemWidget
     from .site_detail_widget import SiteDetailWidget # Import the new detail widget
 except ImportError as e:
-    # logger is not defined yet if this block is hit before logger = logging.getLogger(__name__)
-    # For now, assuming logger will be defined before this is an issue, or critical will handle it.
-    # If fixing F821 for logger, ensure it's defined before this line.
-    # For now, let's assume logger will be defined globally before this.
-    logging.getLogger(__name__).critical(f"SITES_PAGE_IMPORT_ERROR: Could not import dependencies: {e}", exc_info=True) # Use logger
+    logger.critical(f"SITES_PAGE_IMPORT_ERROR: Could not import dependencies: {e}", exc_info=True) # Use logger
     # Define dummy functions/constants if import fails
     class ConfigDummy:
         SITE_TLD = "test"; DEFAULT_PHP = "default";
@@ -72,7 +65,6 @@ class SitesPage(QWidget):
     def __init__(self, parent=None):
         """Initializes the Sites page UI with master-detail layout."""
         super().__init__(parent)
-        logger.info(f"{self.__class__.__name__}.__init__: Start")
         self._main_window = parent
         self.current_site_info = None
         self._available_php_versions = []
@@ -170,7 +162,6 @@ class SitesPage(QWidget):
         # --- Initial State ---
         self._fetch_initial_versions() # Fetch PHP and Node versions once
         self.display_site_details(None) # Show placeholder
-        logger.info(f"{self.__class__.__name__}.__init__: End")
 
     # --- Header Action Methods ---
     def add_header_actions(self, header_widget):
@@ -401,18 +392,12 @@ class SitesPage(QWidget):
 
     @Slot(str)
     def _on_php_version_change_from_detail(self, new_php_version: str):
-        logger.debug(f"SITES_PAGE._on_php_version_change_from_detail: Received new_php_version: '{new_php_version}' for site_id: {self.current_site_info.get('id') if hasattr(self, 'current_site_info') and self.current_site_info else 'N/A'}")
         if not self.current_site_info:
             logger.error("SitesPage: Cannot change PHP version, current_site_info is not set.")
             return
-
-        logger.debug(f"SITES_PAGE._on_php_version_change_from_detail: Current site info before packaging for worker: {self.current_site_info}")
-        data = {"site_info": self.current_site_info, "new_php_version": new_php_version}
-        logger.debug(f"SITES_PAGE._on_php_version_change_from_detail: Data being sent to set_site_php task: {data}")
-
         logger.info(f"SitesPage: PHP version change requested for site '{self.current_site_info.get('domain')}' -> '{new_php_version}'")
         self.set_controls_enabled(False)
-        self.setSitePhpVersionClicked.emit(self.current_site_info, new_php_version) # Emits site_info (dict) and new_php_version (str)
+        self.setSitePhpVersionClicked.emit(self.current_site_info, new_php_version)
 
     @Slot(str)
     def _on_node_version_change_from_detail(self, new_node_version: str):
@@ -435,7 +420,29 @@ class SitesPage(QWidget):
         else:
             self.disableSiteSslClicked.emit(self.current_site_info)
 
-    # First on_open_path_clicked removed (F811)
+    @Slot(str)
+    def on_open_path_clicked(self, site_path: str = None): # Can be called by SiteDetailWidget or directly
+        path_to_open = site_path
+        if not path_to_open and self.current_site_info: # Fallback if called without arg but site selected
+            path_to_open = self.current_site_info.get('path')
+
+        if not path_to_open:
+            self.log_to_main("SitesPage: Error - No site path available for 'Open Path'.")
+            return
+
+        self.log_to_main(f"SitesPage: Attempting to open path: {path_to_open}")
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(path_to_open)):
+            self.log_to_main(f"SitesPage: Error - Failed to open path {path_to_open}")
+            # Fallback attempt with xdg-open for Linux, or similar for other OS
+            if sys.platform == "linux":
+                xdg_open = shutil.which('xdg-open')
+                if xdg_open:
+                    logger.info(f"Attempting fallback with xdg-open {path_to_open}")
+                    try: subprocess.Popen([xdg_open, path_to_open])
+                    except Exception as e_xdg: logger.error(f"xdg-open fallback failed: {e_xdg}")
+                else: QMessageBox.warning(self, "Cannot Open Path", f"Could not open the directory:\n{path_to_open}")
+            else: QMessageBox.warning(self, "Cannot Open Path", f"Could not open the directory:\n{path_to_open}")
+
 
     @Slot()
     def on_open_tinker_clicked(self): # Connected to SiteDetailWidget.openTinkerRequested
@@ -614,7 +621,6 @@ class SitesPage(QWidget):
 
     def refresh_data(self):
         """Refresh site list and current details."""
-        logger.info(f"{self.__class__.__name__}.refresh_data: Start")
         try:
             # First refresh the sites list
             self.refresh_site_list()
@@ -624,18 +630,16 @@ class SitesPage(QWidget):
             if current_item:
                 self.display_site_details(current_item)
             else:
-                # No item selected, show placeholder (handled by display_site_details(None))
-                self.display_site_details(None) # Changed from _show_details_placeholder
+                # No item selected, show placeholder
+                self._show_details_placeholder("Select a site from the list on the left.")
         except Exception as e:
-            # print(f"Error in SitesPage.refresh_data: {e}") # Replaced with logger
-            # traceback.print_exc() # Replaced with logger
-            logger.error(f"Error in SitesPage.refresh_data: {e}", exc_info=True)
+            print(f"Error in SitesPage.refresh_data: {e}")
+            traceback.print_exc()
 
             # Attempt to show placeholder as fallback if SiteDetailWidget fails to render
             if hasattr(self, 'site_detail_widget') and self.site_detail_widget:
                  self.site_detail_widget.update_details(None, [], []) # Clear it
-            # logger.error(f"Error in SitesPage.refresh_data, attempting to clear details: {e}", exc_info=True) # Already logged above
-        logger.info(f"{self.__class__.__name__}.refresh_data: End")
+            logger.error(f"Error in SitesPage.refresh_data, attempting to clear details: {e}", exc_info=True)
 
 
     @Slot(str)
@@ -653,40 +657,16 @@ class SitesPage(QWidget):
     def set_controls_enabled(self, enabled):
         """Enable/disable controls on this page."""
         self.log_to_main(f"SitesPage: Setting controls enabled state: {enabled}")
-
-        if hasattr(self, 'site_list_widget') and self.site_list_widget:
-            try:
-                if self.site_list_widget.parent() is not None: # Proactive check
-                    self.site_list_widget.setEnabled(enabled)
-            except RuntimeError as e:
-                logger.warning(f"SITES_PAGE: RuntimeError accessing site_list_widget (intended state: {enabled}) in set_controls_enabled: {e}")
-
-        if hasattr(self, 'link_button'):
-            if self.link_button is not None:
-                try:
-                    if self.link_button.parent() is not None: # Proactive check
-                        self.link_button.setEnabled(enabled)
-                except RuntimeError as e:
-                    logger.warning(f"SITES_PAGE: RuntimeError accessing link_button (intended state: {enabled}) in set_controls_enabled: {e}")
-            else:
-                logger.debug(f"SITES_PAGE: link_button is None in set_controls_enabled (intended state: {enabled}).")
-        else:
-            logger.debug(f"SITES_PAGE: link_button attribute does not exist in set_controls_enabled (intended state: {enabled}).")
-
-        if hasattr(self, 'search_input') and self.search_input:
-            try:
-                if self.search_input.parent() is not None: # Proactive check
-                    self.search_input.setEnabled(enabled)
-            except RuntimeError as e:
-                logger.warning(f"SITES_PAGE: RuntimeError accessing search_input (intended state: {enabled}) in set_controls_enabled: {e}")
+        self.site_list_widget.setEnabled(enabled)
+        if hasattr(self, 'link_button'): self.link_button.setEnabled(enabled) # If it's still a member
+        if hasattr(self, 'search_input'): self.search_input.setEnabled(enabled) # If it's still a member
 
         if hasattr(self, 'site_detail_widget') and self.site_detail_widget:
             self.site_detail_widget.set_controls_enabled(enabled)
 
         # If enabling, refresh data to ensure states are correct
         if enabled:
-            # self.refresh_data() # This will also call update_details on SiteDetailWidget # Commented out for hang investigation
-            logger.debug(f"{self.__class__.__name__}: set_controls_enabled called with {enabled}, refresh_data timer commented out.")
+            self.refresh_data() # This will also call update_details on SiteDetailWidget
 
     # _set_detail_widget_enabled is no longer needed as SiteDetailWidget/SiteConfigPanel manage their own internal states.
 

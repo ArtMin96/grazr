@@ -4,10 +4,9 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QTextEdit, QScrollArea, QFrame,
-                               QApplication, QMessageBox) # QApplication for clipboard, QMessageBox for F821
-from PySide6.QtCore import Signal, Slot, Qt, QSize, QTimer # QUrl removed (F401), QTimer for F821
-from PySide6.QtGui import QFont, QIcon, QTextCursor # QDesktopServices removed (F401)
-#QSizePolicy removed (F401)
+                               QApplication, QSizePolicy) # QApplication for clipboard
+from PySide6.QtCore import Signal, Slot, Qt, QUrl, QSize
+from PySide6.QtGui import QFont, QIcon, QDesktopServices, QTextCursor
 
 logger = logging.getLogger(__name__)
 
@@ -15,49 +14,21 @@ logger = logging.getLogger(__name__)
 try:
     # Assuming generic_service_detail_widget.py is in grazr/ui/
     # and config.py is in grazr/core/
-    from grazr.core.config import (
-        ServiceDefinition,
-        MINIO_CONSOLE_PORT,
-        MINIO_DEFAULT_ROOT_USER,
-        MINIO_DEFAULT_ROOT_PASSWORD,
-        POSTGRES_DEFAULT_USER_VAR,
-        POSTGRES_DEFAULT_DB,
-        NGINX_PROCESS_ID,
-        INTERNAL_NGINX_ERROR_LOG,
-        # Add other potential log_file_template_name values if identifiable
-        # For now, this list covers direct uses and one common dynamic lookup.
-        # If more dynamic lookups are common, they'd need to be added or config_module used.
-        INTERNAL_POSTGRES_INSTANCE_LOG_TEMPLATE
-    )
-    # Import the config module itself for dynamic hasattr/getattr
-    from grazr.core import config as core_config_module
-
+    from ..core.config import ServiceDefinition, config # Import both ServiceDefinition and the config object
 except ImportError:
     logger.warning("GenericServiceDetailWidget: Could not import ServiceDefinition or core.config. Some defaults might be missing or type hints incomplete.")
     # Define a dummy ServiceDefinition for type hinting if import fails
     class ServiceDefinition:
         def __init__(self, *args, **kwargs): pass # Basic dummy
-
     class ConfigDummy: # Minimal dummy for attributes that might be used as fallbacks
         MINIO_CONSOLE_PORT = 9001
         MINIO_DEFAULT_ROOT_USER = "minioadmin"
         MINIO_DEFAULT_ROOT_PASSWORD = "minioadmin"
         POSTGRES_DEFAULT_USER_VAR = "postgres"
         POSTGRES_DEFAULT_DB = "postgres"
-        NGINX_PROCESS_ID = "internal-nginx"
-        INTERNAL_NGINX_ERROR_LOG = Path("/tmp/dummy_nginx_error.log")
-        INTERNAL_POSTGRES_INSTANCE_LOG_TEMPLATE = "/tmp/dummy_pg_{instance_id}.log" # Dummy for the dynamic lookup
-
-    core_config_module = ConfigDummy() # Fallback for the module alias
-    # Also define fallbacks for directly imported constants if needed by dummy logic below
-    MINIO_CONSOLE_PORT = core_config_module.MINIO_CONSOLE_PORT
-    MINIO_DEFAULT_ROOT_USER = core_config_module.MINIO_DEFAULT_ROOT_USER
-    MINIO_DEFAULT_ROOT_PASSWORD = core_config_module.MINIO_DEFAULT_ROOT_PASSWORD
-    POSTGRES_DEFAULT_USER_VAR = core_config_module.POSTGRES_DEFAULT_USER_VAR
-    POSTGRES_DEFAULT_DB = core_config_module.POSTGRES_DEFAULT_DB
-    NGINX_PROCESS_ID = core_config_module.NGINX_PROCESS_ID
-    INTERNAL_NGINX_ERROR_LOG = core_config_module.INTERNAL_NGINX_ERROR_LOG
-    INTERNAL_POSTGRES_INSTANCE_LOG_TEMPLATE = core_config_module.INTERNAL_POSTGRES_INSTANCE_LOG_TEMPLATE
+        NGINX_PROCESS_ID = "internal-nginx" # Added for _get_log_path_for_service_internal
+        INTERNAL_NGINX_ERROR_LOG = Path("/tmp/dummy_nginx_error.log") # Added for _get_log_path_for_service_internal
+    config = ConfigDummy()
 
 
 class GenericServiceDetailWidget(QWidget):
@@ -182,7 +153,18 @@ class GenericServiceDetailWidget(QWidget):
         section_layout.addLayout(title_layout)
         return section_frame
 
-    # Removed duplicate block that returned group_box (F821 for group_box)
+        section_layout = QVBoxLayout(group_box) # Main layout for the group
+        section_layout.setSpacing(8)
+        section_layout.setContentsMargins(0,0,0,0)
+
+        title_layout = QHBoxLayout() # For title and potential action buttons
+        title_layout.setContentsMargins(0,0,0,5) # Bottom margin for spacing
+        label = QLabel(title)
+        label.setFont(QFont("Sans Serif", 10, QFont.Weight.Bold))
+        title_layout.addWidget(label)
+        title_layout.addStretch()
+        section_layout.addLayout(title_layout)
+        return group_box
 
     def update_details(self, service_config: dict, service_definition: ServiceDefinition):
         self._service_config = service_config if service_config else {}
@@ -313,15 +295,15 @@ class GenericServiceDetailWidget(QWidget):
         QApplication.clipboard().setText(text_to_copy)
         logger.info("Environment variables copied to clipboard.")
         # Visual feedback (optional)
-        # original_text = self.copy_env_button.text() # F841: Unused variable
+        original_text = self.copy_env_button.text()
         original_icon = self.copy_env_button.icon()
         self.copy_env_button.setText("Copied!")
         self.copy_env_button.setIcon(QIcon()) # Clear icon
         self.copy_env_button.setEnabled(False)
         QTimer.singleShot(1500, lambda: (
-            self.copy_env_button.setText(""), # Reset text
+            self.copy_env_button.setText(""),
             self.copy_env_button.setIcon(original_icon),
-            self.copy_env_button.setEnabled(True) # Re-enable button
+            self.copy_env_button.setEnabled(True)
         ))
 
 
@@ -353,8 +335,8 @@ class GenericServiceDetailWidget(QWidget):
             lines.extend([f"DB_CONNECTION=mysql", f"DB_HOST={host}", f"DB_PORT={configured_port}",
                           f"DB_DATABASE=your_database_name", f"DB_USERNAME=root", f"DB_PASSWORD=your_password"])
         elif service_type and service_type.startswith("postgres"): # Handles "postgres14", "postgres15", etc.
-            db_user = POSTGRES_DEFAULT_USER_VAR # Default DB user from config
-            db_name = POSTGRES_DEFAULT_DB     # Default DB name from config
+            db_user = getattr(config, 'POSTGRES_DEFAULT_USER_VAR', 'postgres') # Default DB user from config
+            db_name = getattr(config, 'POSTGRES_DEFAULT_DB', 'postgres')     # Default DB name from config
             lines.extend([f"DB_CONNECTION=pgsql", f"DB_HOST={host}", f"DB_PORT={configured_port}",
                           f"DB_DATABASE={db_name}", f"DB_USERNAME={db_user}", f"DB_PASSWORD=your_password"])
         elif service_type == "redis":
@@ -362,14 +344,14 @@ class GenericServiceDetailWidget(QWidget):
         elif service_type == "minio":
             api_port = configured_port
             # Use getattr for console_port from service_definition as it might not always exist
-            console_port_val = getattr(self._service_definition, 'console_port', None)
-            if console_port_val is None: # Fallback to global config if not on definition
-                 console_port_val = MINIO_CONSOLE_PORT
+            console_port = getattr(self._service_definition, 'console_port', None)
+            if console_port is None: # Fallback to global config if not on definition
+                 console_port = getattr(config, 'MINIO_CONSOLE_PORT', 9001)
 
-            user = MINIO_DEFAULT_ROOT_USER # Fallback values
-            password = MINIO_DEFAULT_ROOT_PASSWORD
+            user = getattr(config, 'MINIO_DEFAULT_ROOT_USER', 'grazrMinioUser') # Fallback values
+            password = getattr(config, 'MINIO_DEFAULT_ROOT_PASSWORD', 'grazrMinioPassword')
             bucket_name = "your-bucket-name"
-            lines.extend([f"# MinIO Console: http://{host}:{console_port_val}",
+            lines.extend([f"# MinIO Console: http://{host}:{console_port}",
                           f"MINIO_ENDPOINT={host}:{api_port}", f"MINIO_ACCESS_KEY={user}",
                           f"MINIO_SECRET_KEY={password}", f"MINIO_BUCKET={bucket_name}",
                           f"MINIO_USE_SSL=false", f"# For AWS SDK compatible settings:",
@@ -403,18 +385,18 @@ class GenericServiceDetailWidget(QWidget):
         # Case 2: Log path template on ServiceDefinition (e.g., PostgreSQL instances)
         elif getattr(self._service_definition, 'log_file_template_name', None) and instance_specific_id:
             template_name = self._service_definition.log_file_template_name
-            if hasattr(core_config_module, template_name):
-                template_str = getattr(core_config_module, template_name)
+            if hasattr(config, template_name):
+                template_str = getattr(config, template_name)
                 try:
                     log_path = Path(template_str.format(instance_id=instance_specific_id))
                 except KeyError as e:
                     logger.error(f"Missing placeholder for log template {template_name}: {e}")
             else:
-                logger.error(f"Log template name '{template_name}' not found in config module.")
+                logger.error(f"Log template name '{template_name}' not found in config.")
         # Case 3: Fallback for Nginx using its specific config constant if service_id matches
         # This might be redundant if service_definition.log_path is correctly set for Nginx
-        elif service_id_from_config == NGINX_PROCESS_ID: # Use imported constant
-            log_path = INTERNAL_NGINX_ERROR_LOG # Use imported constant
+        elif service_id_from_config == config.NGINX_PROCESS_ID and hasattr(config, 'INTERNAL_NGINX_ERROR_LOG'):
+            log_path = config.INTERNAL_NGINX_ERROR_LOG
 
         if log_path:
             self.open_log_button.setVisible(log_path.exists())
@@ -436,14 +418,6 @@ class GenericServiceDetailWidget(QWidget):
                 item.widget().setEnabled(enabled)
 
 if __name__ == '__main__':
-    import sys # F821: sys needed for sys.argv, sys.exit
-    from PySide6.QtCore import QTimer # F821: QTimer used in main
-    # QApplication is already imported at the top level of the module if needed by the class itself
-    # QMessageBox can be imported here if only for __main__
-    # from PySide6.QtWidgets import QMessageBox
-    # QDesktopServices can be imported here if only for __main__
-    # from PySide6.QtGui import QDesktopServices
-
     app = QApplication(sys.argv)
     logging.basicConfig(level=logging.DEBUG)
 
@@ -487,8 +461,8 @@ if __name__ == '__main__':
         default_port=5432, db_client_tools=["psql", "pg_dump"]
     )
     # Add dummy template to config for testing postgres log path
-    if isinstance(core_config_module, ConfigDummy): # Check if using ConfigDummy
-        core_config_module.TEST_PG_LOG_TEMPLATE = "/tmp/pg_{instance_id}.log"
+    if isinstance(config, ConfigDummy): # Check if using ConfigDummy
+        config.TEST_PG_LOG_TEMPLATE = "/tmp/pg_{instance_id}.log"
 
 
     service_conf1 = {"id": "nginx_process_id1", "service_type": "nginx", "name": "My Nginx Server", "port": 80}

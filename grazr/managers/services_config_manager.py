@@ -74,8 +74,7 @@ def load_configured_services():
     # Sort by name for consistent display? Or by category then name?
     try:
         services_list.sort(key=lambda x: (
-            getattr(config.AVAILABLE_BUNDLED_SERVICES.get(x.get('service_type', '')), 'category', 'ZZZ')
-            if config.AVAILABLE_BUNDLED_SERVICES.get(x.get('service_type', '')) is not None else 'ZZZ',
+            config.AVAILABLE_BUNDLED_SERVICES.get(x.get('service_type', ''), {}).get('category', 'ZZZ'),
             # Sort by category first
             x.get('name', '').lower()  # Then by name
         ))
@@ -102,8 +101,7 @@ def save_configured_services(services_list):
         # Ensure consistent sorting before saving
         try:
             services_list.sort(key=lambda x: (
-                getattr(config.AVAILABLE_BUNDLED_SERVICES.get(x.get('service_type', '')), 'category', 'ZZZ')
-                if config.AVAILABLE_BUNDLED_SERVICES.get(x.get('service_type', '')) is not None else 'ZZZ',
+                config.AVAILABLE_BUNDLED_SERVICES.get(x.get('service_type', ''), {}).get('category', 'ZZZ'),
                 x.get('name', '').lower()
             ))
         except Exception:  # Fallback sort

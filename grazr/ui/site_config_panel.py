@@ -1,31 +1,23 @@
 import logging
-# from pathlib import Path # Removed F401
-import re # Added for F821
-import sys # Added for F821
+from pathlib import Path
 
-from PySide6.QtWidgets import (QWidget, # QVBoxLayout removed F401
-                               QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QComboBox, QCheckBox, QLineEdit,
-                               QFormLayout, # QSpacerItem, QSizePolicy, QMenu removed F401
-                               QApplication) # Added for F821
-from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QSize, QUrl
-from PySide6.QtGui import QFont, QRegularExpressionValidator, QIcon, QDesktopServices
+                               QFormLayout, QSpacerItem, QSizePolicy, QMenu)
+from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QSize
+from PySide6.QtGui import QFont, QRegularExpressionValidator, QIcon, QDesktopServices, QUrl
 
 logger = logging.getLogger(__name__)
 
 # Try to import manager functions, with fallbacks for standalone testing
 try:
-    from grazr.core.config import DEFAULT_PHP, DEFAULT_NODE, SITE_TLD
-    from grazr.managers.php_manager import detect_bundled_php_versions, get_default_php_version
-    from grazr.managers.node_manager import list_installed_node_versions
+    from ...core import config # To get DEFAULT_PHP, DEFAULT_NODE, SITE_TLD
+    from ...managers.php_manager import detect_bundled_php_versions, get_default_php_version
+    from ...managers.node_manager import list_installed_node_versions
 except ImportError:
     logger.warning("SITE_CONFIG_PANEL: Could not import manager functions. Using dummies for standalone testing.")
-    # Define fallbacks for directly imported constants
-    DEFAULT_PHP = "default"
-    DEFAULT_NODE = "system"
-    SITE_TLD = "test"
-    # class ConfigDummy: DEFAULT_PHP = "default"; DEFAULT_NODE = "system"; SITE_TLD = "test" # No longer needed
-    # config = ConfigDummy() # No longer needed
+    class ConfigDummy: DEFAULT_PHP = "default"; DEFAULT_NODE = "system"; SITE_TLD = "test"
+    config = ConfigDummy()
     def detect_bundled_php_versions(): return ["7.4", "8.1", "8.3"]
     def get_default_php_version(): return "8.1"
     def list_installed_node_versions(): return ["18.17.0", "20.9.0"]
@@ -132,8 +124,8 @@ class SiteConfigPanel(QWidget):
         if self._available_php_versions:
             self.php_version_combo.addItems(self._available_php_versions)
 
-        stored_php = self._site_info.get('php_version', DEFAULT_PHP) # Use imported constant
-        if stored_php == DEFAULT_PHP or stored_php is None: # Handle None explicitly
+        stored_php = self._site_info.get('php_version', config.DEFAULT_PHP)
+        if stored_php == config.DEFAULT_PHP or stored_php is None: # Handle None explicitly
             self.php_version_combo.setCurrentText("Default")
         else:
             self.php_version_combo.setCurrentText(stored_php)
@@ -145,8 +137,8 @@ class SiteConfigPanel(QWidget):
         self.refresh_node_button.setVisible(needs_node)
         if needs_node:
             self._populate_node_versions() # Populates and sets current value
-            stored_node = self._site_info.get('node_version', DEFAULT_NODE) # Use imported constant
-            if stored_node == DEFAULT_NODE or stored_node is None:
+            stored_node = self._site_info.get('node_version', config.DEFAULT_NODE)
+            if stored_node == config.DEFAULT_NODE or stored_node is None:
                 self.node_version_combo.setCurrentText("System")
             else:
                  self.node_version_combo.setCurrentText(stored_node)
@@ -162,12 +154,12 @@ class SiteConfigPanel(QWidget):
 
         # URL/Domain
         self.url_edit.setText(self._site_info.get('domain', ''))
-        # site_tld = getattr(config, 'SITE_TLD', 'test') # Use imported constant
-        regex_pattern = f"^[a-zA-Z0-9-]+(\\.{re.escape(SITE_TLD)})$" # Use imported constant
+        site_tld = getattr(config, 'SITE_TLD', 'test')
+        regex_pattern = f"^[a-zA-Z0-9-]+(\\.{re.escape(site_tld)})$"
         domain_regex = QRegularExpression(regex_pattern)
         validator = QRegularExpressionValidator(domain_regex, self.url_edit)
         self.url_edit.setValidator(validator)
-        self.url_edit.setPlaceholderText(f"site.{SITE_TLD}") # Changed site_tld to SITE_TLD
+        self.url_edit.setPlaceholderText(f"site.{site_tld}")
         self.save_url_button.setEnabled(False) # Disable save on update
 
         logger.debug(f"SiteConfigPanel updated for site: {self._site_info.get('domain', 'N/A')}")
@@ -201,33 +193,19 @@ class SiteConfigPanel(QWidget):
 
     @Slot(str)
     def _on_php_version_changed(self, selected_text: str):
-        logger.debug(f"SITE_CONFIG_PANEL._on_php_version_changed: selected_text from combobox: '{selected_text}' for site: {self._site_info.get('domain', 'N/A') if self._site_info else 'N/A'}")
         if not self._site_info: return
-        stored_version = self._site_info.get('php_version', DEFAULT_PHP) # Use imported constant
-        version_to_save = DEFAULT_PHP if selected_text == "Default" else selected_text # Use imported constant
-        logger.debug(f"SITE_CONFIG_PANEL._on_php_version_changed: version_to_save: '{version_to_save}'")
-
-        if not version_to_save: # This implies selected_text was an empty string (and not "Default")
-            current_actual_php_version = self._site_info.get('php_version', DEFAULT_PHP)
-            logger.warning(f"SITE_CONFIG_PANEL: Empty PHP version selected for site {self._site_info.get('domain', 'N/A')}. "
-                           f"Aborting version change request. UI will be reset to current version: {current_actual_php_version}.")
-
-            # To prevent feedback loop if setCurrentText re-triggers this slot:
-            self.php_version_combo.blockSignals(True)
-            self.php_version_combo.setCurrentText(current_actual_php_version)
-            self.php_version_combo.blockSignals(False)
-            return
+        stored_version = self._site_info.get('php_version', config.DEFAULT_PHP)
+        version_to_save = config.DEFAULT_PHP if selected_text == "Default" else selected_text
 
         if version_to_save != stored_version:
             logger.info(f"PHP version change requested for '{self._site_info.get('domain')}': '{version_to_save}'")
-            logger.debug(f"SITE_CONFIG_PANEL._on_php_version_changed: Emitting phpVersionChangeRequested with '{version_to_save}'")
             self.phpVersionChangeRequested.emit(version_to_save)
 
     @Slot(str)
     def _on_node_version_changed(self, selected_text: str):
         if not self._site_info or not self._site_info.get('needs_node', False) : return
-        stored_version = self._site_info.get('node_version', DEFAULT_NODE) # Use imported constant
-        version_to_save = DEFAULT_NODE if selected_text == "System" else selected_text # Use imported constant
+        stored_version = self._site_info.get('node_version', config.DEFAULT_NODE)
+        version_to_save = config.DEFAULT_NODE if selected_text == "System" else selected_text
 
         if version_to_save != stored_version:
             logger.info(f"Node version change requested for '{self._site_info.get('domain')}': '{version_to_save}'")

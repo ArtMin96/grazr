@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
-                               QPushButton) # QFrame, QSizePolicy removed (F401)
+                               QPushButton, QFrame, QSizePolicy)
 from PySide6.QtCore import Signal, Slot, Qt, QSize
-from PySide6.QtGui import QIcon # QFont, QPixmap, QPainter, QColor removed (F401)
+from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QIcon
 import logging
 
 logger = logging.getLogger(__name__)
@@ -10,7 +10,7 @@ try:
     from ..core import config
     from .widgets.status_indicator import StatusIndicator
 except ImportError:
-    logger.error("SERVICE_ITEM_WIDGET: Could not import dependencies (core.config or StatusIndicator). Using dummies.") # F541 corrected
+    logger.error(f"SERVICE_ITEM_WIDGET: Could not import dependencies (core.config or StatusIndicator). Using dummies.")
     class ConfigDummySIW:
         NGINX_PROCESS_ID = "internal-nginx"
     config = ConfigDummySIW()
@@ -138,40 +138,6 @@ class ServiceItemWidget(QWidget):
     @Slot(str)
     def update_status(self, status):
         self._current_status = status
-        process_id_for_pm = self.property("process_id_for_pm")
-
-        if process_id_for_pm == "nvm_managed":
-            self._current_status = "nvm_managed" # Special status
-            if hasattr(self, 'status_indicator'):
-                # Consider adding a specific color/icon for 'nvm_managed' in StatusIndicator
-                self.status_indicator.set_color(Qt.GlobalColor.darkCyan)
-            if hasattr(self, 'detail_label'):
-                self.detail_label.setText("Managed via Node Page")
-
-            if hasattr(self, 'action_button'):
-                self.action_button.setText("N/A")
-                self.action_button.setEnabled(False)
-                self.action_button.setToolTip("Node.js is managed via NVM on the Node Page.")
-
-            if hasattr(self, 'remove_button'):
-                # NVM as a core component is not typically "removed" via service list.
-                # If this widget represents a specific user-added "node service instance" (unlikely for NVM),
-                # then removal logic might apply. For now, assume it's the core NVM entry.
-                self.remove_button.setVisible(False)
-
-            if hasattr(self, 'settings_button'):
-                self.settings_button.setToolTip("Manage Node.js versions on the Node Page")
-                # Optionally, make settings button navigate to Node page if MainWindow handles such a signal
-
-            # Ensure UI updates for these specific changes
-            for btn_widget in [self.action_button, self.remove_button, self.settings_button, self.detail_label, getattr(self, 'status_indicator', None)]:
-                if btn_widget and hasattr(btn_widget, 'update'):
-                    try:
-                        btn_widget.update()
-                    except RuntimeError: pass # Widget might be deleting
-            return
-
-        # Original status logic for other services
         status_color = Qt.GlobalColor.gray
         button_text = "Start"
         action_enabled = False

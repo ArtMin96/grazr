@@ -8,11 +8,9 @@ from qtpy.QtWidgets import (
     QFormLayout,
     QSpinBox,
     QPushButton,
-    QGroupBox
-    # QLabel removed (F401)
+    QGroupBox,
+    QLabel
 )
-
-logger = logging.getLogger(__name__) # Moved up for F821
 
 # Attempt to import php_manager for get_ini_value.
 # This creates a direct dependency. Consider if this logic should be passed in
@@ -30,7 +28,7 @@ except ImportError:
             return None
     php_manager = DummyPhpManager()
 
-# logger = logging.getLogger(__name__) # Moved up
+logger = logging.getLogger(__name__)
 
 class CommonPhpIniSettingsWidget(QGroupBox): # Inherit from QGroupBox for title
     """

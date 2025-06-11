@@ -5,7 +5,6 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PySide6.QtCore import Signal, Slot, Qt
 from pathlib import Path
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

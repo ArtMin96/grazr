@@ -1,22 +1,16 @@
-import logging # Added for logger
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, # QLabel removed
-                               # QTableWidget, QTableWidgetItem removed
-                               QPushButton,
-                               # QHeaderView, QApplication, QAbstractItemView removed
-                               # QGroupBox, QSpinBox, QSpacerItem, QSizePolicy removed
-                               # QMenu, QAbstractButton removed
-                               QListWidget, # QFormLayout removed
-                               QListWidgetItem)
-from PySide6.QtCore import Signal, Slot, Qt, QTimer # QPoint removed
-# from PySide6.QtGui import QFont, QScreen # Removed QRegularExpressionValidator, QFont, QScreen
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                               QTableWidget, QTableWidgetItem, QPushButton,
+                               QHeaderView, QApplication, QAbstractItemView,
+                               QGroupBox, QSpinBox, QSpacerItem, QSizePolicy,
+                               QMenu, QAbstractButton, QListWidget, QFormLayout, QListWidgetItem)
+from PySide6.QtCore import Signal, Slot, Qt, QTimer, QPoint # Removed QRegularExpression
+from PySide6.QtGui import QFont, QScreen # Removed QRegularExpressionValidator
 
 # import re # No longer needed in this file after refactor
-# import subprocess # Removed F401
-# import shutil # Removed F401
-# import os # Removed F401
-# from pathlib import Path # Removed F401
-
-logger = logging.getLogger(__name__) # Added for F821
+import subprocess
+import shutil
+import os
+from pathlib import Path
 
 # --- Import Core Config and PHP Manager (using new paths) ---
 try:
@@ -31,9 +25,7 @@ try:
     from .widgets.php_version_item_widget import PhpVersionItemWidget
     from .common_php_ini_settings_widget import CommonPhpIniSettingsWidget # Import new widget
 except ImportError as e:
-    # This print will use the logger if the logger was successfully initialized before the error.
-    # If not, it will print to stdout/stderr.
-    logger.error(f"ERROR in php_page.py: Could not import from core/managers or local widgets: {e}", exc_info=True)
+    print(f"ERROR in php_page.py: Could not import from core/managers or local widgets: {e}")
     # Define dummy functions/constants
     def detect_bundled_php_versions(): return ["?.?(ImportErr)"]
     def get_php_fpm_status(v): return "unknown"
@@ -43,16 +35,8 @@ except ImportError as e:
 
     class PhpVersionItemWidget(QWidget):
         actionClicked = Signal(str, str); configureClicked = Signal(str)
-        def update_status(self, status_text: str): pass # Added self and type hint
-        def set_controls_enabled(self, enabled: bool): pass # Added self and type hint
-
-    class CommonPhpIniSettingsWidget(QWidget): # Dummy for CommonPhpIniSettingsWidget
-        saveIniSettingsClicked = Signal(str, dict)
-        def __init__(self, parent=None): super().__init__(parent)
-        def update_settings_for_version(self, version: str | None): pass
-        def set_controls_enabled(self, enabled: bool): pass
-
-
+        def update_status(s): pass;
+    pass
     # Dummy config needed if direct constants are used (currently only DEFAULT_PHP)
     # class ConfigDummy: DEFAULT_PHP="default"; config = ConfigDummy()
 # --- End Imports ---
@@ -66,7 +50,6 @@ class PhpPage(QWidget):
     def __init__(self, parent=None):
         """Initializes the PHP management page UI."""
         super().__init__(parent)
-        logger.info(f"{self.__class__.__name__}.__init__: Start")
         self._main_window = parent
         # Key: version string, Value: PhpVersionItemWidget instance
         self.version_widgets = {}
@@ -109,7 +92,6 @@ class PhpPage(QWidget):
         # --- End INI Settings Section ---
 
         main_layout.addStretch(1) # Add stretch after all content widgets
-        logger.info(f"{self.__class__.__name__}.__init__: End")
 
     # --- Header Action Methods ---
     def add_header_actions(self, header_widget):
@@ -163,7 +145,6 @@ class PhpPage(QWidget):
 
     def refresh_data(self):
         """Called by MainWindow to reload PHP version data and status."""
-        logger.info(f"{self.__class__.__name__}.refresh_data: Start")
         # Check if self is still valid before proceeding
         try: _ = self.objectName()
         except RuntimeError: print("DEBUG PhpPage: refresh_data called on deleted widget."); return
@@ -215,7 +196,6 @@ class PhpPage(QWidget):
             else: # Should not happen if available_versions is not empty
                 self.common_ini_settings_widget.update_settings_for_version(None)
                 self.common_ini_settings_widget.setEnabled(False)
-        logger.info(f"{self.__class__.__name__}.refresh_data: End")
 
 
     def _load_ini_values_for_display(self, version: str | None):
@@ -229,7 +209,6 @@ class PhpPage(QWidget):
         self.log_to_main(f"PhpPage: Updating common INI settings display for PHP {version}")
         self.common_ini_settings_widget.update_settings_for_version(version)
         self.common_ini_settings_widget.setEnabled(True) # Ensure it's enabled if a version is selected
-        # logger.info(f"{self.__class__.__name__}.refresh_data: End") # This was the misplaced log line, it should be at the end of refresh_data
 
     # Removed _parse_mb_value, it's now in CommonPhpIniSettingsWidget
 
@@ -252,8 +231,7 @@ class PhpPage(QWidget):
         if enabled:
             # If enabling controls, refresh data to get latest statuses.
             # CommonPhpIniSettingsWidget handles its own save button state based on changes.
-            # QTimer.singleShot(10, self.refresh_data) # Commented out for hang investigation
-            logger.debug(f"{self.__class__.__name__}: set_controls_enabled called with {enabled}, refresh_data timer commented out.")
+            QTimer.singleShot(10, self.refresh_data)
         # No specific action for save button here; CommonPhpIniSettingsWidget manages it.
 
 

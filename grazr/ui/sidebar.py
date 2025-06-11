@@ -6,7 +6,7 @@ from PySide6.QtGui import QPixmap, QIcon, QFont
 
 # Attempt to import resources, fail gracefully
 try:
-    from . import resources_rc  # noqa: F401
+    from . import resources_rc # Assuming resources_rc.py is in the same directory
 except ImportError:
     # If resources_rc fails, QIcon from PySide6.QtGui should still be available.
     # The icons just won't load from the resource paths.
@@ -99,14 +99,6 @@ class SidebarWidget(QWidget):
 
         # Connect signal
         self.nav_list_widget.currentRowChanged.connect(self.navigationItemClicked.emit)
-        self.nav_list_widget.itemClicked.connect(self._on_sidebar_item_clicked) # For logging
-
-    @Slot(QListWidgetItem)
-    def _on_sidebar_item_clicked(self, item: QListWidgetItem):
-        if item: # Check if item is not None
-            logger.debug(f"SIDEBAR: Item clicked: {item.text()}, Row: {self.nav_list_widget.row(item)}")
-            # Note: navigationItemClicked is emitted by currentRowChanged, not directly here.
-            # This slot is purely for logging the click itself.
 
     def setCurrentRow(self, row: int):
         self.nav_list_widget.setCurrentRow(row)

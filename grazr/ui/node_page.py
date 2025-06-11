@@ -1,17 +1,11 @@
-import logging # Added for logger
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, # QLabel removed
-                               QPushButton, # QListWidget, QListWidgetItem removed
-                               # QFrame removed
-                               QSplitter, # QSizePolicy removed
-                               QMessageBox,
-                               # QProgressDialog removed
-                               QApplication)
-from PySide6.QtCore import Signal, Slot, Qt # QTimer removed
-from PySide6.QtGui import QIcon # QFont removed
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                               QPushButton, QListWidget, QListWidgetItem,
+                               QFrame, QSplitter, QSizePolicy, QMessageBox,
+                               QProgressDialog, QApplication)
+from PySide6.QtCore import Signal, Slot, Qt, QTimer
+from PySide6.QtGui import QFont, QIcon
 
 import traceback
-
-logger = logging.getLogger(__name__) # Added for F821
 
 # --- Import Core Config & Manager Functions ---
 try:
@@ -47,7 +41,6 @@ class NodePage(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        logger.info(f"{self.__class__.__name__}.__init__: Start")
         self._main_window = parent
         self.setObjectName("NodePage")
 
@@ -102,7 +95,6 @@ class NodePage(QWidget):
         # Initial Data Load is handled by MainWindow when page becomes visible,
         # or can be triggered here if needed immediately.
         # QTimer.singleShot(100, self.refresh_data)
-        logger.info(f"{self.__class__.__name__}.__init__: End")
 
     # --- Header Action Methods ---
     def add_header_actions(self, header_widget): # Changed parameter
@@ -180,7 +172,7 @@ class NodePage(QWidget):
         # Check if self is still valid
         try: _ = self.objectName()
         except RuntimeError: return # Widget deleted
-        logger.info(f"{self.__class__.__name__}.refresh_data: Start")
+
         self.log_to_main(f"NodePage: Refresh data called (is_first_load={self._is_first_load})")
         self.set_controls_enabled(False)
 
@@ -219,7 +211,6 @@ class NodePage(QWidget):
         self._is_first_load = False
         self.set_controls_enabled(True)
         # Buttons are updated by VersionListPanelWidget itself based on selection
-        logger.info(f"{self.__class__.__name__}.refresh_data: End")
 
     # --- Add method to clear cache (called by MainWindow after install/uninstall) ---
     def clear_installed_cache(self):
@@ -231,7 +222,6 @@ class NodePage(QWidget):
     @Slot(bool)
     def set_controls_enabled(self, enabled: bool):
         """Enable/disable controls on the page, including the new panels."""
-        logger.debug(f"{self.__class__.__name__}: set_controls_enabled called with {enabled}.") # No timer here
         self.available_versions_panel.set_controls_enabled(enabled)
         self.installed_versions_panel.set_controls_enabled(enabled)
         # The refresh button is part of the header, managed by MainWindow or HeaderWidget based on page state.

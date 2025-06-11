@@ -1,10 +1,10 @@
 import os
-# signal removed (F401)
+import signal
 import time
 from pathlib import Path
 import subprocess # Keep for potential future commands like redis-cli ping?
-# shutil removed (F401)
-# tempfile removed (F401)
+import shutil   # Keep for potential file ops if needed later
+import tempfile # Keep for potential atomic writes if config becomes complex
 import re
 import logging
 
@@ -198,7 +198,7 @@ def start_redis():
         return False
     command = [
         str(binary_path.resolve()),
-        str(active_config_file.resolve()), # F821: config_path -> active_config_file
+        str(config_path.resolve()),
     ]
 
     # Redis usually doesn't need LD_LIBRARY_PATH unless compiled specially

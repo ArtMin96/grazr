@@ -1,19 +1,18 @@
 # grazr/managers/php_manager.py
 
 import os
-import signal # Keep signal for stop_php_fpm
+import signal
 import time
 from pathlib import Path
-import sys # Added for sys.exit
+import subprocess
 import re
 import configparser
 import glob
 import shutil
 import tempfile
-# traceback removed (F401)
+import traceback
 import logging
 import errno
-# subprocess removed (F401)
 
 logger = logging.getLogger(__name__)  # Use __name__ for module-specific logger
 
@@ -144,7 +143,7 @@ def _ensure_directories(paths_dict, dir_keys_to_ensure):
     for key in dir_keys_to_ensure:
         dir_path = paths_dict.get(key)
         if not dir_path:
-            logger.error("PHP_MANAGER: Path key '{key}' not found in paths dictionary for directory creation.") # F541 corrected
+            logger.error(f"PHP_MANAGER: Path key '{key}' not found in paths dictionary for directory creation.")
             return False
         try:
             dir_path.mkdir(parents=True, exist_ok=True)
@@ -164,7 +163,7 @@ def _create_symlinks(paths_dict, symlink_definitions):
             continue
 
         if not bundle_src_dir.is_dir():
-            logger.warning(f"PHP_MANAGER: Bundle source directory for symlink '{symlink_name}' not found or not a directory: {bundle_src_dir}. Skipping.") # F541 corrected (already was, just confirming)
+            logger.warning(f"PHP_MANAGER: Bundle source directory for symlink '{symlink_name}' not found or not a directory: {bundle_src_dir}. Skipping.")
             continue
 
         try:
@@ -174,7 +173,7 @@ def _create_symlinks(paths_dict, symlink_definitions):
             active_symlink.symlink_to(bundle_src_dir.resolve(), target_is_directory=True)
             logger.debug(f"PHP_MANAGER: Symlinked {active_symlink} -> {bundle_src_dir}")
         except Exception as e:
-            logger.error(f"PHP_MANAGER: Failed to create symlink {active_symlink} for {bundle_src_dir}: {e}", exc_info=True) # F541 corrected (already was, just confirming)
+            logger.error(f"PHP_MANAGER: Failed to create symlink {active_symlink} for {bundle_src_dir}: {e}", exc_info=True)
             # Optionally, decide if this is a fatal error for the whole structure setup
 
     return True # Assuming non-fatal if a symlink fails, or adjust as needed
@@ -889,7 +888,7 @@ def set_ini_value(version: str, key: str, value: str, sapi: str = 'fpm'):
         # Try to append under a [PHP] section if one exists, otherwise just append.
         # This logic can be complex if INI has multiple sections.
         # For typical php.ini, global settings are common.
-        # has_php_section_header = any(line.strip().lower() == "[php]" for line in new_lines) # F841: Removed
+        has_php_section_header = any(line.strip().lower() == "[php]" for line in new_lines)
 
         # If no [PHP] section, and file is not just comments/empty, add [PHP] header
         # (This is a heuristic, might not be perfect for all INI structures)
@@ -1044,8 +1043,8 @@ def enable_extension(version, ext_name):  # Your existing function
     if not ok_ini: return False, msg_ini
     ok_link, msg_link = _manage_confd_symlinks(version, ext_name, enable=True)
     if not ok_link: return False, msg_link
-    logger.info(f"PHP_MANAGER: Restarting FPM for version {version} to apply extension changes...") # F821 version_str -> version
-    if not restart_php_fpm(version): return False, f"{msg_ini} {msg_link} FPM restart failed." # F821 version_str -> version
+    logger.info(f"PHP_MANAGER: Restarting FPM for version {version_str} to apply extension changes...") # Corrected var name
+    if not restart_php_fpm(version_str): return False, f"{msg_ini} {msg_link} FPM restart failed." # Corrected var name
     return True, f"Extension {ext_name} enabled. {msg_link}"
 
 

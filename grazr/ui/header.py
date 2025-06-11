@@ -36,53 +36,22 @@ class HeaderWidget(QWidget):
 
     def add_action_widget(self, widget: QWidget):
         """Adds a widget (e.g., a button or a small layout of buttons) to the right side of the header."""
-        logger.debug(f"HEADER.add_action_widget: Adding widget: {widget.__class__.__name__ if widget else 'None'}")
+        logger.debug(f"HEADER.add_action_widget: Adding widget: {widget} (text: '{widget.text() if hasattr(widget, 'text') else 'N/A'}')")
         if widget:
             self.header_actions_layout.addWidget(widget)
             self._action_widgets.append(widget)
-            # logger.debug(f"Added action widget: {widget.__class__.__name__}") # This is redundant with the one above now
+            logger.debug(f"Added action widget: {widget.__class__.__name__} to header_actions_layout.")
         else:
             logger.warning("Attempted to add a None widget to header actions.")
 
     def clear_actions(self):
         """Removes all action widgets previously added to the header."""
-        logger.debug(f"HEADER: Clearing actions. Current count in layout: {self.header_actions_layout.count()}, tracked: {len(self._action_widgets)}")
-        # Iterate in reverse to safely remove items from the layout
-        for i in reversed(range(self.header_actions_layout.count())):
-            item = self.header_actions_layout.itemAt(i)
-            if item is None:
-                logger.warning(f"HEADER: itemAt({i}) returned None during clear_actions loop.")
-                continue
-
-            widget = item.widget()
-            if widget is not None:
-                # logger.debug(f"HEADER: Processing widget {widget.__class__.__name__} for removal.")
-                try:
-                    # removeWidget dissociates the widget from the layout.
-                    # The widget is not deleted by this call.
-                    self.header_actions_layout.removeWidget(widget)
-                    # widget.setParent(None) # Usually done by removeWidget if layout was parent
-                    widget.deleteLater() # Schedule for deletion
-                    # logger.debug(f"HEADER: Widget {widget.__class__.__name__} removed and scheduled for deletion.")
-                except RuntimeError as e:
-                    logger.warning(f"HEADER: Error removing/deleting widget {widget} in clear_actions: {e}. It might have been already deleted.")
-            else:
-                # If the item is a layout, not a widget (should not happen with current add_action_widget)
-                # We might need to recursively clear it or just remove the layout item.
-                # For now, focusing on widgets as per add_action_widget.
-                # layout_item = self.header_actions_layout.takeAt(i) # This removes and returns the item
-                # if layout_item:
-                #     # If it was a layout, it needs to be cleared and deleted
-                #     # For simplicity, this case is not fully handled as add_action_widget only adds QWidgets
-                #     logger.debug(f"HEADER: Item at {i} was not a widget, removing item from layout.")
-                pass
-
-
-        # Clear the tracking list after processing layout items
-        # (or manage it more carefully if widgets could be added/removed outside this class)
+        for widget in self._action_widgets:
+            self.header_actions_layout.removeWidget(widget)
+            widget.setParent(None) # Important for proper cleanup
+            widget.deleteLater() # Ensure it's deleted
         self._action_widgets = []
         logger.debug("Cleared all action widgets from header.")
-        logger.debug(f"HEADER.clear_actions: Completed. Attempted to remove widgets from layout. Layout count now: {self.header_actions_layout.count()}")
 
     # If specific actions are always present but just shown/hidden, methods could be:
     # def show_action_x(self, visible=True):

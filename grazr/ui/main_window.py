@@ -113,7 +113,6 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        logger.info("MainWindow.__init__: Start") # Existing Start log
 
         self.tray_icon = None
         self.setWindowTitle(f"{getattr(config, 'APP_NAME', 'Grazr')} (Alpha)")
@@ -158,21 +157,12 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(stack_container, 1) # Stack container takes expanding space
 
         # --- Create Page Instances ---
-        logger.info("MainWindow.__init__: Creating ServicesPage...")
         self.services_page = ServicesPage(self)
-        logger.info("MainWindow.__init__: ServicesPage created.")
-        logger.info("MainWindow.__init__: Creating PhpPage...")
         self.php_page = PhpPage(self)
-        logger.info("MainWindow.__init__: PhpPage created.")
-        logger.info("MainWindow.__init__: Creating SitesPage...")
         self.sites_page = SitesPage(self)
-        logger.info("MainWindow.__init__: SitesPage created.")
-        logger.info("MainWindow.__init__: Creating NodePage...")
         self.node_page = NodePage(self)
-        logger.info("MainWindow.__init__: NodePage created.")
-
-        self.stacked_widget.addWidget(self.services_page) # This line was already present
-        self.stacked_widget.addWidget(self.php_page) # This line was already present
+        self.stacked_widget.addWidget(self.services_page)
+        self.stacked_widget.addWidget(self.php_page)
         self.stacked_widget.addWidget(self.sites_page)
         self.stacked_widget.addWidget(self.node_page)
 
@@ -230,7 +220,6 @@ class MainWindow(QMainWindow):
         self.log_message("Attempting to start bundled Nginx...")
         QTimer.singleShot(100, lambda: self.triggerWorker.emit("start_internal_nginx", {}))
         self.start_configured_autostart_services()
-        logger.info("MainWindow.__init__: End") # Existing End log
 
     def set_tray_icon(self, tray_icon: QSystemTrayIcon):
         self.tray_icon = tray_icon
@@ -346,26 +335,19 @@ class MainWindow(QMainWindow):
     @Slot(int)
     def change_page(self, row: int): # row is emitted by SidebarWidget.navigationItemClicked
         """Changes the current page in the QStackedWidget and updates the header."""
-        logger.debug(f"MAIN_WINDOW.change_page: Received page_key_or_index: {row}")
-        logger.debug(f"SIDEBAR: Emitting pageSelected signal with key/index: {row}") # Logging effective emission
-
         if 0 <= row < self.stacked_widget.count():
             # 1. Get page title from sidebar item text
             sidebar_item = self.sidebar_widget.item(row) # Use new sidebar_widget
             page_title = sidebar_item.text().strip() if sidebar_item else "Unknown Page"
 
             # 2. Set title on HeaderWidget
-            logger.debug(f"MAIN_WINDOW.change_page: Setting header title to: {page_title}")
             self.header_widget.set_title(page_title)
 
             # 3. Clear any actions from the previous page in HeaderWidget
-            logger.debug("MAIN_WINDOW.change_page: Clearing header actions.")
             self.header_widget.clear_actions()
 
             # 4. Set the current page in QStackedWidget
-            logger.debug(f"MAIN_WINDOW.change_page: Attempting to set stacked_widget current index to: {row}")
             self.stacked_widget.setCurrentIndex(row)
-            logger.debug(f"MAIN_WINDOW.change_page: stacked_widget current index set. Current widget: {self.stacked_widget.currentWidget().__class__.__name__}")
 
             # 5. Get the current page widget
             current_page_widget = self.stacked_widget.currentWidget()
@@ -528,9 +510,7 @@ class MainWindow(QMainWindow):
         if target_page and hasattr(target_page, 'set_controls_enabled'):
             logger.debug(f"MAIN_WINDOW: Scheduling {target_page.__class__.__name__}.set_controls_enabled(True)")
             re_enable_delay = refresh_delay + 150 if not self.progress_dialog else 100
-            # Modified lambda to check if target_page is still valid and visible
-            QTimer.singleShot(re_enable_delay,
-                              lambda page=target_page: page.set_controls_enabled(True) if page and hasattr(page, 'isVisible') and page.isVisible() else None)
+            QTimer.singleShot(re_enable_delay, lambda: target_page.set_controls_enabled(True))
         else:
             logger.debug(f"MAIN_WINDOW: NOT scheduling re-enable for task '{task_name}'.")
         self.log_message("-" * 30)
@@ -549,8 +529,8 @@ class MainWindow(QMainWindow):
         # Find the process_id associated with this service_type from AVAILABLE_BUNDLED_SERVICES
         # This assumes single-instance services like MySQL, Redis, MinIO have a fixed 'process_id'
         # in their AVAILABLE_BUNDLED_SERVICES definition.
-        service_def = config.AVAILABLE_BUNDLED_SERVICES.get(target_service_type) # service_def is a ServiceDefinition object
-        if not service_def or not service_def.process_id: # Changed .get('process_id') to .process_id
+        service_def = config.AVAILABLE_BUNDLED_SERVICES.get(target_service_type)
+        if not service_def or not service_def.get('process_id'):
             logger.warning(
                 f"MAIN_WINDOW: No fixed process_id definition found for service_type '{target_service_type}' in AVAILABLE_BUNDLED_SERVICES.")
             return None  # Cannot find config_id without knowing its process_id or if it's not a fixed ID service
@@ -656,9 +636,8 @@ class MainWindow(QMainWindow):
 
         if process_id_for_service == config.MINIO_PROCESS_ID:
             api_port = configured_port
-            # Access console_port directly, provide fallback if it's None
-            con_port_val = service_definition.console_port if service_definition.console_port is not None else getattr(config, 'MINIO_CONSOLE_PORT', 9001)
-            port_info = f"API:{api_port}|Console:{con_port_val}"
+            con_port = service_definition.get('console_port', getattr(config, 'MINIO_CONSOLE_PORT', 9001))
+            port_info = f"API:{api_port}|Console:{con_port}"
         elif process_id_for_service != config.NGINX_PROCESS_ID:
             port_info = configured_port
 
