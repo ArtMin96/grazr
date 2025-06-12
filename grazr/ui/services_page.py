@@ -133,19 +133,14 @@ class ServicesPage(QWidget):
         self.stop_all_button.setIconSize(QSize(16, 16))
         self.stop_all_button.setFlat(True)
         self.stop_all_button.clicked.connect(self.stopAllServicesClicked.emit)
-        logger.debug(f"SERVICES_PAGE.__init__: stop_all_button instantiated: {self.stop_all_button}")
         self.add_service_button = QPushButton("Add Service")
         self.add_service_button.setObjectName("PrimaryButton")
         self.add_service_button.clicked.connect(self.addServiceClicked.emit)
-        logger.debug(f"SERVICES_PAGE.__init__: add_service_button instantiated: {self.add_service_button}")
         top_bar_layout.addWidget(title)
         top_bar_layout.addStretch()
         top_bar_layout.addWidget(self.add_service_button)
-        logger.debug(f"SERVICES_PAGE.__init__: add_service_button added to top_bar_layout. Parent: {self.add_service_button.parentWidget()}")
         top_bar_layout.addWidget(self.stop_all_button)
-        logger.debug(f"SERVICES_PAGE.__init__: stop_all_button added to top_bar_layout. Parent: {self.stop_all_button.parentWidget()}")
         left_layout.addLayout(top_bar_layout)
-        logger.debug(f"SERVICES_PAGE.__init__: top_bar_layout added to left_layout. Parent of top_bar_layout's QObject: {top_bar_layout.parent()}")
         # --- End Top Bar ---
 
         self.service_list_widget = QListWidget();
@@ -186,34 +181,35 @@ class ServicesPage(QWidget):
 
         self.service_list_widget.itemSelectionChanged.connect(self.on_selection_changed_show_details)
 
+    @Slot()
+    def on_selection_changed_show_details(self):
+        selected_items = self.service_list_widget.selectedItems()
+        if selected_items:
+            selected_item = selected_items[0]
+            # In refresh_data, widget_key is stored via list_item.setData(Qt.UserRole, widget_key)
+            service_key = selected_item.data(Qt.ItemDataRole.UserRole)
+
+            logger.debug(f"SERVICES_PAGE: Selection changed. Selected item key: {service_key}")
+            if service_key:
+                # self.current_selected_service_id is used by on_show_service_details to toggle visibility
+                # self.on_show_service_details will handle the logic of showing/hiding if it's the same item.
+                self.on_show_service_details(service_key)
+            else:
+                logger.warning("SERVICES_PAGE: Selected service item has no service_key/ID (UserRole data).")
+                # self.current_selected_service_id = None # on_show_service_details(None) handles this
+                self.on_show_service_details(None) # Hide details or show placeholder
+        else:
+            logger.debug("SERVICES_PAGE: Selection cleared.")
+            # self.current_selected_service_id = None # on_show_service_details(None) handles this
+            self.on_show_service_details(None) # Hide details or show placeholder
+
 
     # --- Header Action Methods ---
     def add_header_actions(self, header_widget):
-        logger.debug(f"SERVICES_PAGE.add_header_actions: Called. add_service_button is valid: {self.add_service_button is not None}, stop_all_button is valid: {self.stop_all_button is not None}")
-
-        logger.debug(f"SERVICES_PAGE.add_header_actions: Attempting to add add_service_button ({self.add_service_button}) to header.")
-        if self.add_service_button:
-            header_widget.add_action_widget(self.add_service_button)
-        else:
-            logger.warning("SERVICES_PAGE.add_header_actions: self.add_service_button is None, cannot add to header.")
-
-        logger.debug(f"SERVICES_PAGE.add_header_actions: Attempting to add stop_all_button ({self.stop_all_button}) to header.")
-        if self.stop_all_button:
-            header_widget.add_action_widget(self.stop_all_button)
-        else:
-            logger.warning("SERVICES_PAGE.add_header_actions: self.stop_all_button is None, cannot add to header.")
-
-        # The original lines that removed widgets from their parents are commented out.
-        # This is because HeaderWidget.add_action_widget should handle reparenting.
-        # If the buttons are part of `top_bar_layout` (which is added to `left_layout`),
-        # and `header_widget.add_action_widget` correctly reparents them,
-        # then explicitly removing them from their old parent (`top_bar_layout`)
-        # after they've been added to `header_widget` is unnecessary and could be problematic
-        # if `header_widget` is different from `top_bar_layout`.
-        # If `header_widget` *is* `top_bar_layout`, then this is fine.
-        # Assuming `header_widget` is a separate entity passed in from MainWindow.
-        # if self.add_service_button.parent(): self.add_service_button.parent().layout().removeWidget(self.add_service_button)
-        # if self.stop_all_button.parent(): self.stop_all_button.parent().layout().removeWidget(self.stop_all_button)
+        main_window.add_header_action(self.add_service_button, "services_page")
+        main_window.add_header_action(self.stop_all_button, "services_page")
+        if self.add_service_button.parent(): self.add_service_button.parent().layout().removeWidget(self.add_service_button)
+        if self.stop_all_button.parent(): self.stop_all_button.parent().layout().removeWidget(self.stop_all_button)
 
     @Slot(str, str) # Receives unique_instance_id_or_process_id, action
     def on_service_action(self, service_item_id, action):

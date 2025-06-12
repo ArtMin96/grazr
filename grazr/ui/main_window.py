@@ -353,7 +353,6 @@ class MainWindow(QMainWindow):
             current_page_widget = self.stacked_widget.currentWidget()
 
             # 6. If page has 'add_header_actions', call it
-            logger.debug(f"MAIN_WINDOW.change_page: Asking page {current_page_widget.__class__.__name__} to add its header actions.")
             if hasattr(current_page_widget, 'add_header_actions') and callable(current_page_widget.add_header_actions):
                 current_page_widget.add_header_actions(self.header_widget) # Pass HeaderWidget instance
             else:

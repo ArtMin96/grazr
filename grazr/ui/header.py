@@ -36,11 +36,10 @@ class HeaderWidget(QWidget):
 
     def add_action_widget(self, widget: QWidget):
         """Adds a widget (e.g., a button or a small layout of buttons) to the right side of the header."""
-        logger.debug(f"HEADER.add_action_widget: Adding widget: {widget} (text: '{widget.text() if hasattr(widget, 'text') else 'N/A'}')")
         if widget:
             self.header_actions_layout.addWidget(widget)
             self._action_widgets.append(widget)
-            logger.debug(f"Added action widget: {widget.__class__.__name__} to header_actions_layout.")
+            logger.debug(f"Added action widget: {widget.__class__.__name__}")
         else:
             logger.warning("Attempted to add a None widget to header actions.")
 
