@@ -206,10 +206,24 @@ class ServicesPage(QWidget):
 
     # --- Header Action Methods ---
     def add_header_actions(self, header_widget):
-        main_window.add_header_action(self.add_service_button, "services_page")
-        main_window.add_header_action(self.stop_all_button, "services_page")
-        if self.add_service_button.parent(): self.add_service_button.parent().layout().removeWidget(self.add_service_button)
-        if self.stop_all_button.parent(): self.stop_all_button.parent().layout().removeWidget(self.stop_all_button)
+        logger.debug(f"SERVICES_PAGE.add_header_actions: Called. add_service_button is valid: {self.add_service_button is not None}, stop_all_button is valid: {self.stop_all_button is not None}")
+
+        logger.debug(f"SERVICES_PAGE.add_header_actions: Attempting to add add_service_button ({self.add_service_button}) to header.")
+        if self.add_service_button:
+            header_widget.add_action_widget(self.add_service_button)
+        else:
+            logger.warning("SERVICES_PAGE.add_header_actions: self.add_service_button is None, cannot add to header.")
+
+        logger.debug(f"SERVICES_PAGE.add_header_actions: Attempting to add stop_all_button ({self.stop_all_button}) to header.")
+        if self.stop_all_button:
+            header_widget.add_action_widget(self.stop_all_button)
+        else:
+            logger.warning("SERVICES_PAGE.add_header_actions: self.stop_all_button is None, cannot add to header.")
+
+        # The original lines that removed widgets from their parents are commented out.
+        # HeaderWidget.add_action_widget should handle reparenting.
+        # if self.add_service_button.parent(): self.add_service_button.parent().layout().removeWidget(self.add_service_button)
+        # if self.stop_all_button.parent(): self.stop_all_button.parent().layout().removeWidget(self.stop_all_button)
 
     @Slot(str, str) # Receives unique_instance_id_or_process_id, action
     def on_service_action(self, service_item_id, action):

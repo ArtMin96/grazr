@@ -1,11 +1,12 @@
 import logging
 from pathlib import Path
+import re # Added for re.escape
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QComboBox, QCheckBox, QLineEdit,
                                QFormLayout, QSpacerItem, QSizePolicy, QMenu)
-from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QSize
-from PySide6.QtGui import QFont, QRegularExpressionValidator, QIcon, QDesktopServices, QUrl
+from PySide6.QtCore import Signal, Slot, Qt, QRegularExpression, QSize, QUrl # QUrl added
+from PySide6.QtGui import QFont, QRegularExpressionValidator, QIcon, QDesktopServices # QUrl removed
 
 logger = logging.getLogger(__name__)
 
