@@ -73,15 +73,26 @@ def load_configured_services():
 
     # Sort by name for consistent display? Or by category then name?
     try:
-        services_list.sort(key=lambda x: (
-            config.AVAILABLE_BUNDLED_SERVICES.get(x.get('service_type', ''), {}).get('category', 'ZZZ'),
-            # Sort by category first
-            x.get('name', '').lower()  # Then by name
-        ))
+        def sort_key_func(item_dict):
+            service_type_str = item_dict.get('service_type', '')
+            # service_def_obj is a ServiceDefinition object or None
+            service_def_obj = config.AVAILABLE_BUNDLED_SERVICES.get(service_type_str)
+
+            category = 'ZZZ' # Default category for sorting
+            if service_def_obj: # Check if service_def_obj is not None
+                category = getattr(service_def_obj, 'category', 'ZZZ')
+
+            name = item_dict.get('name', '').lower()
+            return (category, name)
+
+        services_list.sort(key=sort_key_func)
     except Exception as e_sort:
-        logger.warning(f"SERVICES_CONFIG_MANAGER: Could not sort services list: {e_sort}")
+        logger.warning(f"SERVICES_CONFIG_MANAGER: Could not sort services list: {e_sort}", exc_info=True)
         # Fallback sort by name if category sorting fails
-        services_list.sort(key=lambda x: x.get('name', '').lower())
+        try:
+            services_list.sort(key=lambda x: x.get('name', '').lower())
+        except Exception as e_fallback_sort:
+            logger.error(f"SERVICES_CONFIG_MANAGER: Fallback sort also failed: {e_fallback_sort}", exc_info=True)
 
     return services_list
 
@@ -100,12 +111,25 @@ def save_configured_services(services_list):
     try:
         # Ensure consistent sorting before saving
         try:
-            services_list.sort(key=lambda x: (
-                config.AVAILABLE_BUNDLED_SERVICES.get(x.get('service_type', ''), {}).get('category', 'ZZZ'),
-                x.get('name', '').lower()
-            ))
-        except Exception:  # Fallback sort
-            services_list.sort(key=lambda x: x.get('name', '').lower())
+            def sort_key_func(item_dict):
+                service_type_str = item_dict.get('service_type', '')
+                # service_def_obj is a ServiceDefinition object or None
+                service_def_obj = config.AVAILABLE_BUNDLED_SERVICES.get(service_type_str)
+
+                category = 'ZZZ' # Default category for sorting
+                if service_def_obj: # Check if service_def_obj is not None
+                    category = getattr(service_def_obj, 'category', 'ZZZ')
+
+                name = item_dict.get('name', '').lower()
+                return (category, name)
+            services_list.sort(key=sort_key_func)
+        except Exception as e_sort:  # Fallback sort
+            logger.warning(f"SERVICES_CONFIG_MANAGER: Could not sort services list during save: {e_sort}", exc_info=True)
+            try:
+                services_list.sort(key=lambda x: x.get('name', '').lower())
+            except Exception as e_fallback_sort:
+                logger.error(f"SERVICES_CONFIG_MANAGER: Fallback sort also failed during save: {e_fallback_sort}", exc_info=True)
+
 
         data_to_save = {'configured_services': services_list}
 
@@ -156,8 +180,11 @@ def add_configured_service(service_data):
     # Get default port from AVAILABLE_BUNDLED_SERVICES if not provided in service_data
     default_port = 0
     if hasattr(config, 'AVAILABLE_BUNDLED_SERVICES'):
-        service_def = config.AVAILABLE_BUNDLED_SERVICES.get(service_type, {})
-        default_port = service_def.get('default_port', 0)
+        # service_def is a ServiceDefinition object or None
+        service_def = config.AVAILABLE_BUNDLED_SERVICES.get(service_type)
+        if service_def: # Check if service_def_obj is not None
+            default_port = getattr(service_def, 'default_port', 0)
+        # If service_def is None (service_type not in AVAILABLE_BUNDLED_SERVICES), default_port remains 0
 
     new_service = {
         "id": str(uuid.uuid4()),

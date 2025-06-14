@@ -135,9 +135,51 @@ class ServiceItemWidget(QWidget):
         if self._current_status in ["running", "active"]: action = "stop"
         self.actionClicked.emit(self.service_id, action)  # Emits widget_key
 
-    @Slot(str)
-    def update_status(self, status):
-        self._current_status = status
+    @Slot(str) # status is a string like "running", "stopped", or potentially "nvm_managed" if passed directly
+    def update_status(self, status_input): # Renamed status to status_input to avoid conflict with self._current_status
+        # Check for NVM managed state first, based on property
+        process_id_for_pm = self.property("process_id_for_pm")
+
+        if process_id_for_pm == "nvm_managed":
+            self._current_status = "nvm_managed"
+            if hasattr(self, 'status_indicator'):
+                # Assuming StatusIndicator has a set_status method or can take a specific color
+                # For now, using a distinct color (e.g., blue) or a specific state if available.
+                # If StatusIndicator only has set_color:
+                self.status_indicator.set_color(Qt.GlobalColor.blue) # Example: Blue for NVM
+                # Or if StatusIndicator is more advanced: self.status_indicator.set_status("nvm")
+
+            if hasattr(self, 'detail_label'):
+                self.detail_label.setText("Managed via Node Page")
+
+            if hasattr(self, 'action_button'):
+                self.action_button.setText("N/A")
+                self.action_button.setEnabled(False)
+                self.action_button.setToolTip("Node.js (NVM) is managed from the Node Page.")
+
+            # If there were separate start/stop buttons:
+            # if hasattr(self, 'start_button') and self.start_button: self.start_button.setVisible(False)
+            # if hasattr(self, 'stop_button') and self.stop_button: self.stop_button.setVisible(False)
+
+            if hasattr(self, 'remove_button') and self.remove_button:
+                # Node services defined in services.json are still removable from the list
+                # but their runtime isn't controlled here.
+                # For consistency with other non-directly-controllable states, disable remove here too,
+                # or make it always visible/enabled if removal from JSON is always allowed.
+                # Based on prompt, let's hide it for this special UI state.
+                self.remove_button.setVisible(False)
+
+            if hasattr(self, 'settings_button') and self.settings_button:
+                self.settings_button.setToolTip("Configure Node.js versions on the Node Page.")
+
+            try:
+                self.update() # General widget update
+            except RuntimeError as e:
+                 logger.warning(f"SERVICE_ITEM_WIDGET ({self.display_name}): Runtime error during NVM status update: {e}")
+            return # Important: return early to bypass standard status logic
+
+        # Original status logic if not nvm_managed
+        self._current_status = status_input # Use the passed status string
         status_color = Qt.GlobalColor.gray
         button_text = "Start"
         action_enabled = False

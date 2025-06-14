@@ -353,6 +353,7 @@ class MainWindow(QMainWindow):
             current_page_widget = self.stacked_widget.currentWidget()
 
             # 6. If page has 'add_header_actions', call it
+            logger.debug(f"MAIN_WINDOW.change_page: Asking page {current_page_widget.__class__.__name__} to add its header actions.")
             if hasattr(current_page_widget, 'add_header_actions') and callable(current_page_widget.add_header_actions):
                 current_page_widget.add_header_actions(self.header_widget) # Pass HeaderWidget instance
             else:
@@ -528,11 +529,13 @@ class MainWindow(QMainWindow):
         # Find the process_id associated with this service_type from AVAILABLE_BUNDLED_SERVICES
         # This assumes single-instance services like MySQL, Redis, MinIO have a fixed 'process_id'
         # in their AVAILABLE_BUNDLED_SERVICES definition.
-        service_def = config.AVAILABLE_BUNDLED_SERVICES.get(target_service_type)
-        if not service_def or not service_def.get('process_id'):
+        service_def = config.AVAILABLE_BUNDLED_SERVICES.get(target_service_type) # service_def is a ServiceDefinition object
+
+        # Check if service_def exists and then access its process_id attribute directly
+        if not service_def or not service_def.process_id: # Corrected: Direct attribute access
             logger.warning(
-                f"MAIN_WINDOW: No fixed process_id definition found for service_type '{target_service_type}' in AVAILABLE_BUNDLED_SERVICES.")
-            return None  # Cannot find config_id without knowing its process_id or if it's not a fixed ID service
+                f"MAIN_WINDOW: No service_def or no process_id found for service_type '{target_service_type}' in AVAILABLE_BUNDLED_SERVICES.")
+            return None
 
         # For services like MySQL, Redis, MinIO, their 'process_id' in AVAILABLE_BUNDLED_SERVICES
         # is also used as their 'config_id' / 'widget_key' in ServicesPage if they are not
@@ -540,18 +543,31 @@ class MainWindow(QMainWindow):
         # However, if they ARE configured in services.json, we need their unique ID from there.
 
         configured_services = load_configured_services()
-        for svc_config_item in configured_services: # Renamed svc_config to avoid conflict
+        for svc_config_item in configured_services:
             if svc_config_item.get('service_type') == target_service_type:
-                # Return the unique ID from services.json for this service type
+                # This is an instance from services.json, its 'id' is the config_id
                 return svc_config_item.get('id')
 
         logger.debug(
             f"MAIN_WINDOW: No *configured instance* found for service_type '{target_service_type}' in services.json.")
-        # Fallback for Nginx which is always present and uses its fixed process_id as its key
-        if target_service_type == "nginx" and hasattr(config, 'NGINX_PROCESS_ID'):
-            return config.NGINX_PROCESS_ID
 
-        return None
+        # If not found in configured_services (e.g., Nginx which is not usually in services.json)
+        # Apply the logic from the prompt: config_id_override or service_id
+        # This part assumes service_def is valid and available, which it should be if we passed the first check.
+        if target_service_type == "nginx" and hasattr(config, 'NGINX_PROCESS_ID'): # Keep Nginx specific for safety
+             logger.debug(f"MAIN_WINDOW: Using NGINX_PROCESS_ID for service type '{target_service_type}'.")
+             return config.NGINX_PROCESS_ID # NGINX_PROCESS_ID is 'internal-nginx'
+
+        # For other non-configured services, use the override or service_id from ServiceDefinition
+        # This was the part of the prompt: service_def.config_id_override if hasattr(service_def, 'config_id_override') and service_def.config_id_override else service_def.service_id
+        # Ensure service_def is not None before accessing attributes. It should be, due to the check at the start of the function.
+        if hasattr(service_def, 'config_id_override') and service_def.config_id_override:
+            logger.debug(f"MAIN_WINDOW: Using config_id_override '{service_def.config_id_override}' for service type '{target_service_type}'.")
+            return service_def.config_id_override
+
+        # Fallback to service_id from the ServiceDefinition object itself
+        logger.debug(f"MAIN_WINDOW: Using service_id '{service_def.service_id}' for non-configured service type '{target_service_type}'.")
+        return service_def.service_id # service_id is a mandatory attribute of ServiceDefinition
 
     def _refresh_single_service_status_on_page(self, process_id_for_service: str):
         """

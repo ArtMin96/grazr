@@ -139,11 +139,20 @@ def _get_instance_paths(service_instance_config: dict):
             f"POSTGRES_MANAGER: No definition for service_type '{service_type}' in AVAILABLE_BUNDLED_SERVICES.")
         return None
 
-    bundle_version_full = service_def.get('bundle_version_full')
-    binary_name = service_def.get('binary_name', 'postgres')
-    initdb_name = service_def.get('initdb_name', 'initdb')
-    pg_ctl_name = service_def.get('pg_ctl_name', 'pg_ctl')
-    psql_name = service_def.get('psql_name', 'psql')
+    # Access attributes directly or using getattr for safety, providing defaults if appropriate
+    bundle_version_full = getattr(service_def, 'bundle_version_full', None)
+    binary_name = getattr(service_def, 'binary_name', 'postgres') # Default 'postgres' if not set
+    initdb_name = getattr(service_def, 'initdb_name', 'initdb')   # Default 'initdb'
+    pg_ctl_name = getattr(service_def, 'pg_ctl_name', 'pg_ctl')     # Default 'pg_ctl'
+    psql_name = getattr(service_def, 'psql_name', 'psql')         # Default 'psql'
+
+    # Path template names are attributes on ServiceDefinition that store the *name* of the config constant
+    # e.g., service_def.data_dir_template_name would be "INTERNAL_POSTGRES_INSTANCE_DATA_DIR_TEMPLATE"
+    # The actual template string is then fetched from the global config object:
+    # data_dir_template_str = getattr(config, service_def.data_dir_template_name)
+    # This part of the code already correctly uses the global config constants directly:
+    # e.g., config.POSTGRES_BUNDLE_PATH_TEMPLATE, config.INTERNAL_POSTGRES_INSTANCE_DATA_DIR_TEMPLATE
+    # So, no changes needed for how templates themselves are retrieved.
 
     if not bundle_version_full:
         logger.error(f"POSTGRES_MANAGER: 'bundle_version_full' not defined for service_type '{service_type}'.")

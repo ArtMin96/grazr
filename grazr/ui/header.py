@@ -45,12 +45,31 @@ class HeaderWidget(QWidget):
 
     def clear_actions(self):
         """Removes all action widgets previously added to the header."""
-        for widget in self._action_widgets:
-            self.header_actions_layout.removeWidget(widget)
-            widget.setParent(None) # Important for proper cleanup
-            widget.deleteLater() # Ensure it's deleted
+        logger.debug(f"HEADER.clear_actions: Starting to clear {self.header_actions_layout.count()} items from header_actions_layout.")
+        # Iterate in reverse to safely remove items from the layout
+        for i in reversed(range(self.header_actions_layout.count())):
+            layout_item = self.header_actions_layout.itemAt(i)
+            if layout_item is not None:
+                widget = layout_item.widget()
+                if widget is not None:
+                    logger.debug(f"HEADER.clear_actions: Removing widget: {widget} (text: '{widget.text() if hasattr(widget, 'text') else 'N/A'}')")
+                    try:
+                        # Remove from layout first
+                        self.header_actions_layout.removeWidget(widget)
+                        # Explicitly set parent to None before deleteLater, good practice
+                        widget.setParent(None)
+                        widget.deleteLater()
+                    except RuntimeError as e:
+                        logger.warning(f"HEADER: Error removing widget {widget} in clear_actions: {e}. It might have been already deleted.")
+                else:
+                    # If it's a layout item but not a widget (e.g., a spacer), remove it.
+                    # This case might not be typical if only widgets are added via add_action_widget.
+                    self.header_actions_layout.removeItem(layout_item)
+                    logger.debug(f"HEADER.clear_actions: Removed non-widget layout item at index {i}.")
+
+        # Clear the tracking list as well, ensuring it's empty after all operations.
         self._action_widgets = []
-        logger.debug("Cleared all action widgets from header.")
+        logger.debug("HEADER.clear_actions: Completed clearing action widgets and internal list.")
 
     # If specific actions are always present but just shown/hidden, methods could be:
     # def show_action_x(self, visible=True):

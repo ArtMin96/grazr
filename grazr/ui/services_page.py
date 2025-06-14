@@ -438,15 +438,79 @@ class ServicesPage(QWidget):
 
     @Slot(bool)
     def set_controls_enabled(self, enabled):
-        logger.info(f"SERVICES_PAGE: Setting controls enabled state: {enabled}")
-        for sid, widget in self.service_widgets.items():
-            if hasattr(widget, 'set_controls_enabled'):
-                widget.set_controls_enabled(enabled)
+        logger.debug(f"SERVICES_PAGE.set_controls_enabled(enabled={enabled}) called.")
+
+        # Initial ultra-safe diagnostic logging for add_service_button
+        if hasattr(self, 'add_service_button'):
+            if self.add_service_button is not None:
+                try:
+                    # Try to access attributes that might fail if C++ part is gone
+                    _ = self.add_service_button.parentWidget()
+                    _ = self.add_service_button.isVisible()
+                    # logger.debug(f"SERVICES_PAGE: add_service_button: initial_check instance: {self.add_service_button}, parent: {parent_widget}, visible: {is_visible}")
+                    # Previous version of the log included the object, which we want to avoid in this specific ultra-safe block
+                except RuntimeError as e_log:
+                    logger.debug(f"SERVICES_PAGE: add_service_button: initial_check - C++ object likely deleted during parent/visibility access: {e_log}")
             else:
-                widget.setEnabled(enabled)
-        self.add_service_button.setEnabled(enabled)
-        if hasattr(self, 'stop_all_button'): self.stop_all_button.setEnabled(enabled)
-        if enabled: QTimer.singleShot(10, self.refresh_data)  # Re-check states after enabling
+                logger.debug(f"SERVICES_PAGE: add_service_button is None at start of set_controls_enabled.")
+        else:
+            logger.debug(f"SERVICES_PAGE: add_service_button attribute does not exist at start of set_controls_enabled.")
+
+        # Initial ultra-safe diagnostic logging for stop_all_button
+        if hasattr(self, 'stop_all_button'):
+            if self.stop_all_button is not None:
+                try:
+                    _ = self.stop_all_button.parentWidget()
+                    _ = self.stop_all_button.isVisible()
+                except RuntimeError as e_log:
+                    logger.debug(f"SERVICES_PAGE: stop_all_button: initial_check - C++ object likely deleted during parent/visibility access: {e_log}")
+            else:
+                logger.debug(f"SERVICES_PAGE: stop_all_button is None at start of set_controls_enabled.")
+        else:
+            logger.debug(f"SERVICES_PAGE: stop_all_button attribute does not exist at start of set_controls_enabled.")
+
+        # Original log line, now that initial checks are done
+        logger.info(f"SERVICES_PAGE: Setting controls enabled state (actual logic): {enabled}")
+
+        if hasattr(self, 'service_widgets') and self.service_widgets:
+            for sid, widget in self.service_widgets.items():
+                try:
+                    if widget and widget.parent() is not None:
+                        if hasattr(widget, 'set_controls_enabled'):
+                            widget.set_controls_enabled(enabled)
+                        else:
+                            widget.setEnabled(enabled) # Fallback for simpler widgets
+                    elif widget:
+                        logger.debug(f"SERVICES_PAGE: Widget {sid} has no parent in set_controls_enabled, skipping setEnabled.")
+                except RuntimeError as e: # Catch if widget C++ object is deleted
+                    logger.warning(f"SERVICES_PAGE: RuntimeError accessing widget {sid} (intended state: {enabled}) in set_controls_enabled: {e}")
+
+        # Proactive checks and try-except for add_service_button.setEnabled
+        if hasattr(self, 'add_service_button') and self.add_service_button:
+            if self.add_service_button.parent() is not None:
+                try:
+                    self.add_service_button.setEnabled(enabled)
+                except RuntimeError as e:
+                    logger.warning(f"SERVICES_PAGE: RuntimeError accessing add_service_button (intended state: {enabled}) in set_controls_enabled: {e}")
+            else:
+                logger.debug("SERVICES_PAGE: add_service_button has no parent, skipping setEnabled.")
+
+        # Proactive checks and try-except for stop_all_button.setEnabled
+        if hasattr(self, 'stop_all_button') and self.stop_all_button:
+            if self.stop_all_button.parent() is not None:
+                try:
+                    self.stop_all_button.setEnabled(enabled)
+                except RuntimeError as e:
+                    logger.warning(f"SERVICES_PAGE: RuntimeError accessing stop_all_button (intended state: {enabled}) in set_controls_enabled: {e}")
+            else:
+                logger.debug("SERVICES_PAGE: stop_all_button has no parent, skipping setEnabled.")
+
+        if enabled:
+            # Consider if refresh_data is always needed or if it causes issues.
+            # QTimer.singleShot(10, self.refresh_data) # Re-check states after enabling
+            logger.debug(f"SERVICES_PAGE: set_controls_enabled(True) - refresh_data on QTimer commented out for now.")
+
+        logger.debug(f"SERVICES_PAGE.set_controls_enabled(enabled={enabled}) finished.")
 
     def refresh_data(self):
         logger.info("SERVICES_PAGE: Refreshing data - Restoring ServiceItemWidget creation and status refreshes...")
@@ -479,23 +543,37 @@ class ServicesPage(QWidget):
             config_id = service_config_json.get('id')
             service_type = service_config_json.get('service_type')
 
-            service_def_obj = config.AVAILABLE_BUNDLED_SERVICES.get(service_type)
+            # Make the lookup case-insensitive
+            service_def_obj = config.AVAILABLE_BUNDLED_SERVICES.get(service_type.lower() if service_type else None)
+
             if not service_def_obj:
-                logger.warning(f"SERVICES_PAGE: No service definition for type '{service_type}' (ID: {config_id}). Skipping.")
+                logger.warning(f"SERVICES_PAGE: No service definition for type '{service_type}' (ID: {config_id}). Original type was '{service_type}'. Skipping.")
                 continue
 
             process_id_for_pm = ""
-            if service_def_obj.process_id:
+            if service_def_obj.process_id: # Direct, fixed process_id (e.g., nginx, mysql)
                 process_id_for_pm = service_def_obj.process_id
-            elif service_def_obj.process_id_template and config_id:
+            elif service_def_obj.process_id_template and config_id: # Templated (e.g., postgres instances)
                 try:
                     process_id_for_pm = service_def_obj.process_id_template.format(instance_id=config_id)
                 except KeyError:
-                    logger.error(f"SERVICES_PAGE: process_id_template for {service_type} malformed: {service_def_obj.process_id_template}"); continue
-            else:
-                logger.warning(f"SERVICES_PAGE: Cannot determine process_id_for_pm for {service_config_json}"); continue
+                    logger.error(f"SERVICES_PAGE: process_id_template for {service_type} (config_id: {config_id}) is malformed: {service_def_obj.process_id_template}. Skipping widget.")
+                    continue
 
-            category = service_def_obj.category if service_def_obj.category else 'Other'
+            # If process_id_for_pm is still not set, check for special handling (e.g., Node.js)
+            if not process_id_for_pm:
+                # service_def_obj.service_id is the canonical ID like "node", "nginx"
+                # service_type is from services.json, should match service_def_obj.service_id
+                if service_def_obj and service_def_obj.service_id == 'node':
+                    process_id_for_pm = "nvm_managed"
+                    logger.info(f"SERVICES_PAGE: Node.js service type (config_id: {config_id}) found. Using '{process_id_for_pm}' for process_id_for_pm.")
+                    # DO NOT continue here, allow widget creation for Node.js
+                else:
+                    # For other types, if no process_id could be determined, then it's an issue.
+                    logger.warning(f"SERVICES_PAGE: Cannot determine process_id_for_pm for {service_config_json} (type: {service_def_obj.service_id if service_def_obj else 'N/A'}). Skipping widget creation.")
+                    continue # Skip widget creation for this problematic non-Node service
+
+            category = service_def_obj.category if service_def_obj else 'Other' # service_def_obj should always exist here
             display_name = service_config_json.get('name', service_def_obj.display_name)
 
             services_by_category[category].append({
